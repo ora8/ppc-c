@@ -8,11 +8,6 @@ type
   TPoint = record
     X, Y: Integer;
   end;
-  PNode = ^TNode;
-  TNode = record
-    Value: Integer;
-    Next: nilable PNode;
-  end;
 var
   i, sum: Integer;
   r: Real;

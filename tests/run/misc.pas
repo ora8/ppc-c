@@ -11,8 +11,7 @@ type
     property Balance: Integer read FBalance write SetBalance;
     procedure Apply(n: Integer);
   end;
-  PRec = ^TRec;
-  TRec = record A, B: Integer; Name: String; end;
+  TRec = class A, B: Integer; Name: String; end;
 
 procedure TAccount.SetBalance(V: Integer);
 begin
@@ -73,9 +72,9 @@ end;
 
 heap
   acc: TAccount;
+  p: TRec;
 var
   d: TDay;
-  p: PRec;
   arr: TArr5;
   s, t: String;
   i: Integer;
@@ -89,10 +88,10 @@ begin
   for d := Mon to Sun do WriteLn(d, ': ', Describe(d), ' ord=', Ord(d));
   WriteLn('Succ(Mon)=', Succ(Mon), ' High=', High(TDay));
 
-  New(p);
-  with p^ do begin A := 1; B := 2; Name := 'rec'; end;
-  WriteLn(p^.Name, ' ', p^.A + p^.B, ' ', p.B);
-  Dispose(p);
+  p := TRec.Create;
+  with p do begin A := 1; B := 2; Name := 'rec'; end;
+  WriteLn(p.Name, ' ', p.A + p.B, ' ', p.B);
+  p.Free;
 
   arr[1] := 3; arr[2] := 1; arr[3] := -4; arr[4] := 1; arr[5] := -5;
   WriteLn('erstes negatives an Index ', FirstNeg(arr));

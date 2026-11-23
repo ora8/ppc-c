@@ -445,11 +445,8 @@ static TypeExpr *parse_type(void) {
         t->nilable = 1;
         return t;
     }
-    if (accept_sym("^")) {
-        TypeExpr *t = new_te(TE_PTR, p);
-        t->name = ident();
-        return t;
-    }
+    if (is_sym("^"))
+        error_at(p, "pointer types are not supported: use a class (objects in a 'heap' section live on the heap)");
     accept_kw("packed");
     if (accept_kw("array")) {
         TypeExpr *t = new_te(TE_ARRAY, p);
@@ -841,11 +838,8 @@ static Expr *parse_unary(void) {
         e->a = parse_unary();
         return e;
     }
-    if (accept_sym("@")) {
-        Expr *e = new_expr(E_ADDR, p);
-        e->a = parse_postfix();
-        return e;
-    }
+    if (is_sym("@"))
+        error_at(p, "the address operator '@' is not supported: use a var parameter or a borrowed reference");
     if (accept_sym("[")) {
         Expr *e = new_expr(E_SET, p);
         if (!is_sym("]")) {
@@ -930,10 +924,8 @@ static Expr *parse_postfix(void) {
     Expr *e = parse_primary();
     for (;;) {
         Pos p = pos();
-        if (accept_sym("^")) {
-            Expr *d = new_expr(E_DEREF, p);
-            d->a = e;
-            e = d;
+        if (is_sym("^")) {
+            error_at(p, "pointer dereference '^' is not supported: class references are used directly (x.Field)");
         } else if (is_sym(".") && peek_is_ident(1)) {
             next();
             Expr *m = new_expr(E_MEMBER, p);

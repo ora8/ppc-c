@@ -12,7 +12,8 @@ Besonderheiten:
   **Heapobjekt** (`Create`/`Free` von Hand).
 * **Borrow Checker** nach dem Vorbild von Rust: prüft Besitz (Ownership) und Ausleihen (Borrows)
   zur Compile-Zeit.
-* **Keine unerwarteten nil-Pointer:** Referenzen sind nie nil, außer ihr Typ ist ausdrücklich
+* **Keine Zeiger, keine unerwarteten nil-Referenzen:** Es gibt kein `^`, `@`, `New` oder
+  `Dispose`; Klassenreferenzen sind nie nil, außer ihr Typ ist ausdrücklich
   `nilable` – dann erzwingt der Compiler eine Prüfung vor jeder Benutzung. Nicht allozierte
   Heapobjekte, nicht konstruierte Stackobjekte und Konstruktoren, die Felder vergessen,
   werden beim Übersetzen erkannt.
@@ -40,8 +41,8 @@ make test       # Testsuite (Ausgaben, Borrow-/Nil-/Stackobjekt-Fehler, Compile-
   (`Begin` ist ein Bezeichner, kein Schlüsselwort).
 * Bezeichner sind case-sensitiv: `Count` und `count` sind zwei verschiedene Namen.
 * Vordefinierte Namen in Delphi-Schreibweise: `Integer`, `Boolean`, `Char`, `Real`, `String`,
-  `Byte`, `Word`, `Int64`, `Cardinal`, `Pointer`, `True`, `False`, `MaxInt`, `Pi`,
-  `WriteLn`, `Write`, `ReadLn`, `Read`, `Length`, `Ord`, `Chr`, `Inc`, `Dec`, `New`, `Dispose`,
+  `Byte`, `Word`, `Int64`, `Cardinal`, `True`, `False`, `MaxInt`, `Pi`,
+  `WriteLn`, `Write`, `ReadLn`, `Read`, `Length`, `Ord`, `Chr`, `Inc`, `Dec`,
   `TObject`, `Create`, `Destroy`, `Free`, `ClassName`, `Self`, `Result`, `Exit`, `Break`, `Continue` usw.
 * Direktiven/Modifizierer klein: `virtual`, `override`, `abstract`, `forward`, `private`,
   `public`, `property … read … write …`, `borrowed`, `owned`, `nilable`.
@@ -96,7 +97,7 @@ end;                                { Stack: k.Destroy wird automatisch aufgeruf
 
 ## Borrow Checker
 
-Für Werte von **Klassen- und typisierten Zeigertypen** gilt:
+Für Werte von **Klassentypen** gilt:
 
 | Konstrukt                      | Bedeutung                                         |
 |--------------------------------|---------------------------------------------------|
@@ -116,11 +117,11 @@ Regeln (Verstöße sind **Fehler**, die Übersetzung bricht ab):
 
 * `b := a` zwischen zwei Besitzern ist ein **Move**; `a` ist danach unbenutzbar
   (`use of moved value 'a'`), bis es neu zugewiesen wird.
-* Kein Zugriff nach `Free`/`Destroy`/`Dispose` (`use after free`), kein doppeltes Freigeben.
+* Kein Zugriff nach `Free`/`Destroy` (`use after free`), kein doppeltes Freigeben.
 * Ausleihen dürfen nicht freigegeben und nicht in Besitzer gespeichert werden.
 * Eine Ausleihe merkt sich, woher sie stammt. Wird die Quelle freigegeben, verschoben oder
   neu zugewiesen, ist die Ausleihe **hängend**; ihre Benutzung ist ein Fehler.
-* Referenzen auf Stackvariablen und Stackobjekte (`@x`, `var s: TFoo`) dürfen nicht in globale
+* Referenzen auf Stackobjekte (`var s: TFoo`) dürfen nicht in globale
   Variablen, Felder oder Funktionsergebnisse entkommen; Funktionen dürfen keine Referenz auf
   Lokales zurückgeben.
 * Dieselbe Variable darf in einem Aufruf nicht zweimal übergeben werden, wenn einer der
@@ -145,7 +146,7 @@ das Kopieren von Records, die Besitzer enthalten, wird nicht als Move behandelt.
 
 ## Nil-Sicherheit
 
-Klassen- und typisierte Zeigertypen sind **nie nil**. Nur Typen mit dem Zusatz **`nilable`**
+Klassentypen sind **nie nil**. Nur Typen mit dem Zusatz **`nilable`**
 dürfen `nil` enthalten – das ist der einzige Weg, „kein Objekt“ auszudrücken (z. B. das Ende
 einer Liste oder eine erfolglose Suche):
 
@@ -160,14 +161,14 @@ Next: nilable TPerson;          { Feld, z. B. Listenende }
 Der Compiler stellt sicher, dass eine nicht-nilable Referenz zur Laufzeit nie nil ist:
 
 * **Nicht allozierte Heapobjekte:** `heap a: TFoo; … a.V := 1;` ohne vorheriges `TFoo.Create`
-  bzw. `New(p)` ist ein Fehler – auch wenn die Allokation nur auf einem Teil der Pfade passiert.
+  ist ein Fehler – auch wenn die Allokation nur auf einem Teil der Pfade passiert.
   Dasselbe gilt für Stackobjekte ohne `x.Create(...)`.
 * **Konstruktoren** müssen allen eigenen nicht-nilable Feldern auf jedem Pfad einen Wert
   geben, bevor `Self` benutzt wird (Methodenaufruf, Übergabe, Speichern). Erbt eine Klasse
   solche Felder, muss der Konstruktor einen geerbten Konstruktor aufrufen. Eine Klasse mit
   nicht-nilable Feldern muss einen eigenen Konstruktor haben und darf nicht mit einem
   geerbten Konstruktor erzeugt werden, der ihre Felder nicht kennt.
-* **Speicher, der leer beginnt** (Array-Elemente, Record-Felder, Ziel von `^T`) darf nur
+* **Speicher, der leer beginnt** (Array-Elemente, Record-Felder) darf nur
   `nilable`-Referenzen enthalten.
 * **Globale Variablen und äußere lokale Variablen:** Ein Aufruf einer Routine, die eine noch
   nicht belegte nicht-nilable Variable liest, ist ein Fehler (transitiv über Aufrufe).
@@ -186,7 +187,7 @@ und stattdessen jeder Zugriff über eine Referenz zur Laufzeit geprüft:
 Runtime error 210: nil pointer dereference at programm.pas(42,7)
 ```
 
-Ein fehlgeschlagener Speicherwunsch (`Create`/`New`) endet mit `Runtime error 203: heap overflow`.
+Ein fehlgeschlagener Speicherwunsch (`Create`) endet mit `Runtime error 203: heap overflow`.
 
 ## Unterstützte Sprache
 
@@ -194,7 +195,7 @@ Ein fehlgeschlagener Speicherwunsch (`Create`/`New`) endet mit `Runtime error 20
   `type`, `var` (auch `var x: Integer = 5;`), `heap`
 * Typen: `Integer`/`LongInt` (32 Bit), `ShortInt`, `SmallInt`, `Byte`, `Word`, `Cardinal`,
   `Int64`, `Boolean`, `Char`, `Real`/`Double`, `String` (ShortString, max. 255 Zeichen),
-  Aufzählungen, Teilbereiche, statische (auch mehrdimensionale) Arrays, Records, Zeiger,
+  Aufzählungen, Teilbereiche, statische (auch mehrdimensionale) Arrays, Records,
   `class` (Stack- oder Heapobjekte)
 * Prozeduren/Funktionen, beliebig verschachtelt (Zugriff auf äußere Variablen über
   Static Links), `var`/`const`/`out`-Parameter, `forward`, Rekursion, `Result`/Funktionsname,
@@ -202,14 +203,15 @@ Ein fehlgeschlagener Speicherwunsch (`Create`/`New`) endet mit `Runtime error 20
 * Anweisungen: `:=`, `if`, `case` (auch mit Strings und Bereichen), `while`, `repeat`, `for … to/downto`,
   `with`, `Break`, `Continue`, `Exit`
 * Ausdrücke: Arithmetik, `div`, `mod`, `shl`, `shr`, `and`/`or`/`xor`/`not` (Kurzschluss bei Boolean),
-  Vergleiche, Stringverkettung, `in [a, b..c]`, `@`, `^`, Typumwandlungen `Integer(x)`, `TFoo(obj)`
+  Vergleiche, Stringverkettung, `in [a, b..c]`, Typumwandlungen `Integer(x)`, `TFoo(obj)`
 * Standardroutinen: `Write(Ln)` mit `:Breite:Nachkommastellen`, `Read(Ln)`, `Length`, `Copy`,
   `Pos`, `Delete`, `Insert`, `UpCase`, `UpperCase`, `LowerCase`, `Concat`, `IntToStr`, `StrToInt`,
   `FloatToStr`, `Str`, `SetLength`, `Ord`, `Chr`, `Succ`, `Pred`, `Inc`, `Dec`, `Odd`, `Abs`, `Sqr`,
   `Sqrt`, `Sin`, `Cos`, `ArcTan`, `Exp`, `Ln`, `Trunc`, `Round`, `Frac`, `Int`, `High`, `Low`,
-  `SizeOf`, `Random`, `Randomize`, `Halt`, `Assigned`, `New`, `Dispose`, `FreeAndNil`, `Take`
+  `SizeOf`, `Random`, `Randomize`, `Halt`, `Assigned`, `FreeAndNil`, `Take`
 
-Nicht unterstützt: `object`-Typen (ersetzt durch Stackobjekte von Klassen), Units, Mengentypen (außer Mengen-Literalen bei `in`), dynamische/offene
+Nicht unterstützt: Zeiger (`^`, `@`, `New`, `Dispose`, `Pointer` – ersetzt durch Heapobjekte
+von Klassen und `var`-Parameter), `object`-Typen (ersetzt durch Stackobjekte von Klassen), Units, Mengentypen (außer Mengen-Literalen bei `in`), dynamische/offene
 Arrays, Exceptions (`try`/`raise`), Interfaces, Überladen, Klassenmethoden, Prozedurtypen,
 varianten Records, `goto`, Datei-I/O.
 

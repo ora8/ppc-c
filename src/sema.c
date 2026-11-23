@@ -1375,29 +1375,9 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
         e->type = t_bool;
         return e;
     }
-    case BI_NEW: {
-        NARGS(1, 1);
-        Expr *a = ex(A(0));
-        Type *pt;
-        if (a->kind == E_TYPEREF) {
-            pt = a->ctype;
-            e->type = pt;
-        } else {
-            if (a->type == t_void) error_at(p, "pointer variable expected");
-            check_writable(a, nm);
-            pt = a->type;
-        }
-        if (pt->kind != T_PTR || !pt->base) error_at(p, "New needs a typed pointer (use TClass.Create for classes)");
-        vpush(e->args, a);
-        return e;
-    }
-    case BI_DISPOSE: {
-        NARGS(1, 1);
-        Expr *a = value(A(0));
-        if (a->type->kind != T_PTR || !a->type->base) error_at(p, "Dispose needs a typed pointer (use .Free for classes)");
-        vpush(e->args, a);
-        return e;
-    }
+    case BI_NEW: case BI_DISPOSE:
+        error_at(p, "%s is not supported (there are no pointers): create objects with TClass.Create and free them with x.Free",
+                 nm);
     case BI_FREEANDNIL: {
         NARGS(1, 1);
         Expr *a = value(A(0));
@@ -1940,7 +1920,6 @@ Program *sema_program(Block *prelude, Block *pb, const char *name) {
     add_type("Single", t_real);
     add_type("Extended", t_real);
     add_type("String", t_str);
-    add_type("Pointer", t_ptr);
     Sym *s = add_sym(SY_CONST, "True", (Pos){0, 0});
     s->cval = lit_int(1, t_bool, (Pos){0, 0});
     s = add_sym(SY_CONST, "False", (Pos){0, 0});
