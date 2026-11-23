@@ -1,6 +1,6 @@
 /* util.h - memory, strings, vectors, diagnostics */
-#ifndef PPP_UTIL_H
-#define PPP_UTIL_H
+#ifndef PPC_UTIL_H
+#define PPC_UTIL_H
 
 #include <stdarg.h>
 #include <stddef.h>

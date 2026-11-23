@@ -1,4 +1,4 @@
-/* ---- ppp runtime (embedded into every generated program) ---- */
+/* ---- ppc runtime (embedded into every generated program) ---- */
 #include <ctype.h>
 #include <math.h>
 #include <stdint.h>
@@ -15,12 +15,12 @@ static void __rt_error(int code, const char *msg) {
     fprintf(stderr, "Runtime error %d: %s\n", code, msg);
     exit(code);
 }
-static void *__ppp_alloc(size_t n) {
+static void *__ppc_alloc(size_t n) {
     void *p = calloc(1, n ? n : 1);
     if (!p) __rt_error(203, "heap overflow");
     return p;
 }
-static void __ppp_free(void *p) { free(p); }
+static void __ppc_free(void *p) { free(p); }
 static void __abstract_err(void) { __rt_error(211, "abstract method called"); }
 static int __is(void *o, void *vmt) {
     if (!o) return 0;

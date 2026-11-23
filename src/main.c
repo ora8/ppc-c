@@ -1,4 +1,4 @@
-/* main.c - ppp compiler driver */
+/* main.c - ppc compiler driver */
 #include "ast.h"
 #include <sys/wait.h>
 #include <unistd.h>
@@ -19,7 +19,7 @@ static const char *PRELUDE =
 static char *read_file(const char *path) {
     FILE *f = fopen(path, "rb");
     if (!f) {
-        fprintf(stderr, "ppp: cannot open '%s'\n", path);
+        fprintf(stderr, "ppc: cannot open '%s'\n", path);
         exit(2);
     }
     fseek(f, 0, SEEK_END);
@@ -27,7 +27,7 @@ static char *read_file(const char *path) {
     fseek(f, 0, SEEK_SET);
     char *buf = xmalloc((size_t)n + 1);
     if (fread(buf, 1, (size_t)n, f) != (size_t)n) {
-        fprintf(stderr, "ppp: cannot read '%s'\n", path);
+        fprintf(stderr, "ppc: cannot read '%s'\n", path);
         exit(2);
     }
     buf[n] = 0;
@@ -37,8 +37,8 @@ static char *read_file(const char *path) {
 
 static void usage(void) {
     fprintf(stderr,
-            "ppp - Object Pascal compiler (case-sensitive, C backend, borrow checker)\n"
-            "usage: ppp [options] file.pas\n"
+            "ppc - Perfect Pascal Compiler (case-sensitive, C backend, borrow checker)\n"
+            "usage: ppc [options] file.pas\n"
             "  -o <file>          output executable (default: file name without .pas)\n"
             "  -S                 only emit C code (<out>.c), do not compile\n"
             "  -k                 keep the generated C file next to the executable\n"
@@ -94,10 +94,10 @@ int main(int argc, char **argv) {
         }
     }
 
-    char *cfile = (emit_only || keep) ? sfmt("%s.c", output) : sfmt("/tmp/ppp_%d_%s.c", (int)getpid(), "out");
+    char *cfile = (emit_only || keep) ? sfmt("%s.c", output) : sfmt("/tmp/ppc_%d_%s.c", (int)getpid(), "out");
     FILE *f = fopen(cfile, "w");
     if (!f) {
-        fprintf(stderr, "ppp: cannot write '%s'\n", cfile);
+        fprintf(stderr, "ppc: cannot write '%s'\n", cfile);
         return 2;
     }
     codegen(prog, f);
@@ -108,14 +108,14 @@ int main(int argc, char **argv) {
     if (pid == 0) {
         execlp(cc, cc, "-std=gnu11", opt, "-w", "-fwrapv", "-fno-strict-aliasing", "-o", output, cfile, "-lm",
                (char *)NULL);
-        fprintf(stderr, "ppp: cannot run C compiler '%s'\n", cc);
+        fprintf(stderr, "ppc: cannot run C compiler '%s'\n", cc);
         _exit(127);
     }
     int st = 0;
     waitpid(pid, &st, 0);
     if (!keep) remove(cfile);
     if (!WIFEXITED(st) || WEXITSTATUS(st) != 0) {
-        fprintf(stderr, "ppp: C compilation failed\n");
+        fprintf(stderr, "ppc: C compilation failed\n");
         return 1;
     }
     return 0;

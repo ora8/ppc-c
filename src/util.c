@@ -7,7 +7,7 @@ int g_warnings = 0;
 void *xmalloc(size_t n) {
     void *p = malloc(n ? n : 1);
     if (!p) {
-        fprintf(stderr, "ppp: out of memory\n");
+        fprintf(stderr, "ppc: out of memory\n");
         exit(2);
     }
     return p;
@@ -15,7 +15,7 @@ void *xmalloc(size_t n) {
 void *xcalloc(size_t n, size_t sz) {
     void *p = calloc(n ? n : 1, sz ? sz : 1);
     if (!p) {
-        fprintf(stderr, "ppp: out of memory\n");
+        fprintf(stderr, "ppc: out of memory\n");
         exit(2);
     }
     return p;
@@ -23,7 +23,7 @@ void *xcalloc(size_t n, size_t sz) {
 void *xrealloc(void *p, size_t n) {
     p = realloc(p, n ? n : 1);
     if (!p) {
-        fprintf(stderr, "ppp: out of memory\n");
+        fprintf(stderr, "ppc: out of memory\n");
         exit(2);
     }
     return p;

@@ -4,17 +4,17 @@ BUILD   := build
 SRCS    := src/util.c src/parser.c src/sema.c src/borrow.c src/codegen.c src/main.c
 OBJS    := $(SRCS:src/%.c=$(BUILD)/%.o) $(BUILD)/runtime.o
 
-all: ppp
+all: ppc
 
-ppp: $(OBJS)
+ppc: $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS)
 
 $(BUILD)/%.o: src/%.c src/ast.h src/util.h | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # embed the C runtime as a string literal
-$(BUILD)/runtime.c: src/ppp_rt.h | $(BUILD)
-	@echo 'const char *PPP_RUNTIME =' > $@
+$(BUILD)/runtime.c: src/ppc_rt.h | $(BUILD)
+	@echo 'const char *PPC_RUNTIME =' > $@
 	@sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/"/' -e 's/$$/\\n"/' $< >> $@
 	@echo ';' >> $@
 
@@ -24,10 +24,10 @@ $(BUILD)/runtime.o: $(BUILD)/runtime.c
 $(BUILD):
 	mkdir -p $(BUILD)
 
-test: ppp
+test: ppc
 	./tests/run.sh
 
 clean:
-	rm -rf $(BUILD) ppp
+	rm -rf $(BUILD) ppc
 
 .PHONY: all clean test

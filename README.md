@@ -1,6 +1,6 @@
-# ppp – objektorientierter Pascal-Compiler mit Borrow Checker
+# ppc – Perfect Pascal Compiler
 
-`ppp` übersetzt einen objektorientierten Pascal-Dialekt (Turbo Pascal / Delphi / Free Pascal)
+`ppc` (**Perfect Pascal Compiler**) übersetzt einen objektorientierten Pascal-Dialekt (Turbo Pascal / Delphi / Free Pascal)
 nach **C** und ruft danach `gcc` auf, um ein natives Programm zu erzeugen.
 Der Compiler ist selbst in C geschrieben (C11, keine Abhängigkeiten).
 
@@ -14,17 +14,17 @@ Besonderheiten:
 ## Bauen und benutzen
 
 ```bash
-make            # erzeugt ./ppp
+make            # erzeugt ./ppc
 make test       # Testsuite (Ausgaben, Borrow-Fehler, Compile-Fehler)
 ```
 
 ```bash
-./ppp programm.pas            # erzeugt ./programm
-./ppp -o hallo programm.pas   # Name des Programms
-./ppp -S programm.pas         # nur C-Code erzeugen (programm.c)
-./ppp -k programm.pas         # C-Datei zusätzlich behalten
-./ppp --no-borrow-check x.pas # Borrow Checker abschalten
-./ppp --cc clang -O3 x.pas    # anderer C-Compiler / Optimierung
+./ppc programm.pas            # erzeugt ./programm
+./ppc -o hallo programm.pas   # Name des Programms
+./ppc -S programm.pas         # nur C-Code erzeugen (programm.c)
+./ppc -k programm.pas         # C-Datei zusätzlich behalten
+./ppc --no-borrow-check x.pas # Borrow Checker abschalten
+./ppc --cc clang -O3 x.pas    # anderer C-Compiler / Optimierung
 ```
 
 ## Groß-/Kleinschreibung
@@ -64,7 +64,7 @@ end.
 
 * Objekte sind Werttypen: lokale Variablen liegen im Stackframe, globale im Datensegment,
   sie können in Records/Arrays eingebettet, kopiert und als Wert zurückgegeben werden.
-* Virtuelle Methoden funktionieren auch ohne Konstruktoraufruf: ppp initialisiert den
+* Virtuelle Methoden funktionieren auch ohne Konstruktoraufruf: ppc initialisiert den
   VMT-Zeiger von Objektvariablen automatisch.
 * Polymorphie über `var`-Parameter (`procedure Show(var S: TShape)` akzeptiert ein `TCircle`)
   und über Zeiger (`PShape`).
@@ -72,7 +72,7 @@ end.
   `Dispose(p, Done)`.
 * Zuweisung Nachfahre → Vorfahre (`base := circle`) kopiert die Felder des Vorfahren,
   **der VMT-Zeiger des Ziels bleibt erhalten** (FPC kopiert ihn mit und ruft dann
-  Methoden des Nachfahren auf einem zu kleinen Objekt auf – ppp vermeidet das bewusst).
+  Methoden des Nachfahren auf einem zu kleinen Objekt auf – ppc vermeidet das bewusst).
 
 ## Klassen (`class`)
 
@@ -162,7 +162,7 @@ varianten Records, `goto`, Datei-I/O.
 | `src/sema.c`      | Namensauflösung, Typprüfung, Objekt-/Klassenlayout, VMT-Slots |
 | `src/borrow.c`    | Borrow Checker                                             |
 | `src/codegen.c`   | C-Codeerzeugung (Structs, VMTs, Static Links, Runtime-Aufrufe) |
-| `src/ppp_rt.h`    | C-Laufzeitbibliothek, wird in jedes Programm eingebettet   |
+| `src/ppc_rt.h`    | C-Laufzeitbibliothek, wird in jedes Programm eingebettet   |
 | `src/main.c`      | Treiber, Prelude (`TObject`), Aufruf des C-Compilers       |
 | `tests/`          | Testprogramme und `run.sh`                                 |
 

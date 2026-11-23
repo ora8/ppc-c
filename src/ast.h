@@ -1,6 +1,6 @@
 /* ast.h - syntax tree, semantic types and symbols */
-#ifndef PPP_AST_H
-#define PPP_AST_H
+#ifndef PPC_AST_H
+#define PPC_AST_H
 
 #include "util.h"
 

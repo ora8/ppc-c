@@ -1,3 +1,5 @@
 build/
-/ppp
+/ppc
 tests/run/*.c
+examples/*
+!examples/*.pas
