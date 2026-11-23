@@ -1,0 +1,1285 @@
+/* borrow.c - ownership & borrow checker.
+ *
+ * Model (inspired by Rust, adapted to Object Pascal):
+ *   - Variables, fields and function results of class or typed-pointer type
+ *     OWN the object they refer to, unless declared 'borrowed'.
+ *   - Value and const parameters of such types are borrows; 'owned'
+ *     parameters take ownership; var/out parameters are mutable borrows
+ *     of the caller's owning slot.
+ *   - Assigning an owner to another owner MOVES the value; the source
+ *     becomes unusable until it is reassigned.
+ *   - Free/Destroy/Dispose/FreeAndNil consume the owner.
+ *   - A borrowed variable remembers which places it was borrowed from
+ *     ("origins"). Freeing, moving or reassigning such a place makes the
+ *     borrow dangling; using a dangling borrow is an error.
+ *   - References to stack variables (@x) must not escape into globals,
+ *     fields or function results.
+ *   - The same place must not be passed twice to a call if one of the
+ *     parameters is var/out (no aliasing of mutable borrows).
+ *
+ * The analysis is flow-sensitive and intraprocedural; loops are iterated
+ * to a fixed point. Effects of calls on non-local variables are
+ * approximated by a write-set per routine (transitively closed). */
+#include "ast.h"
+
+enum { O_NULL = 1, O_OWNED = 2, O_MOVED = 4, O_FREED = 8, O_UNK = 16 };
+enum { B_VALID = 1, B_DANGLING = 2 };
+enum { TV_OWNER, TV_BORROW };
+
+typedef struct {
+    char *path;
+    char *desc;
+    Var *root;
+    int stack;
+} Origin;
+typedef VEC(Origin) Origins;
+
+typedef struct {
+    int reach;
+    int n;
+    unsigned char *own;
+    unsigned char *bor;
+    Origins *org;
+    char **why;
+} State;
+
+typedef struct {
+    Var *v;
+    int kind;
+    int varparam;
+} TVar;
+
+typedef struct {
+    Var *w;
+    char *path;
+    char *desc;
+    Var *root;
+} Alias;
+
+typedef struct {
+    State brk, cont;
+} LoopCtx;
+
+static Program *prog;
+static VEC(TVar) tv;
+static VEC(Alias) aliases;
+static VEC(LoopCtx *) loops;
+static Routine *unit;     /* NULL = main program */
+static const char *unit_name;
+static int nerrors;
+static VEC(char *) reported;
+static Routine *tobject_free;
+
+/* per-routine write sets (non-local variables written) */
+typedef VEC(Var *) VarSet;
+static VarSet *wsets;
+
+/* ============================================================== diagnostics */
+
+static int seen(Pos p, const char *kind, const char *msg) {
+    char *key = sfmt("%d:%d:%s:%s", p.line, p.col, kind, msg);
+    for (int i = 0; i < reported.len; i++)
+        if (STREQ(reported.items[i], key)) return 1;
+    vpush(reported, key);
+    return 0;
+}
+
+static void berror(Pos p, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    char msg[1024];
+    vsnprintf(msg, sizeof msg, fmt, ap);
+    va_end(ap);
+    if (seen(p, "E", msg)) return;
+    fprintf(stderr, "%s(%d,%d) Borrow error: %s\n", g_filename, p.line, p.col, msg);
+    nerrors++;
+}
+
+static void bwarn(Pos p, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    char msg[1024];
+    vsnprintf(msg, sizeof msg, fmt, ap);
+    va_end(ap);
+    if (seen(p, "W", msg)) return;
+    fprintf(stderr, "%s(%d,%d) Borrow warning: %s\n", g_filename, p.line, p.col, msg);
+    g_warnings++;
+}
+
+/* ============================================================== state */
+
+static State st_new(void) {
+    State s = {0};
+    s.reach = 1;
+    s.n = tv.len;
+    s.own = xcalloc((size_t)s.n + 1, 1);
+    s.bor = xcalloc((size_t)s.n + 1, 1);
+    s.org = xcalloc((size_t)s.n + 1, sizeof(Origins));
+    s.why = xcalloc((size_t)s.n + 1, sizeof(char *));
+    return s;
+}
+
+static State st_copy(State *a) {
+    State s = st_new();
+    s.reach = a->reach;
+    memcpy(s.own, a->own, (size_t)a->n);
+    memcpy(s.bor, a->bor, (size_t)a->n);
+    memcpy(s.why, a->why, (size_t)a->n * sizeof(char *));
+    for (int i = 0; i < a->n; i++)
+        for (int k = 0; k < a->org[i].len; k++) vpush(s.org[i], a->org[i].items[k]);
+    return s;
+}
+
+static State st_unreach(void) {
+    State s = st_new();
+    s.reach = 0;
+    return s;
+}
+
+static int org_has(Origins *o, const char *path) {
+    for (int k = 0; k < o->len; k++)
+        if (STREQ(o->items[k].path, path)) return 1;
+    return 0;
+}
+
+/* a |= b */
+static void st_join(State *a, State *b) {
+    if (!b->reach) return;
+    if (!a->reach) {
+        State c = st_copy(b);
+        *a = c;
+        return;
+    }
+    for (int i = 0; i < a->n; i++) {
+        a->own[i] |= b->own[i];
+        a->bor[i] |= b->bor[i];
+        if (!a->why[i]) a->why[i] = b->why[i];
+        for (int k = 0; k < b->org[i].len; k++)
+            if (!org_has(&a->org[i], b->org[i].items[k].path)) vpush(a->org[i], b->org[i].items[k]);
+    }
+}
+
+static int st_eq(State *a, State *b) {
+    if (a->reach != b->reach) return 0;
+    if (!a->reach) return 1;
+    for (int i = 0; i < a->n; i++) {
+        if (a->own[i] != b->own[i] || a->bor[i] != b->bor[i]) return 0;
+        if (a->org[i].len != b->org[i].len) return 0;
+    }
+    return 1;
+}
+
+/* ============================================================== paths */
+
+static Alias *find_alias(Var *w) {
+    for (int i = aliases.len - 1; i >= 0; i--)
+        if (aliases.items[i].w == w) return &aliases.items[i];
+    return NULL;
+}
+
+static char *path_of(Expr *e, Var **root) {
+    switch (e->kind) {
+    case E_VAR: {
+        if (e->var->vkind == VK_WITH) {
+            Alias *a = find_alias(e->var);
+            if (!a) return NULL;
+            if (root) *root = a->root;
+            return a->path;
+        }
+        if (root) *root = e->var;
+        return sfmt("#%d", e->var->id);
+    }
+    case E_FIELD: {
+        char *p = path_of(e->a, root);
+        return p ? sfmt("%s.%s", p, e->field->name) : NULL;
+    }
+    case E_INDEX: {
+        char *p = path_of(e->a, root);
+        return p ? sfmt("%s[]", p) : NULL;
+    }
+    case E_DEREF: {
+        char *p = path_of(e->a, root);
+        return p ? sfmt("%s^", p) : NULL;
+    }
+    case E_CONV: case E_CAST: case E_AS: return path_of(e->a, root);
+    default: return NULL;
+    }
+}
+
+static char *desc_of(Expr *e) {
+    switch (e->kind) {
+    case E_VAR:
+        if (e->var->vkind == VK_WITH) {
+            Alias *a = find_alias(e->var);
+            return a ? a->desc : "with-expression";
+        }
+        return e->var->name;
+    case E_FIELD:
+        if (e->a->kind == E_VAR && e->a->var->vkind == VK_WITH) {
+            Alias *a = find_alias(e->a->var);
+            if (a) return sfmt("%s.%s", a->desc, e->field->name);
+        }
+        if (e->a->kind == E_VAR && e->a->var->vkind == VK_SELF) return e->field->name;
+        return sfmt("%s.%s", desc_of(e->a), e->field->name);
+    case E_INDEX: return sfmt("%s[...]", desc_of(e->a));
+    case E_DEREF: return sfmt("%s^", desc_of(e->a));
+    case E_CONV: case E_CAST: case E_AS: return desc_of(e->a);
+    case E_RCALL: return sfmt("%s(...)", e->rt->name);
+    case E_NIL: return "nil";
+    default: return "expression";
+    }
+}
+
+static int has_prefix(const char *p, const char *pre) {
+    size_t n = strlen(pre);
+    if (strncmp(p, pre, n) != 0) return 0;
+    return p[n] == 0 || p[n] == '.' || p[n] == '[' || p[n] == '^';
+}
+
+static int paths_overlap(const char *a, const char *b) { return has_prefix(a, b) || has_prefix(b, a); }
+
+/* ============================================================== tracked vars */
+
+static int slot(Var *v) { return v ? v->bslot - 1 : -1; }
+
+static int tracked_owner(Var *v) {
+    int i = slot(v);
+    return i >= 0 && tv.items[i].kind == TV_OWNER;
+}
+static int tracked_borrow(Var *v) {
+    int i = slot(v);
+    return i >= 0 && tv.items[i].kind == TV_BORROW;
+}
+
+static void invalidate(State *s, const char *path, const char *reason) {
+    for (int i = 0; i < tv.len; i++) {
+        if (tv.items[i].kind != TV_BORROW) continue;
+        for (int k = 0; k < s->org[i].len; k++)
+            if (has_prefix(s->org[i].items[k].path, path)) {
+                s->bor[i] = B_DANGLING;
+                s->why[i] = (char *)reason;
+                break;
+            }
+    }
+}
+
+static void invalidate_root(State *s, Var *root, const char *reason) {
+    for (int i = 0; i < tv.len; i++) {
+        if (tv.items[i].kind != TV_BORROW) continue;
+        for (int k = 0; k < s->org[i].len; k++)
+            if (s->org[i].items[k].root == root) {
+                s->bor[i] |= B_DANGLING;
+                if (!s->why[i]) s->why[i] = (char *)reason;
+                break;
+            }
+    }
+}
+
+static void check_var_use(Var *v, Pos p, State *s) {
+    if (!s->reach) return;
+    int i = slot(v);
+    if (i < 0) return;
+    if (tv.items[i].kind == TV_OWNER) {
+        unsigned st = s->own[i];
+        int maybe = (st & (O_NULL | O_OWNED | O_UNK)) != 0;
+        if (st & O_MOVED)
+            berror(p, "use of %smoved value '%s' (ownership was transferred away)", maybe ? "possibly " : "", v->name);
+        if (st & O_FREED)
+            berror(p, "use of '%s' after it %s freed", v->name, maybe ? "may have been" : "was");
+    } else if (s->bor[i] & B_DANGLING) {
+        int maybe = s->bor[i] & B_VALID;
+        berror(p, "borrowed reference '%s' is used after its owner %s%s", v->name, maybe ? "may have been invalidated: " : "",
+               s->why[i] ? s->why[i] : "was invalidated");
+    }
+}
+
+/* ============================================================== expression evaluation */
+
+enum { SRC_NONE, SRC_TEMP, SRC_NIL, SRC_OWNER, SRC_BORROW, SRC_PLACE };
+typedef struct {
+    int kind;
+    Var *var;      /* SRC_OWNER */
+    Origins org;   /* SRC_BORROW */
+    char *path;    /* SRC_PLACE */
+    char *desc;
+    Var *root;
+    int borrowed_place;
+} Src;
+
+static void use_expr(Expr *e, State *s);
+static void use_lvalue(Expr *e, State *s);
+static Src eval_src(Expr *e, State *s);
+static void call_effects(Expr *e, State *s, Origins *out);
+
+static void origin_add(Origins *o, const char *path, const char *desc, Var *root, int stack) {
+    if (!path || org_has(o, path)) return;
+    Origin x = {(char *)path, (char *)desc, root, stack};
+    vpush(*o, x);
+}
+
+static void src_origins(Src *src, Origins *o) {
+    switch (src->kind) {
+    case SRC_OWNER: origin_add(o, sfmt("#%d", src->var->id), src->var->name, src->var, 0); break;
+    case SRC_BORROW:
+        for (int k = 0; k < src->org.len; k++) origin_add(o, src->org.items[k].path, src->org.items[k].desc, src->org.items[k].root, src->org.items[k].stack);
+        break;
+    case SRC_PLACE: origin_add(o, src->path, src->desc, src->root, 0); break;
+    default: break;
+    }
+}
+
+/* does taking the address of this lvalue point into the stack frame? */
+static int addr_is_stack(Expr *e) {
+    switch (e->kind) {
+    case E_VAR:
+        if (e->var->vkind == VK_WITH) return 0;
+        return !e->var->is_global;
+    case E_FIELD: return e->a->type->kind == T_CLASS ? 0 : addr_is_stack(e->a);
+    case E_INDEX: return addr_is_stack(e->a);
+    case E_CAST: case E_CONV: return addr_is_stack(e->a);
+    case E_DEREF: return 0;
+    default: return 0;
+    }
+}
+
+static void use_lvalue(Expr *e, State *s) {
+    switch (e->kind) {
+    case E_VAR:
+        if (e->var->vkind == VK_WITH) {
+            Alias *a = find_alias(e->var);
+            if (a && a->root) check_var_use(a->root, e->pos, s);
+        }
+        return;
+    case E_FIELD:
+        if (e->a->type->kind == T_CLASS) use_expr(e->a, s);
+        else use_lvalue(e->a, s);
+        return;
+    case E_INDEX:
+        use_lvalue(e->a, s);
+        use_expr(e->args.items[0], s);
+        return;
+    case E_DEREF: use_expr(e->a, s); return;
+    case E_CAST: case E_CONV: use_lvalue(e->a, s); return;
+    default: use_expr(e, s); return;
+    }
+}
+
+static void do_free(Expr *target, State *s, Pos p, int set_nil, const char *how);
+static void assign_src(Expr *lhs, Src *src, State *s, Pos p);
+
+static int is_free_call(Expr *e) {
+    Routine *r = e->rt;
+    if (!r->owner || r->owner->kind != SK_CLASS || e->cmode == CM_INHERITED || !e->a) return 0;
+    return r->kind == RK_DTOR || r == tobject_free;
+}
+
+static void builtin_effects(Expr *e, State *s) {
+    ExprVec *A = &e->args;
+    switch (e->bi) {
+    case BI_NEW: {
+        Expr *a = A->items[0];
+        if (e->b) {
+            Origins o = {0};
+            call_effects(e->b, s, &o);
+        }
+        if (a->kind != E_TYPEREF) {
+            Src t = {0};
+            t.kind = SRC_TEMP;
+            use_lvalue(a, s);
+            assign_src(a, &t, s, e->pos);
+        }
+        return;
+    }
+    case BI_DISPOSE:
+        if (e->b) {
+            /* destructor call: check args, receiver is consumed below */
+            Expr *d = e->b;
+            for (int i = 0; i < d->args.len; i++) use_expr(d->args.items[i], s);
+        }
+        do_free(A->items[0], s, e->pos, 0, "disposed");
+        return;
+    case BI_FREEANDNIL: do_free(A->items[0], s, e->pos, 1, "freed"); return;
+    case BI_TAKE: {
+        Expr *a = A->items[0];
+        Var *root = NULL;
+        char *path = path_of(a, &root);
+        use_lvalue(a, s);
+        if (a->kind == E_VAR) {
+            Var *v = a->var;
+            if (v->borrowed) berror(e->pos, "cannot Take() from borrowed reference '%s'", v->name);
+            else if (tracked_owner(v)) {
+                check_var_use(v, e->pos, s);
+                int i = slot(v);
+                s->own[i] = O_NULL;
+            }
+        } else if (a->kind == E_FIELD && a->field->borrowed)
+            berror(e->pos, "cannot Take() from borrowed field '%s'", desc_of(a));
+        else if (a->kind == E_FIELD)
+            use_expr(a, s);
+        if (path) invalidate(s, path, sfmt("'%s' was emptied by Take() at line %d", desc_of(a), e->pos.line));
+        return;
+    }
+    case BI_INC: case BI_DEC: case BI_READ: case BI_READLN: case BI_DELETE: case BI_SETLENGTH:
+        for (int i = 0; i < A->len; i++) {
+            Expr *a = A->items[i];
+            if (a->kind == E_VAR || a->kind == E_FIELD || a->kind == E_INDEX || a->kind == E_DEREF) {
+                if (i == 0 || e->bi == BI_READ || e->bi == BI_READLN) use_lvalue(a, s);
+                else use_expr(a, s);
+            } else
+                use_expr(a, s);
+        }
+        return;
+    case BI_INSERT:
+        use_expr(A->items[0], s);
+        use_lvalue(A->items[1], s);
+        use_expr(A->items[2], s);
+        return;
+    case BI_STR:
+        if (A->items[0]->kind == E_FMT) {
+            use_expr(A->items[0]->a, s);
+            use_expr(A->items[0]->b, s);
+            if (A->items[0]->c) use_expr(A->items[0]->c, s);
+        } else
+            use_expr(A->items[0], s);
+        use_lvalue(A->items[1], s);
+        return;
+    default:
+        for (int i = 0; i < A->len; i++) {
+            Expr *a = A->items[i];
+            if (a->kind == E_FMT) {
+                use_expr(a->a, s);
+                use_expr(a->b, s);
+                if (a->c) use_expr(a->c, s);
+            } else if (a->kind != E_TYPEREF)
+                use_expr(a, s);
+        }
+        return;
+    }
+}
+
+static void use_expr(Expr *e, State *s) {
+    if (!e) return;
+    switch (e->kind) {
+    case E_VAR:
+        if (e->var->vkind == VK_WITH) {
+            Alias *a = find_alias(e->var);
+            if (a && a->root) check_var_use(a->root, e->pos, s);
+        } else
+            check_var_use(e->var, e->pos, s);
+        return;
+    case E_FIELD: use_lvalue(e, s); return;
+    case E_INDEX: use_lvalue(e, s); return;
+    case E_DEREF: use_expr(e->a, s); return;
+    case E_ADDR: use_lvalue(e->a, s); return;
+    case E_UNARY: case E_CONV: case E_CAST: case E_IS: case E_AS: use_expr(e->a, s); return;
+    case E_BINARY: use_expr(e->a, s); use_expr(e->b, s); return;
+    case E_IN:
+        use_expr(e->a, s);
+        for (int i = 0; i < e->b->args.len; i++) {
+            use_expr(e->b->args.items[i], s);
+            use_expr(e->b->args2.items[i], s);
+        }
+        return;
+    case E_RCALL: {
+        Origins o = {0};
+        call_effects(e, s, &o);
+        return;
+    }
+    case E_BUILTIN: builtin_effects(e, s); return;
+    case E_FMT: use_expr(e->a, s); use_expr(e->b, s); use_expr(e->c, s); return;
+    default: return;
+    }
+}
+
+static Src eval_src(Expr *e, State *s) {
+    Src r = {0};
+    while (e->kind == E_CONV || e->kind == E_CAST || e->kind == E_AS) {
+        if (e->kind == E_AS || !is_owning_type(e->a->type)) break;
+        e = e->a;
+    }
+    if (e->kind == E_AS) {
+        Src inner = eval_src(e->a, s);
+        return inner;
+    }
+    r.desc = desc_of(e);
+    switch (e->kind) {
+    case E_NIL: r.kind = SRC_NIL; return r;
+    case E_RCALL: {
+        Origins o = {0};
+        call_effects(e, s, &o);
+        Routine *rt = e->rt;
+        if (!is_owning_type(e->type)) return r;
+        if (rt->kind == RK_CTOR) r.kind = e->cmode == CM_NEWCLASS ? SRC_TEMP : SRC_NONE;
+        else if (rt->ret_borrowed) {
+            r.kind = SRC_BORROW;
+            r.org = o;
+        } else
+            r.kind = SRC_TEMP;
+        return r;
+    }
+    case E_BUILTIN:
+        builtin_effects(e, s);
+        if (e->bi == BI_TAKE || (e->bi == BI_NEW && is_owning_type(e->type))) r.kind = SRC_TEMP;
+        return r;
+    case E_VAR: {
+        Var *v = e->var;
+        if (!is_owning_type(v->type)) {
+            use_expr(e, s);
+            return r;
+        }
+        if (v->vkind == VK_WITH) {
+            Alias *a = find_alias(v);
+            use_expr(e, s);
+            r.kind = SRC_BORROW;
+            if (a) origin_add(&r.org, a->path, a->desc, a->root, 0);
+            return r;
+        }
+        check_var_use(v, e->pos, s);
+        if (tracked_borrow(v)) {
+            r.kind = SRC_BORROW;
+            int i = slot(v);
+            for (int k = 0; k < s->org[i].len; k++) vpush(r.org, s->org[i].items[k]);
+            return r;
+        }
+        if (v->borrowed) {
+            r.kind = SRC_BORROW;
+            origin_add(&r.org, sfmt("#%d", v->id), v->name, v, 0);
+            return r;
+        }
+        r.kind = SRC_OWNER;
+        r.var = v;
+        return r;
+    }
+    case E_FIELD: case E_INDEX: case E_DEREF: {
+        use_expr(e, s);
+        if (!is_owning_type(e->type)) return r;
+        r.kind = SRC_PLACE;
+        r.path = path_of(e, &r.root);
+        r.borrowed_place = e->kind == E_FIELD && e->field->borrowed;
+        return r;
+    }
+    case E_ADDR: {
+        use_lvalue(e->a, s);
+        r.kind = SRC_BORROW;
+        Var *root = NULL;
+        char *p = path_of(e->a, &root);
+        if (p) origin_add(&r.org, p, desc_of(e->a), root, addr_is_stack(e->a));
+        return r;
+    }
+    default: use_expr(e, s); return r;
+    }
+}
+
+/* ============================================================== assignments */
+
+static int is_place_kind(Expr *e) {
+    return e->kind == E_FIELD || e->kind == E_INDEX || e->kind == E_DEREF || e->kind == E_CAST;
+}
+
+static void escape_check(Origins *o, Pos p, const char *target) {
+    for (int k = 0; k < o->len; k++)
+        if (o->items[k].stack)
+            berror(p, "reference to local variable '%s' escapes into %s (it would dangle after the routine returns)",
+                   o->items[k].desc, target);
+}
+
+static void move_out(Src *src, State *s, Pos p, const char *into) {
+    Var *y = src->var;
+    if (tracked_owner(y)) {
+        int i = slot(y);
+        s->own[i] = O_MOVED;
+        invalidate(s, sfmt("#%d", y->id), sfmt("'%s' was moved into %s at line %d", y->name, into, p.line));
+    } else if (!y->is_ref || y->vkind != VK_PARAM)
+        berror(p, "cannot move out of non-local variable '%s'; use Take(%s) to transfer ownership", y->name, y->name);
+}
+
+static void assign_src(Expr *lhs, Src *src, State *s, Pos p) {
+    Var *root = NULL;
+    char *lpath = path_of(lhs, &root);
+    char *ldesc = desc_of(lhs);
+    int target_borrow = 0;
+    Var *tvar = lhs->kind == E_VAR && lhs->var->vkind != VK_WITH ? lhs->var : NULL;
+    if (tvar) target_borrow = tvar->borrowed;
+    else if (lhs->kind == E_FIELD) target_borrow = lhs->field->borrowed;
+
+    if (!target_borrow) {
+        switch (src->kind) {
+        case SRC_OWNER:
+            if (tvar && src->var == tvar) return;
+            move_out(src, s, p, sfmt("'%s'", ldesc));
+            break;
+        case SRC_BORROW:
+            berror(p, "cannot store borrowed reference '%s' in owning %s '%s'%s", src->desc, tvar ? "variable" : "location",
+                   ldesc, tvar ? sfmt("; declare '%s' as 'borrowed' or transfer ownership", ldesc) : "");
+            break;
+        case SRC_PLACE:
+            if (src->borrowed_place)
+                berror(p, "cannot store borrowed reference '%s' in owning %s '%s'", src->desc, tvar ? "variable" : "location", ldesc);
+            else
+                berror(p, "cannot move out of '%s' (it is owned by its container); use Take(%s)%s", src->desc, src->desc,
+                       tvar ? sfmt(" or declare '%s' as 'borrowed'", ldesc) : "");
+            break;
+        default: break;
+        }
+        if (tvar && tracked_owner(tvar)) {
+            int i = slot(tvar);
+            unsigned st = s->own[i];
+            if (s->reach && (st & O_OWNED) && !(st & O_UNK))
+                bwarn(p, "the object %sowned by '%s' is overwritten without being freed (memory leak)",
+                      (st & ~O_OWNED) ? "possibly " : "", tvar->name);
+            s->own[i] = src->kind == SRC_NIL ? O_NULL : O_OWNED;
+        }
+        if (lpath) invalidate(s, lpath, sfmt("'%s' was reassigned at line %d", ldesc, p.line));
+        return;
+    }
+    /* target is a borrow */
+    Origins o = {0};
+    switch (src->kind) {
+    case SRC_TEMP:
+        berror(p, "an owned temporary (%s) cannot be stored in borrowed '%s'; it would never be freed", src->desc, ldesc);
+        break;
+    case SRC_NIL: case SRC_NONE: break;
+    default: src_origins(src, &o); break;
+    }
+    if (tvar && tracked_borrow(tvar)) {
+        int i = slot(tvar);
+        s->bor[i] = B_VALID;
+        s->why[i] = NULL;
+        s->org[i] = o;
+        return;
+    }
+    /* borrowed field, borrowed global or other untracked borrow */
+    if (!tvar || tvar->is_global || tvar->level < (unit ? unit->level : 0))
+        escape_check(&o, p, sfmt("'%s'", ldesc));
+}
+
+static void do_assign(Expr *lhs, Expr *rhs, State *s, Pos p) {
+    if (!is_owning_type(lhs->type)) {
+        use_expr(rhs, s);
+        use_lvalue(lhs, s);
+        return;
+    }
+    Src src = eval_src(rhs, s);
+    use_lvalue(lhs, s);
+    if (lhs->kind == E_FIELD && lhs->a->kind != E_VAR) {
+        /* nothing extra */
+    }
+    (void)is_place_kind;
+    assign_src(lhs, &src, s, p);
+}
+
+static void do_free(Expr *t, State *s, Pos p, int set_nil, const char *how) {
+    Var *root = NULL;
+    char *path = path_of(t, &root);
+    if (t->kind == E_VAR && t->var->vkind != VK_WITH) {
+        Var *v = t->var;
+        if (v->vkind == VK_SELF) return;
+        if (v->borrowed) {
+            berror(p, "cannot free borrowed reference '%s' (it does not own the object)", v->name);
+            return;
+        }
+        if (tracked_owner(v)) {
+            int i = slot(v);
+            unsigned st = s->own[i];
+            int maybe = (st & (O_NULL | O_OWNED | O_UNK)) != 0;
+            if (s->reach) {
+                if (st & O_MOVED)
+                    berror(p, "cannot free '%s': its value was %smoved away", v->name, maybe ? "possibly " : "");
+                if (st & O_FREED) berror(p, "'%s' is %sfreed twice (double free)", v->name, maybe ? "possibly " : "");
+            }
+            s->own[i] = set_nil ? O_NULL : O_FREED;
+        }
+    } else {
+        use_lvalue(t, s);
+        if (t->kind == E_FIELD && t->field->borrowed)
+            berror(p, "cannot free borrowed field '%s' (it does not own the object)", desc_of(t));
+        if (t->kind == E_VAR) {
+            Alias *a = find_alias(t->var);
+            if (a && a->root && a->root->borrowed && a->path && !strchr(a->path, '.'))
+                berror(p, "cannot free borrowed reference '%s'", a->desc);
+        }
+    }
+    if (path) invalidate(s, path, sfmt("'%s' was %s at line %d", desc_of(t), how, p.line));
+}
+
+/* ============================================================== calls */
+
+static void writes_effect(Routine *r, State *s) {
+    if (!r || r->prelude) return;
+    VarSet *w = &wsets[r->id];
+    for (int k = 0; k < w->len; k++) {
+        Var *v = w->items[k];
+        int i = slot(v);
+        if (i < 0) continue;
+        if (tv.items[i].kind == TV_OWNER) {
+            s->own[i] = O_UNK;
+            invalidate_root(s, v, sfmt("'%s' may have been changed by the call to '%s'", v->name, r->name));
+        } else {
+            s->bor[i] = B_VALID;
+            s->org[i].len = 0;
+        }
+    }
+}
+
+typedef struct {
+    char *path;
+    char *desc;
+    int mut;
+    int shared;
+} ArgPath;
+
+static void call_effects(Expr *e, State *s, Origins *out) {
+    Routine *r = e->rt;
+    VEC(ArgPath) ap = {0};
+    if (e->a) {
+        if (is_free_call(e)) {
+            do_free(e->a, s, e->pos, 0, "freed");
+        } else {
+            Src rs = {0};
+            if (e->a->type->kind == T_CLASS) rs = eval_src(e->a, s);
+            else use_lvalue(e->a, s);
+            if (r->ret_borrowed) src_origins(&rs, out);
+            if (e->a->type->kind != T_CLASS) {
+                Var *root;
+                ArgPath a = {path_of(e->a, &root), desc_of(e->a), 0, 1};
+                if (a.path) vpush(ap, a);
+            }
+        }
+    }
+    for (int i = 0; i < e->args.len; i++) {
+        Param *pm = &r->params.items[i];
+        Expr *a = e->args.items[i];
+        Var *root = NULL;
+        if (pm->mode == PM_VAR || pm->mode == PM_OUT) {
+            use_lvalue(a, s);
+            ArgPath x = {path_of(a, &root), desc_of(a), 1, 0};
+            if (x.path) vpush(ap, x);
+            continue;
+        }
+        if (is_owning_type(pm->type)) {
+            Src src = eval_src(a, s);
+            if (pm->mode == PM_OWNED) {
+                switch (src.kind) {
+                case SRC_OWNER: move_out(&src, s, a->pos, sfmt("parameter '%s' of '%s'", pm->name, r->name)); break;
+                case SRC_BORROW: case SRC_PLACE:
+                    if (src.kind == SRC_PLACE && !src.borrowed_place)
+                        berror(a->pos, "cannot move out of '%s' into owned parameter '%s'; use Take(%s)", src.desc, pm->name,
+                               src.desc);
+                    else
+                        berror(a->pos, "cannot pass borrowed reference '%s' to owned parameter '%s' of '%s'", src.desc,
+                               pm->name, r->name);
+                    break;
+                default: break;
+                }
+            } else {
+                if (src.kind == SRC_TEMP && !r->prelude)
+                    bwarn(a->pos, "owned temporary passed to borrowing parameter '%s' of '%s' is never freed (memory leak); declare the parameter 'owned'",
+                          pm->name, r->name);
+                if (r->ret_borrowed) src_origins(&src, out);
+                char *p = path_of(a, &root);
+                if (p) {
+                    ArgPath x = {p, desc_of(a), 0, 1};
+                    vpush(ap, x);
+                }
+            }
+        } else {
+            use_expr(a, s);
+            if (pm->mode == PM_CONST) {
+                char *p = path_of(a, &root);
+                if (p) {
+                    ArgPath x = {p, desc_of(a), 0, 1};
+                    vpush(ap, x);
+                }
+            }
+        }
+    }
+    /* aliasing of mutable borrows */
+    for (int i = 0; i < ap.len; i++)
+        for (int j = i + 1; j < ap.len; j++) {
+            ArgPath *x = &ap.items[i], *y = &ap.items[j];
+            if (!x->mut && !y->mut) continue;
+            if (!paths_overlap(x->path, y->path)) continue;
+            if (x->mut && y->mut)
+                berror(e->pos, "cannot borrow '%s' as mutable (var) more than once in the same call of '%s'", y->desc, r->name);
+            else
+                berror(e->pos, "cannot borrow '%s' as mutable (var) because it is also borrowed in the same call of '%s'",
+                       x->mut ? x->desc : y->desc, r->name);
+        }
+    /* effects of var parameters */
+    for (int i = 0; i < e->args.len; i++) {
+        Param *pm = &r->params.items[i];
+        if (pm->mode != PM_VAR && pm->mode != PM_OUT) continue;
+        Expr *a = e->args.items[i];
+        if (!is_owning_type(a->type)) continue;
+        Var *root = NULL;
+        char *p = path_of(a, &root);
+        if (a->kind == E_VAR && tracked_owner(a->var)) s->own[slot(a->var)] = O_UNK;
+        else if (a->kind == E_VAR && tracked_borrow(a->var)) {
+            int k = slot(a->var);
+            s->bor[k] = B_VALID;
+            s->org[k].len = 0;
+        }
+        if (p) invalidate(s, p, sfmt("'%s' was passed as var parameter to '%s' at line %d", desc_of(a), r->name, e->pos.line));
+    }
+    /* effects on non-local variables */
+    if (e->cmode == CM_VIRTUAL) {
+        for (int i = 0; i < prog->routines.len; i++) {
+            Routine *q = prog->routines.items[i];
+            if (q->owner && STREQ(q->name, r->name)) writes_effect(q, s);
+        }
+    } else
+        writes_effect(r, s);
+}
+
+/* ============================================================== statements */
+
+static void an_stmt(Stmt *st, State *s);
+
+static void an_list(StmtVec *v, State *s) {
+    for (int i = 0; i < v->len; i++) an_stmt(v->items[i], s);
+}
+
+/* refine state by a condition (x <> nil, Assigned(x), not ...) */
+static void refine(Expr *c, int truth, State *s) {
+    if (!s->reach) return;
+    if (c->kind == E_UNARY && c->op == OP_NOT) {
+        refine(c->a, !truth, s);
+        return;
+    }
+    Var *v = NULL;
+    int nonnil_if_true = 1;
+    if (c->kind == E_BINARY && (c->op == OP_NE || c->op == OP_EQ)) {
+        Expr *x = c->a, *y = c->b;
+        while (x->kind == E_CONV) x = x->a;
+        while (y->kind == E_CONV) y = y->a;
+        if (y->kind == E_NIL && x->kind == E_VAR) v = x->var;
+        else if (x->kind == E_NIL && y->kind == E_VAR) v = y->var;
+        nonnil_if_true = c->op == OP_NE;
+    } else if (c->kind == E_BUILTIN && c->bi == BI_ASSIGNED && c->args.items[0]->kind == E_VAR)
+        v = c->args.items[0]->var;
+    if (!v || !tracked_owner(v)) return;
+    int i = slot(v);
+    int nonnil = truth ? nonnil_if_true : !nonnil_if_true;
+    if (nonnil) {
+        if (s->own[i] & ~O_NULL) s->own[i] &= (unsigned char)~O_NULL;
+    } else
+        s->own[i] = O_NULL;
+}
+
+static void exit_checks(State *s, Pos p) {
+    if (!s->reach) return;
+    const char *where = unit_name;
+    for (int i = 0; i < tv.len; i++) {
+        Var *v = tv.items[i].v;
+        if (tv.items[i].kind == TV_OWNER) {
+            unsigned st = s->own[i];
+            if (v->vkind == VK_RESULT) {
+                if (st & (O_MOVED | O_FREED))
+                    berror(p, "function result is %s%s before '%s' returns", (st & ~(O_MOVED | O_FREED)) ? "possibly " : "",
+                           (st & O_FREED) ? "freed" : "moved away", where);
+                continue;
+            }
+            if (tv.items[i].varparam) {
+                if (st & (O_MOVED | O_FREED))
+                    berror(p, "var parameter '%s' is left %s when '%s' returns; assign a new value or nil", v->name,
+                           (st & O_FREED) ? "freed" : "moved", where);
+                continue;
+            }
+            if ((st & O_OWNED) && !(st & O_UNK))
+                bwarn(p, "'%s' %s owns an object at the end of %s (memory leak; free it or transfer ownership)", v->name,
+                      (st & ~O_OWNED) ? "may still" : "still", where);
+        } else if (v->vkind == VK_RESULT) {
+            for (int k = 0; k < s->org[i].len; k++) {
+                Origin *o = &s->org[i].items[k];
+                if (o->stack)
+                    berror(p, "'%s' returns a reference to local variable '%s'", where, o->desc);
+                else if (o->root && tracked_owner(o->root) && slot(o->root) >= 0 &&
+                         !tv.items[slot(o->root)].varparam && o->root->vkind != VK_RESULT)
+                    berror(p, "'%s' returns a reference to '%s', which is owned by local variable '%s'", where, o->desc,
+                           o->root->name);
+            }
+            if (s->bor[i] & B_DANGLING)
+                berror(p, "'%s' returns a dangling reference: %s", where, s->why[i] ? s->why[i] : "its owner was invalidated");
+        }
+    }
+}
+
+static void loop_body(Stmt *st, State *s, int kind) {
+    /* kind: 0 while (cond first), 1 repeat (cond last), 2 for */
+    State head = st_copy(s);
+    State exitst = st_unreach();
+    for (int iter = 0; iter < 20; iter++) {
+        LoopCtx *lc = NEW(LoopCtx);
+        lc->brk = st_unreach();
+        lc->cont = st_unreach();
+        vpush(loops, lc);
+        State b = st_copy(&head);
+        if (kind == 0) {
+            use_expr(st->a, &b);
+            State ex = st_copy(&b);
+            refine(st->a, 0, &ex);
+            exitst = ex;
+            refine(st->a, 1, &b);
+            an_stmt(st->s1, &b);
+        } else if (kind == 1) {
+            an_list(&st->body, &b);
+        } else {
+            exitst = st_copy(&b);
+            an_stmt(st->s1, &b);
+        }
+        st_join(&b, &lc->cont);
+        if (kind == 1) {
+            use_expr(st->a, &b);
+            exitst = st_copy(&b);
+        }
+        loops.len--;
+        st_join(&exitst, &lc->brk);
+        State nh = st_copy(&head);
+        st_join(&nh, &b);
+        if (kind == 2) st_join(&exitst, &b);
+        if (st_eq(&nh, &head)) break;
+        head = nh;
+    }
+    *s = exitst;
+}
+
+static void an_stmt(Stmt *st, State *s) {
+    if (!s->reach) return;
+    switch (st->kind) {
+    case S_EMPTY: return;
+    case S_ASSIGN: do_assign(st->a, st->b, s, st->pos); return;
+    case S_CALL: {
+        Expr *e = st->a;
+        if (e->kind == E_RCALL) {
+            Src r = eval_src(e, s);
+            if (r.kind == SRC_TEMP && !e->rt->prelude)
+                bwarn(st->pos, "owned result of '%s' is discarded and never freed (memory leak)", e->rt->name);
+        } else if (e->kind == E_BUILTIN) {
+            builtin_effects(e, s);
+            if ((e->bi == BI_TAKE) || (e->bi == BI_NEW && is_owning_type(e->type)))
+                bwarn(st->pos, "owned result is discarded and never freed (memory leak)");
+        } else
+            use_expr(e, s);
+        return;
+    }
+    case S_COMPOUND: an_list(&st->body, s); return;
+    case S_IF: {
+        use_expr(st->a, s);
+        State t = st_copy(s);
+        refine(st->a, 1, &t);
+        refine(st->a, 0, s);
+        an_stmt(st->s1, &t);
+        if (st->s2) an_stmt(st->s2, s);
+        st_join(s, &t);
+        return;
+    }
+    case S_WHILE: loop_body(st, s, 0); return;
+    case S_REPEAT: loop_body(st, s, 1); return;
+    case S_FOR:
+        use_expr(st->a, s);
+        use_expr(st->b, s);
+        loop_body(st, s, 2);
+        return;
+    case S_CASE: {
+        use_expr(st->a, s);
+        State res = st_unreach();
+        for (int i = 0; i < st->arms.len; i++) {
+            CaseArm *arm = &st->arms.items[i];
+            for (int k = 0; k < arm->lo.len; k++) {
+                use_expr(arm->lo.items[k], s);
+                use_expr(arm->hi.items[k], s);
+            }
+            State t = st_copy(s);
+            an_stmt(arm->body, &t);
+            st_join(&res, &t);
+        }
+        if (st->has_else) {
+            State t = st_copy(s);
+            an_list(&st->else_, &t);
+            st_join(&res, &t);
+        } else
+            st_join(&res, s);
+        *s = res;
+        return;
+    }
+    case S_WITH: {
+        int n0 = aliases.len;
+        for (int i = 0; i < st->exprs.len; i++) {
+            Expr *x = st->exprs.items[i];
+            if (x->type->kind == T_CLASS) use_expr(x, s);
+            else use_lvalue(x, s);
+            Alias a = {st->wvars.items[i], NULL, desc_of(x), NULL};
+            a.path = path_of(x, &a.root);
+            vpush(aliases, a);
+        }
+        an_stmt(st->s1, s);
+        aliases.len = n0;
+        return;
+    }
+    case S_BREAK:
+        if (loops.len) st_join(&loops.items[loops.len - 1]->brk, s);
+        s->reach = 0;
+        return;
+    case S_CONTINUE:
+        if (loops.len) st_join(&loops.items[loops.len - 1]->cont, s);
+        s->reach = 0;
+        return;
+    case S_EXIT:
+        if (st->a && unit && unit->result) {
+            Expr *rv = new_expr(E_VAR, st->pos);
+            rv->var = unit->result;
+            rv->type = unit->result->type;
+            do_assign(rv, st->a, s, st->pos);
+        }
+        exit_checks(s, st->pos);
+        s->reach = 0;
+        return;
+    }
+}
+
+/* ============================================================== write sets */
+
+static void vs_add(VarSet *w, Var *v) {
+    for (int i = 0; i < w->len; i++)
+        if (w->items[i] == v) return;
+    vpush(*w, v);
+}
+
+static int nonlocal_to(Var *v, Routine *r) {
+    if (v->vkind == VK_WITH || v->vkind == VK_SELF) return 0;
+    if (v->is_global) return 1;
+    return v->level < r->level;
+}
+
+static VarSet *cur_ws;
+static Routine *cur_wr;
+static void ws_target(Expr *e) {
+    Var *root = NULL;
+    if (!path_of(e, &root) || !root) return;
+    if (nonlocal_to(root, cur_wr)) vs_add(cur_ws, root);
+}
+
+static void ws_expr(Expr *e);
+static void ws_stmt(Stmt *s);
+
+static void ws_expr(Expr *e) {
+    if (!e) return;
+    switch (e->kind) {
+    case E_RCALL:
+        ws_expr(e->a);
+        if (e->a && is_free_call(e)) ws_target(e->a);
+        for (int i = 0; i < e->args.len; i++) {
+            Param *pm = &e->rt->params.items[i];
+            if (pm->mode == PM_VAR || pm->mode == PM_OUT || pm->mode == PM_OWNED) ws_target(e->args.items[i]);
+            ws_expr(e->args.items[i]);
+        }
+        return;
+    case E_BUILTIN:
+        if (e->bi == BI_NEW || e->bi == BI_DISPOSE || e->bi == BI_FREEANDNIL || e->bi == BI_TAKE)
+            if (e->args.len && e->args.items[0]->kind != E_TYPEREF) ws_target(e->args.items[0]);
+        for (int i = 0; i < e->args.len; i++) ws_expr(e->args.items[i]);
+        ws_expr(e->b);
+        return;
+    case E_FMT: ws_expr(e->a); ws_expr(e->b); ws_expr(e->c); return;
+    case E_IN:
+        ws_expr(e->a);
+        for (int i = 0; i < e->b->args.len; i++) {
+            ws_expr(e->b->args.items[i]);
+            ws_expr(e->b->args2.items[i]);
+        }
+        return;
+    default:
+        ws_expr(e->a);
+        ws_expr(e->b);
+        for (int i = 0; i < e->args.len; i++) ws_expr(e->args.items[i]);
+        return;
+    }
+}
+
+static void ws_stmt(Stmt *s) {
+    switch (s->kind) {
+    case S_ASSIGN:
+        if (is_owning_type(s->a->type)) ws_target(s->a);
+        if (s->b->kind == E_VAR && is_owning_type(s->b->type) && nonlocal_to(s->b->var, cur_wr)) vs_add(cur_ws, s->b->var);
+        ws_expr(s->a);
+        ws_expr(s->b);
+        return;
+    case S_CALL: ws_expr(s->a); return;
+    case S_COMPOUND: case S_REPEAT:
+        for (int i = 0; i < s->body.len; i++) ws_stmt(s->body.items[i]);
+        ws_expr(s->a);
+        return;
+    case S_IF: case S_WHILE:
+        ws_expr(s->a);
+        ws_stmt(s->s1);
+        if (s->s2) ws_stmt(s->s2);
+        return;
+    case S_FOR:
+        ws_expr(s->a);
+        ws_expr(s->b);
+        ws_stmt(s->s1);
+        return;
+    case S_CASE:
+        ws_expr(s->a);
+        for (int i = 0; i < s->arms.len; i++) ws_stmt(s->arms.items[i].body);
+        for (int i = 0; i < s->else_.len; i++) ws_stmt(s->else_.items[i]);
+        return;
+    case S_WITH:
+        for (int i = 0; i < s->exprs.len; i++) ws_expr(s->exprs.items[i]);
+        ws_stmt(s->s1);
+        return;
+    case S_EXIT: ws_expr(s->a); return;
+    default: return;
+    }
+}
+
+typedef VEC(Routine *) RtSet;
+static RtSet *callees;
+static void cl_expr(Expr *e, RtSet *c) {
+    if (!e) return;
+    if (e->kind == E_RCALL) {
+        int dup = 0;
+        for (int i = 0; i < c->len; i++)
+            if (c->items[i] == e->rt) dup = 1;
+        if (!dup) vpush(*c, e->rt);
+    }
+    if (e->kind == E_IN) {
+        cl_expr(e->a, c);
+        for (int i = 0; i < e->b->args.len; i++) {
+            cl_expr(e->b->args.items[i], c);
+            cl_expr(e->b->args2.items[i], c);
+        }
+        return;
+    }
+    cl_expr(e->a, c);
+    cl_expr(e->b, c);
+    cl_expr(e->c, c);
+    for (int i = 0; i < e->args.len; i++) cl_expr(e->args.items[i], c);
+}
+static void cl_stmt(Stmt *s, RtSet *c) {
+    if (!s) return;
+    cl_expr(s->a, c);
+    cl_expr(s->b, c);
+    cl_expr(s->c, c);
+    cl_stmt(s->s1, c);
+    cl_stmt(s->s2, c);
+    for (int i = 0; i < s->body.len; i++) cl_stmt(s->body.items[i], c);
+    for (int i = 0; i < s->arms.len; i++) {
+        cl_stmt(s->arms.items[i].body, c);
+        for (int k = 0; k < s->arms.items[i].lo.len; k++) cl_expr(s->arms.items[i].lo.items[k], c);
+    }
+    for (int i = 0; i < s->else_.len; i++) cl_stmt(s->else_.items[i], c);
+    for (int i = 0; i < s->exprs.len; i++) cl_expr(s->exprs.items[i], c);
+}
+
+static void compute_write_sets(void) {
+    int maxid = 0;
+    for (int i = 0; i < prog->routines.len; i++)
+        if (prog->routines.items[i]->id > maxid) maxid = prog->routines.items[i]->id;
+    wsets = xcalloc((size_t)maxid + 1, sizeof(VarSet));
+    callees = xcalloc((size_t)maxid + 1, sizeof(RtSet));
+    for (int i = 0; i < prog->routines.len; i++) {
+        Routine *r = prog->routines.items[i];
+        cur_wr = r;
+        cur_ws = &wsets[r->id];
+        for (int k = 0; k < r->body.len; k++) {
+            ws_stmt(r->body.items[k]);
+            cl_stmt(r->body.items[k], &callees[r->id]);
+        }
+    }
+    /* transitive closure; virtual calls include all methods of the same name */
+    for (int changed = 1; changed;) {
+        changed = 0;
+        for (int i = 0; i < prog->routines.len; i++) {
+            Routine *r = prog->routines.items[i];
+            for (int k = 0; k < callees[r->id].len; k++) {
+                Routine *c = callees[r->id].items[k];
+                for (int q = 0; q < prog->routines.len; q++) {
+                    Routine *cc = prog->routines.items[q];
+                    if (cc != c && !(c->slot >= 0 && cc->owner && STREQ(cc->name, c->name))) continue;
+                    VarSet *src = &wsets[cc->id];
+                    for (int j = 0; j < src->len; j++) {
+                        Var *v = src->items[j];
+                        if (!nonlocal_to(v, r)) continue;
+                        int before = wsets[r->id].len;
+                        vs_add(&wsets[r->id], v);
+                        if (wsets[r->id].len != before) changed = 1;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* ============================================================== units */
+
+static void track(Var *v, int kind, int varparam) {
+    TVar t = {v, kind, varparam};
+    vpush(tv, t);
+    v->bslot = tv.len;
+}
+
+static void untrack_all(void) {
+    for (int i = 0; i < tv.len; i++) tv.items[i].v->bslot = 0;
+    tv.len = 0;
+    aliases.len = 0;
+    loops.len = 0;
+}
+
+static void track_var(Var *v) {
+    if (!is_owning_type(v->type)) return;
+    track(v, v->borrowed ? TV_BORROW : TV_OWNER, 0);
+}
+
+static void check_unit(Routine *r, StmtVec *body, Pos end) {
+    State s = st_new();
+    for (int i = 0; i < tv.len; i++) {
+        Var *v = tv.items[i].v;
+        if (tv.items[i].kind == TV_OWNER) {
+            if (tv.items[i].varparam) s.own[i] = O_UNK;
+            else if (v->vkind == VK_PARAM) s.own[i] = O_OWNED; /* owned parameter */
+            else s.own[i] = O_NULL;
+        } else
+            s.bor[i] = B_VALID;
+    }
+    (void)r;
+    an_list(body, &s);
+    exit_checks(&s, end);
+}
+
+int borrow_check(Program *p) {
+    prog = p;
+    nerrors = 0;
+    if (p->tobject)
+        for (int i = 0; i < p->tobject->methods.len; i++)
+            if (STREQ(p->tobject->methods.items[i]->name, "Free")) tobject_free = p->tobject->methods.items[i];
+    compute_write_sets();
+
+    for (int i = 0; i < p->routines.len; i++) {
+        Routine *r = p->routines.items[i];
+        if (r->prelude || r->is_abstract || !r->defined) continue;
+        unit = r;
+        unit_name = r->owner ? sfmt("%s.%s", r->owner->name, r->name) : r->name;
+        for (int k = 0; k < r->params.len; k++) {
+            Param *pm = &r->params.items[k];
+            if (!is_owning_type(pm->type) || !pm->var) continue;
+            if (pm->mode == PM_OWNED) track(pm->var, TV_OWNER, 0);
+            else if (pm->mode == PM_VAR || pm->mode == PM_OUT) track(pm->var, TV_OWNER, 1);
+        }
+        if (r->result && is_owning_type(r->result->type)) track(r->result, r->ret_borrowed ? TV_BORROW : TV_OWNER, 0);
+        for (int k = 0; k < r->locals.len; k++) track_var(r->locals.items[k]);
+        Pos end = r->pos;
+        if (r->body.len) end = r->body.items[r->body.len - 1]->pos;
+        check_unit(r, &r->body, end);
+        untrack_all();
+    }
+    unit = NULL;
+    unit_name = "the program";
+    for (int k = 0; k < p->globals.len; k++) track_var(p->globals.items[k]);
+    StmtVec all = {0};
+    for (int i = 0; i < p->init.len; i++) vpush(all, p->init.items[i]);
+    for (int i = 0; i < p->body.len; i++) vpush(all, p->body.items[i]);
+    check_unit(NULL, &all, p->end_pos);
+    untrack_all();
+    return nerrors;
+}

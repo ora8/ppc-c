@@ -1,0 +1,17 @@
+Kontostand: 106 Log: [100][101][103][106]
+Mon: Werktag ord=0
+Tue: Werktag ord=1
+Wed: Werktag ord=2
+Thu: Werktag ord=3
+Fri: Werktag ord=4
+Sat: Wochenende! ord=5
+Sun: Wochenende! ord=6
+Succ(Mon)=Tue High=Sun
+rec 3 2
+erstes negatives an Index 3
+Outer(2) = 81
+Hallo schoene Welt | Welt | WELT | abc
+String-case ok
+Str: 3.14 Round(2.5)=2 Trunc(-2.7)=-2
+124     x|    42|  TRUE|
+Ende
