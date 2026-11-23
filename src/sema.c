@@ -95,6 +95,7 @@ static int is_strlike(Type *t) { return t->kind == T_STR || t->kind == T_CHAR; }
 static int is_ptrlike(Type *t) { return t->kind == T_PTR || t->kind == T_CLASS || t->kind == T_NIL; }
 
 /* owning types: class instances and typed pointers (borrow checker) */
+int is_ref_type(Type *t) { return t && (t->kind == T_CLASS || (t->kind == T_PTR && t->base)); }
 int is_owning_type(Type *t) { return t && (t->kind == T_CLASS || (t->kind == T_PTR && t->base)); }
 
 int struct_descends(Struct *d, Struct *b) {
@@ -520,7 +521,21 @@ static long long range_of(TypeExpr *te, long long *lo, Type **idx) {
     error_at(te->pos, "invalid array index type \"%s\"", type_name(t));
 }
 
+static Type *resolve_type_inner(TypeExpr *te);
 static Type *resolve_type(TypeExpr *te) {
+    Type *t = resolve_type_inner(te);
+    if (!te->nilable) return t;
+    if (t->kind != T_CLASS && !(t->kind == T_PTR && t->base))
+        error_at(te->pos, "'nilable' requires a class or typed pointer type, not \"%s\"", type_name(t));
+    if (t->nilable) return t;
+    Type *n = NEW(Type);
+    *n = *t;
+    n->nilable = 1;
+    n->name = sfmt("nilable %s", type_name(t));
+    return n;
+}
+
+static Type *resolve_type_inner(TypeExpr *te) {
     switch (te->kind) {
     case TE_NAMED: {
         Look L = lookup(te->name.name);

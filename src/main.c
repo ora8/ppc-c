@@ -43,6 +43,7 @@ static void usage(void) {
             "  -S                 only emit C code (<out>.c), do not compile\n"
             "  -k                 keep the generated C file next to the executable\n"
             "  --no-borrow-check  disable the borrow checker\n"
+            "  --no-nil-check     disable compile-time and runtime nil checks\n"
             "  --cc <compiler>    C compiler to use (default: $CC or gcc)\n"
             "  -O0 .. -O3         optimization level passed to the C compiler (default -O2)\n");
     exit(2);
@@ -58,6 +59,7 @@ int main(int argc, char **argv) {
         else if (STREQ(a, "-S")) emit_only = 1;
         else if (STREQ(a, "-k")) keep = 1;
         else if (STREQ(a, "--no-borrow-check")) borrow = 0;
+        else if (STREQ(a, "--no-nil-check")) g_nil_check = 0;
         else if (STREQ(a, "--cc") && i + 1 < argc) cc = argv[++i];
         else if (a[0] == '-' && a[1] == 'O') opt = a;
         else if (a[0] == '-') usage();
@@ -86,10 +88,11 @@ int main(int argc, char **argv) {
     Program *prog = sema_program(prelude, prog_block, pname);
     prog->end_pos = end_pos;
 
-    if (borrow) {
+    g_borrow_check = borrow;
+    if (borrow || g_nil_check) {
         int errs = borrow_check(prog);
         if (errs) {
-            fprintf(stderr, "%s: %d borrow check error(s), compilation aborted\n", input, errs);
+            fprintf(stderr, "%s: %d error(s) found by the borrow/nil checker, compilation aborted\n", input, errs);
             return 1;
         }
     }

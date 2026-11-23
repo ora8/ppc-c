@@ -13,13 +13,21 @@ for f in run/*.pas; do
   if ! out=$($PPC -o "$TMP/$n" "$f" 2>&1); then bad "$f" "$out"; continue; fi
   if diff -u "run/$n.expected" <("$TMP/$n" < /dev/null) > "$TMP/diff"; then ok "$f"; else bad "$f" "$(cat "$TMP/diff")"; fi
 done
-for d in borrow_fail compile_fail; do
+for d in borrow_fail nil_fail compile_fail; do
   for f in $d/*.pas; do
     exp=$(sed -n '1s/^{ EXPECT: \(.*\) }$/\1/p' "$f")
     out=$($PPC -S -o "$TMP/x" "$f" 2>&1); rc=$?
     if [ $rc -ne 0 ] && grep -qF "$exp" <<<"$out"; then ok "$f"; else bad "$f" "expected: $exp
 got: $out"; fi
   done
+done
+for f in runtime_fail/*.pas; do
+  n=$(basename "$f" .pas)
+  exp=$(sed -n '1s/^{ EXPECT: \(.*\) }$/\1/p' "$f")
+  if ! out=$($PPC -o "$TMP/$n" "$f" 2>&1); then bad "$f" "$out"; continue; fi
+  err=$("$TMP/$n" < /dev/null 2>&1 >/dev/null); rc=$?
+  if [ $rc -ne 0 ] && grep -qF "$exp" <<<"$err"; then ok "$f"; else bad "$f" "expected: $exp
+got (rc=$rc): $err"; fi
 done
 echo "--- $pass passed, $fail failed"
 [ $fail -eq 0 ]

@@ -439,6 +439,12 @@ static StructDecl *parse_struct(int kind) {
 
 static TypeExpr *parse_type(void) {
     Pos p = pos();
+    if (is_ident("nilable")) {
+        next();
+        TypeExpr *t = parse_type();
+        t->nilable = 1;
+        return t;
+    }
     if (accept_sym("^")) {
         TypeExpr *t = new_te(TE_PTR, p);
         t->name = ident();

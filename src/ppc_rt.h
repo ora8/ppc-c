@@ -35,8 +35,13 @@ static void *__as(void *o, void *vmt) {
     if (o && !__is(o, vmt)) __rt_error(219, "invalid type cast");
     return o;
 }
-static void *__nilchk(void *p) {
-    if (!p) __rt_error(210, "nil pointer dereference");
+static const char *__ppc_srcfile;
+static void *__nilchk(void *p, int line, int col) {
+    if (!p) {
+        fflush(stdout);
+        fprintf(stderr, "Runtime error 210: nil pointer dereference at %s(%d,%d)\n", __ppc_srcfile, line, col);
+        exit(210);
+    }
     return p;
 }
 

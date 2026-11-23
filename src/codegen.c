@@ -18,6 +18,19 @@ static Routine *tobject_free;
 static char *gx(Expr *e);
 static void gs(Stmt *s);
 
+static char *ctype(Type *t);
+
+/* runtime nil check around a reference-valued expression */
+static char *nilchk(Expr *base, char *code, Pos p) {
+    if (!g_nil_check) return code;
+    Expr *x = base;
+    while (x->kind == E_CONV || x->kind == E_CAST) x = x->a;
+    if (x->kind == E_VAR && (x->var->vkind == VK_SELF || x->var->vkind == VK_WITH)) return code;
+    if (x->kind == E_RCALL && x->rt->kind == RK_CTOR) return code;
+    if (x->kind == E_ADDR) return code;
+    return sfmt("((%s)__nilchk((void*)(%s), %d, %d))", ctype(base->type), code, p.line, p.col);
+}
+
 static void line(const char *fmt, ...) {
     for (int i = 0; i < indent; i++) buf_put(out, "  ");
     va_list ap;
@@ -168,6 +181,7 @@ static char *gcall(Expr *e) {
     if (e->a) {
         Type *bt = e->a->type;
         char *bv = gx(e->a);
+        if (bt->kind == T_CLASS && r != tobject_free) bv = nilchk(e->a, bv, e->pos);
         selfp = bt->kind == T_CLASS ? bv : sfmt("(&%s)", bv);
         sst = bt->st;
     }
@@ -393,7 +407,7 @@ static char *gx(Expr *e) {
     case E_NIL: return "((void*)0)";
     case E_VAR: return var_ref(e->var);
     case E_FIELD:
-        if (e->a->type->kind == T_CLASS) return sfmt("(%s)->%s", gx(e->a), e->field->cname);
+        if (e->a->type->kind == T_CLASS) return sfmt("(%s)->%s", nilchk(e->a, gx(e->a), e->pos), e->field->cname);
         return sfmt("(%s).%s", gx(e->a), e->field->cname);
     case E_INDEX: {
         Expr *a = e->a;
@@ -402,7 +416,7 @@ static char *gx(Expr *e) {
         if (a->type->lo == 0) return sfmt("(%s).a[%s]", gx(a), idx);
         return sfmt("(%s).a[(%s) - (%s)]", gx(a), idx, int_lit(a->type->lo));
     }
-    case E_DEREF: return sfmt("(*(%s))", gx(e->a));
+    case E_DEREF: return sfmt("(*(%s))", nilchk(e->a, gx(e->a), e->pos));
     case E_ADDR: return sfmt("(&%s)", gx(e->a));
     case E_UNARY:
         if (e->op == OP_NEG) return sfmt("(-(%s))", gx(e->a));
@@ -619,7 +633,7 @@ static void gs(Stmt *s) {
         for (int i = 0; i < s->wvars.len; i++) {
             Var *w = s->wvars.items[i];
             if (w->is_ref) line("%s *%s = &%s;", ctype(w->type), w->cname, gx(s->exprs.items[i]));
-            else line("%s %s = %s;", ctype(w->type), w->cname, gx(s->exprs.items[i]));
+            else line("%s %s = %s;", ctype(w->type), w->cname, nilchk(s->exprs.items[i], gx(s->exprs.items[i]), s->exprs.items[i]->pos));
         }
         gs(s->s1);
         indent--;
@@ -773,6 +787,7 @@ void codegen(Program *p, FILE *f) {
         for (int k = 0; k < en->names.len; k++) buf_printf(&b_globals, "%s\"%s\"", k ? ", " : "", en->names.items[k]);
         buf_put(&b_globals, "};\n");
     }
+    buf_printf(&b_globals, "static const char *__ppc_srcfile = %s;\n", c_strlit(g_filename, (int)strlen(g_filename)));
     /* globals */
     for (int i = 0; i < p->globals.len; i++) {
         Var *v = p->globals.items[i];

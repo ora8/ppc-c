@@ -10,6 +10,9 @@ Besonderheiten:
 * **Stackobjekte** (`object`, Turbo-Pascal-Stil) und **Heap-Klassen** (`class`, Delphi-Stil).
 * **Borrow Checker** nach dem Vorbild von Rust: prüft Besitz (Ownership) und Ausleihen (Borrows)
   zur Compile-Zeit.
+* **Nil-Sicherheit**: Referenzen sind standardmäßig nicht-nil; der Compiler erkennt nicht
+  allozierte Heapobjekte und ungeprüfte `nil`-Zugriffe, zur Laufzeit gibt es zusätzlich eine
+  Nil-Prüfung mit Quellposition.
 
 ## Bauen und benutzen
 
@@ -24,6 +27,7 @@ make test       # Testsuite (Ausgaben, Borrow-Fehler, Compile-Fehler)
 ./ppc -S programm.pas         # nur C-Code erzeugen (programm.c)
 ./ppc -k programm.pas         # C-Datei zusätzlich behalten
 ./ppc --no-borrow-check x.pas # Borrow Checker abschalten
+./ppc --no-nil-check x.pas    # Nil-Prüfung (Compile- und Laufzeit) abschalten
 ./ppc --cc clang -O3 x.pas    # anderer C-Compiler / Optimierung
 ```
 
@@ -37,7 +41,7 @@ make test       # Testsuite (Ausgaben, Borrow-Fehler, Compile-Fehler)
   `WriteLn`, `Write`, `ReadLn`, `Read`, `Length`, `Ord`, `Chr`, `Inc`, `Dec`, `New`, `Dispose`,
   `TObject`, `Create`, `Destroy`, `Free`, `ClassName`, `Self`, `Result`, `Exit`, `Break`, `Continue` usw.
 * Direktiven/Modifizierer klein: `virtual`, `override`, `abstract`, `forward`, `private`,
-  `public`, `property … read … write …`, `borrowed`, `owned`.
+  `public`, `property … read … write …`, `borrowed`, `owned`, `nilable`.
 
 ## Objekte auf dem Stack (`object`)
 
@@ -90,7 +94,7 @@ Für Werte von **Klassen- und typisierten Zeigertypen** gilt:
 |--------------------------------|---------------------------------------------------|
 | `var a: TFoo;`                 | `a` **besitzt** das Objekt (Owner)                |
 | `var r: borrowed TFoo;`        | `r` ist eine **Ausleihe** (besitzt nichts)        |
-| `Next: TItem;` (Feld)          | Feld besitzt das Objekt                           |
+| `Next: nilable TItem;` (Feld)  | Feld besitzt das Objekt (darf nil sein)           |
 | `Parent: borrowed TItem;`      | Feld ist eine Ausleihe                            |
 | `procedure P(x: TFoo)`         | Wert-/`const`-Parameter = Ausleihe                |
 | `procedure P(owned x: TFoo)`   | Parameter übernimmt den Besitz                    |
@@ -129,6 +133,45 @@ einzeln verfolgt (nur ihre Pfade, um Ausleihen ungültig zu machen); die Lebensd
 `borrowed`-Feldern wird nicht geprüft; globale Besitzer werden nur im Hauptprogramm verfolgt;
 das Kopieren von Records, die Besitzer enthalten, wird nicht als Move behandelt.
 
+## Nil-Sicherheit
+
+Klassen- und typisierte Zeigertypen sind **standardmäßig nicht-nil**. Nur Typen mit dem
+Zusatz **`nilable`** dürfen `nil` enthalten:
+
+```pascal
+var a: TFoo;                    { muss vor der Benutzung ein Objekt bekommen }
+    p: nilable TFoo;            { darf nil sein, muss vor der Benutzung geprüft werden }
+    r: borrowed nilable TFoo;   { Reihenfolge: borrowed vor nilable }
+function Suche(…): borrowed nilable TPerson;
+Next: nilable TPerson;          { Feld, z. B. Listenende }
+```
+
+Fehler beim Übersetzen:
+
+* **Nicht alloziertes Heapobjekt:** `var a: TFoo; … a.V := 1;` ohne vorheriges `TFoo.Create`
+  bzw. `New(p)` – auch wenn die Allokation nur auf einem Teil der Programmpfade passiert
+  (`'a' may be used without an allocated object`).
+* `nil` (oder ein evtl. nil-Wert) wird an eine nicht-nilable Variable, ein Feld, einen
+  Parameter oder das Funktionsergebnis übergeben.
+* Zugriff auf eine `nilable`-Variable ohne vorherige Prüfung. Die Analyse erkennt
+  `if p <> nil then`, `while p <> nil do`, `Assigned(p)`, `not Assigned(p)` und `else`-Zweige.
+* `nilable`-Felder und -Funktionsergebnisse (`x.Next.V`, `Suche(…).Name`) müssen erst in
+  eine lokale Variable kopiert und geprüft werden (wie in Kotlin).
+* Eine Funktion mit nicht-nilable Ergebnis gibt `nil` zurück oder weist nie ein Objekt zu.
+* `Take()` und `FreeAndNil()` sind nur auf `nilable`-Plätzen erlaubt.
+
+Zur Laufzeit prüft das erzeugte Programm jeden Zugriff über eine Referenz und bricht statt
+mit einem Segmentation Fault mit einer Meldung ab:
+
+```
+Runtime error 210: nil pointer dereference at programm.pas(42,7)
+```
+
+Das betrifft Fälle, die beim Übersetzen nicht sichtbar sind, z. B. nicht-nilable Felder,
+die ein Konstruktor nicht gesetzt hat. Ein fehlgeschlagener Speicherwunsch
+(`Create`/`New`) endet mit `Runtime error 203: heap overflow`. Stackobjekte (`object`)
+können nie nil sein.
+
 ## Unterstützte Sprache
 
 * `program`, `uses` (ignoriert), `const` (auch typisierte Konstanten und Array-Initialisierer),
@@ -160,7 +203,7 @@ varianten Records, `goto`, Datei-I/O.
 |-------------------|------------------------------------------------------------|
 | `src/parser.c`    | Lexer (case-sensitiv) und rekursiver Abstiegsparser        |
 | `src/sema.c`      | Namensauflösung, Typprüfung, Objekt-/Klassenlayout, VMT-Slots |
-| `src/borrow.c`    | Borrow Checker                                             |
+| `src/borrow.c`    | Borrow Checker und Nil-Analyse                             |
 | `src/codegen.c`   | C-Codeerzeugung (Structs, VMTs, Static Links, Runtime-Aufrufe) |
 | `src/ppc_rt.h`    | C-Laufzeitbibliothek, wird in jedes Programm eingebettet   |
 | `src/main.c`      | Treiber, Prelude (`TObject`), Aufruf des C-Compilers       |

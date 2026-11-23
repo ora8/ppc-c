@@ -102,7 +102,7 @@ var
   shapes: array[1..2] of TShape;
   cnt: TCounter;
   p: PShape;
-  a: borrowed TAnimal;  { nicht-besitzende Referenz }
+  a: borrowed nilable TAnimal;  { nicht-besitzende Referenz }
   dog: TDog;
   cat: TCat;
 begin

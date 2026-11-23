@@ -84,6 +84,7 @@ struct TypeExpr {
     IdentVec enums;           /* TE_ENUM */
     FieldDeclVec fields;      /* TE_RECORD */
     StructDecl *sd;           /* TE_STRUCT */
+    int nilable;              /* 'nilable' modifier */
 };
 
 typedef struct {
@@ -217,6 +218,7 @@ struct Type {
     Struct *st;
     EnumInfo *en;
     char *name;
+    int nilable; /* class/pointer type that may hold nil */
 };
 
 struct Field {
@@ -352,6 +354,8 @@ const char *type_name(Type *t);
 
 /* borrow.c */
 int borrow_check(Program *p);
+extern int g_borrow_check, g_nil_check;
+int is_ref_type(Type *t);
 
 /* codegen.c */
 void codegen(Program *p, FILE *out);

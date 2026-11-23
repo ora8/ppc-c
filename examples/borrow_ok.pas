@@ -2,20 +2,21 @@ program BorrowOk;
 { Ownership-Regeln von ppc an einem kleinen Adressbuch.
   Besitzer:  normale Variablen/Felder vom Klassentyp
   Ausleihe:  'borrowed' Variablen, Wert-/const-Parameter
-  Move:      Zuweisung Besitzer -> Besitzer, 'owned'-Parameter, Take() }
+  Move:      Zuweisung Besitzer -> Besitzer, 'owned'-Parameter, Take()
+  nilable:   nur solche Referenzen duerfen nil sein (z. B. Listenende) }
 type
   TPerson = class
     Name: String;
-    Next: TPerson;                       { besitzt den Nachfolger }
+    Next: nilable TPerson;               { besitzt den Nachfolger, nil am Ende }
     constructor Create(const AName: String);
     destructor Destroy; override;
   end;
 
   TBuch = class
-    Erste: TPerson;                      { besitzt die ganze Kette }
+    Erste: nilable TPerson;              { besitzt die ganze Kette }
     procedure Neu(owned P: TPerson);     { uebernimmt den Besitz von P }
-    function Suche(const N: String): borrowed TPerson;  { leiht nur aus }
-    function Entnimm: TPerson;           { gibt Besitz an den Aufrufer }
+    function Suche(const N: String): borrowed nilable TPerson;  { leiht nur aus }
+    function Entnimm: nilable TPerson;   { gibt Besitz an den Aufrufer }
     destructor Destroy; override;
   end;
 
@@ -31,8 +32,8 @@ begin
   Erste := P;                            { Move: P ist danach verbraucht }
 end;
 
-function TBuch.Suche(const N: String): borrowed TPerson;
-var p: borrowed TPerson;
+function TBuch.Suche(const N: String): borrowed nilable TPerson;
+var p: borrowed nilable TPerson;
 begin
   Result := nil;
   p := Erste;
@@ -42,7 +43,7 @@ begin
   end;
 end;
 
-function TBuch.Entnimm: TPerson;
+function TBuch.Entnimm: nilable TPerson;
 begin
   Result := Take(Erste);
   if Result <> nil then Erste := Take(Result.Next);
@@ -52,7 +53,7 @@ destructor TBuch.Destroy;
 begin Erste.Free; inherited Destroy; end;
 
 procedure Zeige(B: TBuch);               { Wertparameter = Ausleihe, darf nicht freigeben }
-var p: borrowed TPerson;
+var p: borrowed nilable TPerson;
 begin
   p := B.Erste;
   while p <> nil do begin Write(p.Name, ' '); p := p.Next; end;
@@ -61,8 +62,9 @@ end;
 
 var
   buch: TBuch;
-  anna, weg: TPerson;
-  treffer: borrowed TPerson;
+  anna: TPerson;
+  weg: nilable TPerson;
+  treffer: borrowed nilable TPerson;
 begin
   buch := TBuch.Create;
   buch.Neu(TPerson.Create('Bert'));      { Temporaeres Objekt direkt uebergeben }
@@ -76,7 +78,7 @@ begin
   if treffer <> nil then WriteLn('gefunden: ', treffer.Name);
 
   weg := buch.Entnimm;                   { Besitz kommt zurueck }
-  WriteLn('entnommen: ', weg.Name);
+  if weg <> nil then WriteLn('entnommen: ', weg.Name);
   weg.Free;                              { Besitzer gibt frei }
   Zeige(buch);
 

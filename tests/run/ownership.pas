@@ -2,16 +2,16 @@ program Ownership;
 type
   TItem = class
     Value: Integer;
-    Next: TItem;                 { besitzt das naechste Element }
+    Next: nilable TItem;         { besitzt das naechste Element (nil am Ende) }
     constructor Create(V: Integer);
     destructor Destroy; override;
   end;
   TList = class
-    Head: TItem;
+    Head: nilable TItem;
     Count: Integer;
     procedure Push(owned Item: TItem);   { uebernimmt den Besitz }
-    function Find(V: Integer): borrowed TItem;
-    function PopFront: TItem;            { gibt Besitz an Aufrufer }
+    function Find(V: Integer): borrowed nilable TItem;
+    function PopFront: nilable TItem;    { gibt Besitz an Aufrufer }
     destructor Destroy; override;
   end;
 
@@ -31,8 +31,8 @@ begin
   Inc(Count);
 end;
 
-function TList.Find(V: Integer): borrowed TItem;
-var cur: borrowed TItem;
+function TList.Find(V: Integer): borrowed nilable TItem;
+var cur: borrowed nilable TItem;
 begin
   Result := nil;
   cur := Head;
@@ -42,7 +42,7 @@ begin
   end;
 end;
 
-function TList.PopFront: TItem;
+function TList.PopFront: nilable TItem;
 begin
   Result := Take(Head);
   if Result <> nil then begin
@@ -58,7 +58,7 @@ begin
 end;
 
 procedure PrintList(L: TList);   { Wertparameter = Ausleihe }
-var it: borrowed TItem;
+var it: borrowed nilable TItem;
 begin
   it := L.Head;
   while it <> nil do begin Write(it.Value, ' '); it := it.Next; end;
@@ -79,8 +79,9 @@ begin V.X := V.X * F; V.Y := V.Y * F; end;
 
 var
   list: TList;
-  item, popped: TItem;
-  found: borrowed TItem;
+  item: TItem;
+  popped: nilable TItem;
+  found: borrowed nilable TItem;
   i: Integer;
   v: TVec;
   pv: borrowed ^TVec;
@@ -95,7 +96,7 @@ begin
   found := list.Find(30);
   if found <> nil then WriteLn('gefunden: ', found.Value);
   popped := list.PopFront;
-  WriteLn('entnommen: ', popped.Value);
+  if popped <> nil then WriteLn('entnommen: ', popped.Value);
   popped.Free;
   PrintList(list);
   list.Free;
