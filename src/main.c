@@ -43,7 +43,7 @@ static void usage(void) {
             "  -S                 only emit C code (<out>.c), do not compile\n"
             "  -k                 keep the generated C file next to the executable\n"
             "  --no-borrow-check  disable the borrow checker\n"
-            "  --no-nil-check     disable compile-time and runtime nil checks\n"
+            "  --no-nil-check     replace the compile-time nil analysis by runtime nil checks\n"
             "  --cc <compiler>    C compiler to use (default: $CC or gcc)\n"
             "  -O0 .. -O3         optimization level passed to the C compiler (default -O2)\n");
     exit(2);

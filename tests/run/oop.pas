@@ -1,35 +1,27 @@
 program OOP;
 type
-  { ---- Stack-Objekte (Turbo-Pascal-Stil 'object') ---- }
-  TShape = object
+  { ---- eine Klassenhierarchie, als Stack- und als Heapinstanz nutzbar ---- }
+  TShape = class
     X, Y: Integer;
-    constructor Init(AX, AY: Integer);
+    constructor Create(AX, AY: Integer);
     function Area: Real; virtual;
     function Name: String; virtual;
     procedure Describe;
-    destructor Done; virtual;
+    destructor Destroy; override;
   end;
-  TCircle = object(TShape)
+  TCircle = class(TShape)
     R: Real;
-    constructor Init(AX, AY: Integer; AR: Real);
-    function Area: Real; virtual;
-    function Name: String; virtual;
+    constructor Create(AX, AY: Integer; AR: Real);
+    function Area: Real; override;
+    function Name: String; override;
   end;
-  TRect = object(TShape)
+  TRect = class(TShape)
     W, H: Integer;
-    constructor Init(AX, AY, AW, AH: Integer);
-    function Area: Real; virtual;
-    function Name: String; virtual;
-  end;
-  PShape = ^TShape;
-  PCircle = ^TCircle;
-
-  TCounter = object          { ohne virtuelle Methoden: keine VMT }
-    Count: Integer;
-    procedure Inc;
+    constructor Create(AX, AY, AW, AH: Integer);
+    function Area: Real; override;
+    function Name: String; override;
   end;
 
-  { ---- Heap-Klassen (Delphi-Stil 'class') ---- }
   TAnimal = class
   private
     FName: String;
@@ -52,27 +44,25 @@ type
     function Sound: String; override;
   end;
 
-constructor TShape.Init(AX, AY: Integer);
-begin X := AX; Y := AY; end;
+constructor TShape.Create(AX, AY: Integer);
+begin inherited Create; X := AX; Y := AY; end;
 function TShape.Area: Real; begin Result := 0; end;
 function TShape.Name: String; begin Result := 'Shape'; end;
 procedure TShape.Describe;
 begin
   WriteLn(Name, ' bei (', X, ',', Y, ') Flaeche=', Area:0:2);
 end;
-destructor TShape.Done; begin WriteLn('  Done ', Name); end;
+destructor TShape.Destroy; begin WriteLn('  Destroy ', Name); inherited Destroy; end;
 
-constructor TCircle.Init(AX, AY: Integer; AR: Real);
-begin inherited Init(AX, AY); R := AR; end;
+constructor TCircle.Create(AX, AY: Integer; AR: Real);
+begin inherited Create(AX, AY); R := AR; end;
 function TCircle.Area: Real; begin Result := Pi * R * R; end;
 function TCircle.Name: String; begin Result := 'Kreis'; end;
 
-constructor TRect.Init(AX, AY, AW, AH: Integer);
-begin inherited Init(AX, AY); W := AW; H := AH; end;
+constructor TRect.Create(AX, AY, AW, AH: Integer);
+begin inherited Create(AX, AY); W := AW; H := AH; end;
 function TRect.Area: Real; begin Result := W * H; end;
 function TRect.Name: String; begin Result := 'Rechteck(' + inherited Name + ')'; end;
-
-procedure TCounter.Inc; begin Count := Count + 1; end;
 
 constructor TAnimal.Create(const AName: String);
 begin inherited Create; FName := AName; FLegs := 4; end;
@@ -85,53 +75,44 @@ constructor TCat.Create(const AName: String);
 begin inherited Create(AName); Lives := 7; end;
 function TCat.Sound: String; begin Result := 'Miau'; end;
 
-procedure ShowShape(var S: TShape);   { polymorph ueber var-Parameter }
+procedure ShowShape(S: TShape);       { nimmt Stack- und Heapobjekte }
 begin S.Describe; end;
 
-function MakeCounter(n: Integer): TCounter;  { Objekt als Rueckgabewert (Kopie) }
-var k: Integer;
+procedure Verschiebe(S: TShape; DX: Integer);
+begin S.X := S.X + DX; end;
+
+procedure LokaleFiguren;
+var
+  r: TRect;                          { Stackobjekt: lebt nur in dieser Prozedur }
 begin
-  Result.Count := 0;
-  for k := 1 to n do Result.Inc;
-end;
+  r.Create(0, 0, 3, 4);
+  ShowShape(r);
+end;                                 { hier wird r.Destroy automatisch gerufen }
 
 var
-  c: TCircle;          { Stackobjekte: kein New/Free noetig }
-  r: TRect;
-  base: TShape;
-  shapes: array[1..2] of TShape;
-  cnt: TCounter;
-  p: PShape;
-  a: borrowed nilable TAnimal;  { nicht-besitzende Referenz }
+  c: TCircle;                        { globales Stackobjekt }
+  pets: array[1..2] of nilable TAnimal;
+  a: borrowed nilable TAnimal;
+  i: Integer;
+heap
+  h: TShape;                         { Heapobjekte }
   dog: TDog;
   cat: TCat;
 begin
   WriteLn('--- Stackobjekte ---');
-  c.Init(1, 2, 1.5);
-  r.Init(0, 0, 3, 4);
+  c.Create(1, 2, 1.5);
   c.Describe;
-  r.Describe;
   ShowShape(c);
-  ShowShape(r);
-  base := c;            { Kopie des Basisteils, VMT bleibt TShape }
-  base.Describe;
-  WriteLn('SizeOf(TShape)=', SizeOf(TShape) > 0, ' SizeOf(TCircle)>SizeOf(TShape): ', SizeOf(TCircle) > SizeOf(TShape));
-  cnt := MakeCounter(5);
-  cnt.Inc;
-  WriteLn('Counter = ', cnt.Count);
-  shapes[1].Init(5, 5);
-  shapes[2] := r;
-  shapes[2].Describe;
-  c.Done;
+  Verschiebe(c, 10);                 { Wertparameter = Referenz: Original wird geaendert }
+  c.Describe;
+  LokaleFiguren;
+  WriteLn('c is TShape: ', c is TShape, ', c is TRect: ', c is TRect, ', Klasse: ', c.ClassName);
 
-  WriteLn('--- Objekte auf dem Heap (New/Dispose) ---');
-  New(p, Init(9, 9));
-  p^.Describe;
-  Dispose(p, Done);
-  p := New(PCircle, Init(2, 2, 1.0));
-  p^.Describe;
-  WriteLn('Klassenname via Typtest nicht moeglich bei objects, aber Area=', p^.Area:0:3);
-  Dispose(p, Done);
+  WriteLn('--- Heapobjekt derselben Klassen ---');
+  h := TRect.Create(5, 5, 2, 2);
+  h.Describe;
+  ShowShape(h);
+  h.Free;
 
   WriteLn('--- Klassen ---');
   dog := TDog.Create('Bello');
@@ -140,9 +121,16 @@ begin
   cat.Legs := 3;
   cat.Speak;
   a := cat;
-  WriteLn('a is TCat: ', a is TCat, ', a is TDog: ', a is TDog, ', Leben: ', (a as TCat).Lives);
+  if a <> nil then
+    WriteLn('a is TCat: ', a is TCat, ', a is TDog: ', a is TDog, ', Leben: ', (a as TCat).Lives);
   a := nil;
-  dog.Free;
-  cat.Free;
+  pets[1] := dog;
+  pets[2] := cat;
+  for i := 1 to 2 do begin
+    a := pets[i];
+    if a <> nil then Write(a.Name, ' ');
+  end;
+  WriteLn;
+  for i := 1 to 2 do pets[i].Free;
   WriteLn('Ende');
 end.

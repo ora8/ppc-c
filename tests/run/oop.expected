@@ -1,23 +1,20 @@
 --- Stackobjekte ---
 Kreis bei (1,2) Flaeche=7.07
-Rechteck(Shape) bei (0,0) Flaeche=12.00
 Kreis bei (1,2) Flaeche=7.07
+Kreis bei (11,2) Flaeche=7.07
 Rechteck(Shape) bei (0,0) Flaeche=12.00
-Shape bei (1,2) Flaeche=0.00
-SizeOf(TShape)=TRUE SizeOf(TCircle)>SizeOf(TShape): TRUE
-Counter = 6
-Shape bei (0,0) Flaeche=0.00
-  Done Kreis
---- Objekte auf dem Heap (New/Dispose) ---
-Shape bei (9,9) Flaeche=0.00
-  Done Shape
-Kreis bei (2,2) Flaeche=3.14
-Klassenname via Typtest nicht moeglich bei objects, aber Area=3.142
-  Done Kreis
+  Destroy Rechteck(Shape)
+c is TShape: TRUE, c is TRect: FALSE, Klasse: TCircle
+--- Heapobjekt derselben Klassen ---
+Rechteck(Shape) bei (5,5) Flaeche=4.00
+Rechteck(Shape) bei (5,5) Flaeche=4.00
+  Destroy Rechteck(Shape)
 --- Klassen ---
 Bello (TDog, 4 Beine) sagt Wuff
 Minka (TCat, 3 Beine) sagt Miau
 a is TCat: TRUE, a is TDog: FALSE, Leben: 7
+Bello Minka 
   Bello wird freigegeben
   Minka wird freigegeben
 Ende
+  Destroy Kreis

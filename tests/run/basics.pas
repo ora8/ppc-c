@@ -11,7 +11,7 @@ type
   PNode = ^TNode;
   TNode = record
     Value: Integer;
-    Next: PNode;
+    Next: nilable PNode;
   end;
 var
   i, sum: Integer;

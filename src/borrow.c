@@ -12,7 +12,7 @@
  *   - A borrowed variable remembers which places it was borrowed from
  *     ("origins"). Freeing, moving or reassigning such a place makes the
  *     borrow dangling; using a dangling borrow is an error.
- *   - References to stack variables (@x) must not escape into globals,
+ *   - References to stack variables and stack objects must not escape into globals,
  *     fields or function results.
  *   - The same place must not be passed twice to a call if one of the
  *     parameters is var/out (no aliasing of mutable borrows).
@@ -43,6 +43,7 @@ typedef struct {
     unsigned char *own;
     unsigned char *bor;
     unsigned char *nn;
+    unsigned char *fd; /* constructor analysis: own non-nilable fields + 'inherited called' flag */
     Origins *org;
     char **why;
 } State;
@@ -68,6 +69,10 @@ static Program *prog;
 static VEC(TVar) tv;
 static VEC(Alias) aliases;
 static VEC(LoopCtx *) loops;
+static VEC(Field *) cfields; /* constructor being checked: own non-nilable reference fields */
+static int cneed_inh;        /* constructor must call an inherited constructor */
+#define NFD (cfields.len + 1)
+#define FD_INH (cfields.len)
 static Routine *unit;     /* NULL = main program */
 static const char *unit_name;
 static int nerrors;
@@ -77,6 +82,7 @@ static Routine *tobject_free;
 /* per-routine write sets (non-local variables written) */
 typedef VEC(Var *) VarSet;
 static VarSet *wsets;
+static VarSet *rsets; /* non-local non-nilable references read by each routine */
 
 /* ============================================================== diagnostics */
 
@@ -130,6 +136,7 @@ static State st_new(void) {
     s.own = xcalloc((size_t)s.n + 1, 1);
     s.bor = xcalloc((size_t)s.n + 1, 1);
     s.nn = xcalloc((size_t)s.n + 1, 1);
+    s.fd = xcalloc((size_t)NFD, 1);
     s.org = xcalloc((size_t)s.n + 1, sizeof(Origins));
     s.why = xcalloc((size_t)s.n + 1, sizeof(char *));
     return s;
@@ -141,6 +148,7 @@ static State st_copy(State *a) {
     memcpy(s.own, a->own, (size_t)a->n);
     memcpy(s.bor, a->bor, (size_t)a->n);
     memcpy(s.nn, a->nn, (size_t)a->n);
+    memcpy(s.fd, a->fd, (size_t)NFD);
     memcpy(s.why, a->why, (size_t)a->n * sizeof(char *));
     for (int i = 0; i < a->n; i++)
         for (int k = 0; k < a->org[i].len; k++) vpush(s.org[i], a->org[i].items[k]);
@@ -167,6 +175,7 @@ static void st_join(State *a, State *b) {
         *a = c;
         return;
     }
+    for (int k = 0; k < NFD; k++) a->fd[k] |= b->fd[k];
     for (int i = 0; i < a->n; i++) {
         a->own[i] |= b->own[i];
         a->bor[i] |= b->bor[i];
@@ -180,6 +189,7 @@ static void st_join(State *a, State *b) {
 static int st_eq(State *a, State *b) {
     if (a->reach != b->reach) return 0;
     if (!a->reach) return 1;
+    if (memcmp(a->fd, b->fd, (size_t)NFD)) return 0;
     for (int i = 0; i < a->n; i++) {
         if (a->own[i] != b->own[i] || a->bor[i] != b->bor[i] || a->nn[i] != b->nn[i]) return 0;
         if (a->org[i].len != b->org[i].len) return 0;
@@ -318,6 +328,32 @@ static Expr *strip_conv(Expr *e) {
     return e;
 }
 
+static int ctor_field(Expr *e) {
+    if (e->kind != E_FIELD || e->a->kind != E_VAR || e->a->var->vkind != VK_SELF) return -1;
+    for (int k = 0; k < cfields.len; k++)
+        if (cfields.items[k] == e->field) return k;
+    return -1;
+}
+
+static int is_self_expr(Expr *e) {
+    e = e->kind == E_CONV || e->kind == E_CAST ? e->a : e;
+    return e->kind == E_VAR && e->var->vkind == VK_SELF;
+}
+
+static char *uninit_fields(State *s) {
+    Buf b = {0};
+    for (int k = 0; k < cfields.len; k++)
+        if (s->fd[k] & N_UNINIT) buf_printf(&b, "%s'%s'", b.len ? ", " : "", cfields.items[k]->name);
+    return b.d;
+}
+
+/* inside a constructor: Self must not escape before all fields are initialized */
+static void self_escape_check(State *s, Pos p, const char *how) {
+    if (!g_nil_check || !s->reach || !cfields.len) return;
+    char *u = uninit_fields(s);
+    if (u) nerror(p, "'Self' is used (%s) before the constructor initialized field(s) %s", how, u);
+}
+
 /* possible nil states (N_*) of a reference-typed expression */
 static unsigned nil_bits(Expr *e, State *s) {
     e = strip_conv(e);
@@ -337,6 +373,11 @@ static unsigned nil_bits(Expr *e, State *s) {
     case E_BUILTIN:
         if (e->bi == BI_NEW) return N_NN;
         break;
+    case E_FIELD: {
+        int k = ctor_field(e);
+        if (k >= 0) return s->fd[k];
+        break;
+    }
     default: break;
     }
     return (e->type && e->type->nilable) ? (N_NIL | N_NN) : N_NN;
@@ -344,6 +385,7 @@ static unsigned nil_bits(Expr *e, State *s) {
 
 static char *alloc_hint(Expr *x) {
     const char *d = desc_of(x);
+    if (x->kind == E_VAR && x->var->is_stack) return sfmt("%s.Create(...)", d);
     if (x->type->kind == T_CLASS) return sfmt("%s := %s.Create", d, x->type->st->name);
     return sfmt("New(%s)", d);
 }
@@ -359,8 +401,16 @@ static void deref_check(Expr *base, State *s, Pos p) {
         nerror(p, "dereference of nil");
         return;
     }
+    if (ctor_field(x) >= 0) {
+        nerror(p, "field '%s' is used before the constructor %s it", x->field->name,
+               (b & N_NN) ? "initialized (on every path)" : "initialized");
+        return;
+    }
     if (x->kind == E_VAR && slot(x->var) >= 0) {
-        if ((b & N_UNINIT) && !(b & (N_NN | N_NIL)))
+        if ((b & N_UNINIT) && x->var->is_stack)
+            nerror(p, "stack object '%s' is used before it %s constructed (missing '%s')", d,
+                   (b & N_NN) ? "is always" : "was", alloc_hint(x));
+        else if ((b & N_UNINIT) && !(b & (N_NN | N_NIL)))
             nerror(p, "'%s' is used, but no object was allocated for it (missing '%s')", d, alloc_hint(x));
         else if (b & N_UNINIT)
             nerror(p, "'%s' may be used without an allocated object (it is not allocated on every path)", d);
@@ -381,6 +431,11 @@ static void nil_flow(Type *tt, Expr *src, unsigned bits, Pos p, const char *tdes
     const char *d = desc_of(x);
     if (x->kind == E_NIL)
         nerror(p, "cannot assign nil to non-nilable %s (declare it as 'nilable %s')", tdesc, type_name(tt));
+    else if (ctor_field(x) >= 0)
+        nerror(p, "field '%s' is not initialized yet and cannot be passed to %s", x->field->name, tdesc);
+    else if (x->kind == E_VAR && x->var->is_stack && (bits & N_UNINIT))
+        nerror(p, "stack object '%s' %s not constructed yet and cannot be passed to %s (missing '%s.Create(...)')", d,
+               (bits & N_NN) ? "may be" : "is", tdesc, d);
     else if (x->kind == E_VAR && slot(x->var) >= 0 && (bits & N_UNINIT))
         nerror(p, "'%s' %s no allocated object and cannot be stored in non-nilable %s", d,
                (bits & (N_NN | N_NIL)) ? "may have" : "has", tdesc);
@@ -695,10 +750,12 @@ static int is_place_kind(Expr *e) {
 }
 
 static void escape_check(Origins *o, Pos p, const char *target) {
-    for (int k = 0; k < o->len; k++)
-        if (o->items[k].stack)
+    for (int k = 0; k < o->len; k++) {
+        Origin *x = &o->items[k];
+        if (x->stack)
             berror(p, "reference to local variable '%s' escapes into %s (it would dangle after the routine returns)",
-                   o->items[k].desc, target);
+                   x->desc, target);
+    }
 }
 
 static void move_out(Src *src, State *s, Pos p, const char *into) {
@@ -783,7 +840,10 @@ static void do_assign(Expr *lhs, Expr *rhs, State *s, Pos p) {
     use_lvalue(lhs, s);
     (void)is_place_kind;
     nil_flow(lhs->type, rhs, nb, p, sfmt("'%s'", desc_of(lhs)));
+    if (is_self_expr(rhs)) self_escape_check(s, p, sfmt("stored in '%s'", desc_of(lhs)));
     assign_src(lhs, &src, s, p, nb);
+    int k = ctor_field(lhs);
+    if (k >= 0) s->fd[k] = N_NN;
 }
 
 static void do_free(Expr *t, State *s, Pos p, int set_nil, const char *how) {
@@ -792,6 +852,11 @@ static void do_free(Expr *t, State *s, Pos p, int set_nil, const char *how) {
     if (t->kind == E_VAR && t->var->vkind != VK_WITH) {
         Var *v = t->var;
         if (v->vkind == VK_SELF) return;
+        if (v->is_stack) {
+            berror(p, "'%s' is a stack object; it is destroyed automatically at the end of its block and must not be freed",
+                   v->name);
+            return;
+        }
         if (v->borrowed) {
             berror(p, "cannot free borrowed reference '%s' (it does not own the object)", v->name);
             return;
@@ -840,6 +905,39 @@ static void writes_effect(Routine *r, State *s) {
     }
 }
 
+static Field *own_nonnil_field(Struct *x) {
+    for (int i = 0; i < x->fields.len; i++) {
+        Field *f = x->fields.items[i];
+        if (f->owner == x && is_ref_type(f->type) && !f->type->nilable) return f;
+    }
+    return NULL;
+}
+
+/* T is created/constructed with ctor: every class between T and the ctor's class must be covered */
+static void creation_check(Type *T, Routine *ctor, Pos p) {
+    if (!g_nil_check) return;
+    for (Struct *x = T->st; x && x != ctor->owner; x = x->parent) {
+        Field *f = own_nonnil_field(x);
+        if (f) {
+            nerror(p, "'%s' cannot be created with the inherited constructor '%s.%s': it does not initialize field '%s' of '%s'",
+                   T->st->name, ctor->owner->name, ctor->name, f->name, x->name);
+            return;
+        }
+    }
+}
+
+static void reads_check(Routine *r, State *s, Pos p) {
+    if (!g_nil_check || !s->reach || !r || r->prelude) return;
+    VarSet *rs = &rsets[r->id];
+    for (int k = 0; k < rs->len; k++) {
+        Var *v = rs->items[k];
+        int i = slot(v);
+        if (i >= 0 && (s->nn[i] & (N_UNINIT | N_NIL)))
+            nerror(p, "the call of '%s' %s '%s' before %s", r->name, (s->nn[i] & N_NN) ? "may use" : "uses", v->name,
+                   v->is_stack ? "it is constructed" : "an object was assigned to it");
+    }
+}
+
 typedef struct {
     char *path;
     char *desc;
@@ -850,8 +948,24 @@ typedef struct {
 static void call_effects(Expr *e, State *s, Origins *out) {
     Routine *r = e->rt;
     VEC(ArgPath) ap = {0};
+    if (unit && unit->kind == RK_CTOR && e->a && is_self_expr(e->a)) {
+        if (e->cmode == CM_INHERITED && r->kind == RK_CTOR) s->fd[FD_INH] = N_NN;
+        else self_escape_check(s, e->pos, sfmt("call of '%s'", r->name));
+    }
+    if (e->cmode == CM_NEWCLASS) creation_check(e->ctype, r, e->pos);
+    if (e->cmode == CM_CTOR_INST && e->a && e->a->kind == E_VAR && e->a->var->is_stack)
+        creation_check(e->a->var->type, r, e->pos);
+    for (int i = 0; i < e->args.len; i++)
+        if (is_self_expr(e->args.items[i])) self_escape_check(s, e->args.items[i]->pos, sfmt("passed to '%s'", r->name));
     if (e->a) {
-        if (e->a->type->kind == T_CLASS && r != tobject_free) {
+        int stack_ctor = e->cmode == CM_CTOR_INST && e->a->kind == E_VAR && e->a->var->is_stack;
+        if (stack_ctor) {
+            int k = slot(e->a->var);
+            if (g_nil_check && s->reach && k >= 0 && (s->nn[k] & N_NN))
+                nerror(e->pos, "stack object '%s' is %sconstructed twice", e->a->var->name,
+                       (s->nn[k] & N_UNINIT) ? "possibly " : "");
+            if (k >= 0) s->nn[k] = N_NN;
+        } else if (e->a->type->kind == T_CLASS && r != tobject_free) {
             deref_check(e->a, s, e->pos);
         }
         if (is_free_call(e)) {
@@ -956,10 +1070,16 @@ static void call_effects(Expr *e, State *s, Origins *out) {
     if (e->cmode == CM_VIRTUAL) {
         for (int i = 0; i < prog->routines.len; i++) {
             Routine *q = prog->routines.items[i];
+            if (q->owner && STREQ(q->name, r->name)) reads_check(q, s, e->pos);
+        }
+        for (int i = 0; i < prog->routines.len; i++) {
+            Routine *q = prog->routines.items[i];
             if (q->owner && STREQ(q->name, r->name)) writes_effect(q, s);
         }
-    } else
+    } else {
+        reads_check(r, s, e->pos);
         writes_effect(r, s);
+    }
 }
 
 /* ============================================================== statements */
@@ -1003,6 +1123,13 @@ static void refine(Expr *c, int truth, State *s) {
 static void exit_checks(State *s, Pos p) {
     if (!s->reach) return;
     const char *where = unit_name;
+    for (int k = 0; k < cfields.len; k++)
+        if (s->fd[k] & N_UNINIT)
+            nerror(p, "constructor '%s' does not initialize non-nilable field '%s'%s", where, cfields.items[k]->name,
+                   (s->fd[k] & N_NN) ? " on every path" : "");
+    if (cneed_inh && (s->fd[FD_INH] & N_UNINIT))
+        nerror(p, "constructor '%s' must call an inherited constructor%s (the parent class has non-nilable fields)", where,
+               (s->fd[FD_INH] & N_NN) ? " on every path" : "");
     for (int i = 0; i < tv.len; i++) {
         Var *v = tv.items[i].v;
         if (!v->type->nilable && (s->nn[i] & (N_NIL | N_UNINIT))) {
@@ -1011,6 +1138,8 @@ static void exit_checks(State *s, Pos p) {
                 nerror(p, "'%s' %s, but its result type '%s' is not nilable", where,
                        !sure ? "may return nil or no object" : (s->nn[i] & N_UNINIT) ? "never assigns an object to its result" : "returns nil",
                        type_name(v->type));
+            else if (tv.items[i].varparam && v->mode == PM_OUT && (s->nn[i] & N_UNINIT))
+                nerror(p, "out parameter '%s' is %snot assigned when '%s' returns", v->name, sure ? "" : "possibly ", where);
             else if (tv.items[i].varparam)
                 nerror(p, "var parameter '%s' %s nil when '%s' returns, but its type is not nilable", v->name,
                        sure ? "is" : "may be", where);
@@ -1198,7 +1327,7 @@ static int nonlocal_to(Var *v, Routine *r) {
     return v->level < r->level;
 }
 
-static VarSet *cur_ws;
+static VarSet *cur_ws, *cur_rs;
 static Routine *cur_wr;
 static void ws_target(Expr *e) {
     Var *root = NULL;
@@ -1212,6 +1341,9 @@ static void ws_stmt(Stmt *s);
 static void ws_expr(Expr *e) {
     if (!e) return;
     switch (e->kind) {
+    case E_VAR:
+        if (nonlocal_to(e->var, cur_wr) && is_ref_type(e->var->type) && !e->var->type->nilable) vs_add(cur_rs, e->var);
+        return;
     case E_RCALL:
         ws_expr(e->a);
         if (e->a && is_free_call(e)) ws_target(e->a);
@@ -1248,7 +1380,7 @@ static void ws_stmt(Stmt *s) {
     case S_ASSIGN:
         if (is_owning_type(s->a->type)) ws_target(s->a);
         if (s->b->kind == E_VAR && is_owning_type(s->b->type) && nonlocal_to(s->b->var, cur_wr)) vs_add(cur_ws, s->b->var);
-        ws_expr(s->a);
+        if (s->a->kind != E_VAR) ws_expr(s->a);
         ws_expr(s->b);
         return;
     case S_CALL: ws_expr(s->a); return;
@@ -1324,11 +1456,13 @@ static void compute_write_sets(void) {
     for (int i = 0; i < prog->routines.len; i++)
         if (prog->routines.items[i]->id > maxid) maxid = prog->routines.items[i]->id;
     wsets = xcalloc((size_t)maxid + 1, sizeof(VarSet));
+    rsets = xcalloc((size_t)maxid + 1, sizeof(VarSet));
     callees = xcalloc((size_t)maxid + 1, sizeof(RtSet));
     for (int i = 0; i < prog->routines.len; i++) {
         Routine *r = prog->routines.items[i];
         cur_wr = r;
         cur_ws = &wsets[r->id];
+        cur_rs = &rsets[r->id];
         for (int k = 0; k < r->body.len; k++) {
             ws_stmt(r->body.items[k]);
             cl_stmt(r->body.items[k], &callees[r->id]);
@@ -1344,13 +1478,16 @@ static void compute_write_sets(void) {
                 for (int q = 0; q < prog->routines.len; q++) {
                     Routine *cc = prog->routines.items[q];
                     if (cc != c && !(c->slot >= 0 && cc->owner && STREQ(cc->name, c->name))) continue;
-                    VarSet *src = &wsets[cc->id];
-                    for (int j = 0; j < src->len; j++) {
-                        Var *v = src->items[j];
-                        if (!nonlocal_to(v, r)) continue;
-                        int before = wsets[r->id].len;
-                        vs_add(&wsets[r->id], v);
-                        if (wsets[r->id].len != before) changed = 1;
+                    for (int w = 0; w < 2; w++) {
+                        VarSet *src = w ? &rsets[cc->id] : &wsets[cc->id];
+                        VarSet *dst = w ? &rsets[r->id] : &wsets[r->id];
+                        for (int j = 0; j < src->len; j++) {
+                            Var *v = src->items[j];
+                            if (!nonlocal_to(v, r)) continue;
+                            int before = dst->len;
+                            vs_add(dst, v);
+                            if (dst->len != before) changed = 1;
+                        }
                     }
                 }
             }
@@ -1383,11 +1520,12 @@ static void check_unit(Routine *r, StmtVec *body, Pos end) {
     for (int i = 0; i < tv.len; i++) {
         Var *v = tv.items[i].v;
         if (v->vkind == VK_PARAM)
-            s.nn[i] = (v->type->nilable || v->mode == PM_OUT) ? (N_NIL | N_NN) : N_NN;
+            s.nn[i] = v->type->nilable ? (N_NIL | N_NN) : v->mode == PM_OUT ? N_UNINIT : N_NN;
         else
             s.nn[i] = N_UNINIT;
         if (v->vkind == VK_PARAM && tv.items[i].kind == TV_BORROW)
             origin_add(&s.org[i], sfmt("#%d", v->id), v->name, v, 0);
+        if (v->is_stack) origin_add(&s.org[i], sfmt("#%d", v->id), v->name, v, !v->is_global);
         if (tv.items[i].kind == TV_OWNER) {
             if (tv.items[i].varparam) s.own[i] = O_UNK;
             else if (v->vkind == VK_PARAM) s.own[i] = O_OWNED; /* owned parameter */
@@ -1395,6 +1533,7 @@ static void check_unit(Routine *r, StmtVec *body, Pos end) {
         } else
             s.bor[i] = B_VALID;
     }
+    for (int k = 0; k < NFD; k++) s.fd[k] = N_UNINIT;
     (void)r;
     an_list(body, &s);
     exit_checks(&s, end);
@@ -1407,12 +1546,34 @@ int borrow_check(Program *p) {
         for (int i = 0; i < p->tobject->methods.len; i++)
             if (STREQ(p->tobject->methods.items[i]->name, "Free")) tobject_free = p->tobject->methods.items[i];
     compute_write_sets();
+    for (int i = 0; i < p->structs.len && g_nil_check; i++) {
+        Struct *c = p->structs.items[i];
+        if (c->kind != SK_CLASS) continue;
+        Field *f = own_nonnil_field(c);
+        int has_ctor = 0;
+        for (int k = 0; k < c->methods.len; k++)
+            if (c->methods.items[k]->kind == RK_CTOR) has_ctor = 1;
+        if (f && !has_ctor)
+            nerror(c->pos, "class '%s' has the non-nilable field '%s' but declares no constructor that initializes it", c->name,
+                   f->name);
+    }
 
     for (int i = 0; i < p->routines.len; i++) {
         Routine *r = p->routines.items[i];
         if (r->prelude || r->is_abstract || !r->defined) continue;
         unit = r;
         unit_name = r->owner ? sfmt("%s.%s", r->owner->name, r->name) : r->name;
+        cfields.len = 0;
+        cneed_inh = 0;
+        if (r->kind == RK_CTOR && r->owner && g_nil_check) {
+            Struct *c = r->owner;
+            for (int k = 0; k < c->fields.len; k++) {
+                Field *f = c->fields.items[k];
+                if (f->owner == c && is_ref_type(f->type) && !f->type->nilable) vpush(cfields, f);
+            }
+            for (Struct *x = c->parent; x; x = x->parent)
+                if (own_nonnil_field(x)) cneed_inh = 1;
+        }
         for (int k = 0; k < r->params.len; k++) {
             Param *pm = &r->params.items[k];
             if (!is_owning_type(pm->type) || !pm->var) continue;
@@ -1426,6 +1587,8 @@ int borrow_check(Program *p) {
         if (r->body.len) end = r->body.items[r->body.len - 1]->pos;
         check_unit(r, &r->body, end);
         untrack_all();
+        cfields.len = 0;
+        cneed_inh = 0;
     }
     unit = NULL;
     unit_name = "the program";

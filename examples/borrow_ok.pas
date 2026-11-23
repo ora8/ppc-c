@@ -1,6 +1,6 @@
 program BorrowOk;
 { Ownership-Regeln von ppc an einem kleinen Adressbuch.
-  Besitzer:  normale Variablen/Felder vom Klassentyp
+  Besitzer:  Variablen im Abschnitt 'heap', Felder vom Klassentyp
   Ausleihe:  'borrowed' Variablen, Wert-/const-Parameter
   Move:      Zuweisung Besitzer -> Besitzer, 'owned'-Parameter, Take()
   nilable:   nur solche Referenzen duerfen nil sein (z. B. Listenende) }
@@ -60,11 +60,12 @@ begin
   WriteLn;
 end;
 
-var
-  buch: TBuch;
+heap
+  buch: TBuch;                           { Heapobjekte: Besitzer }
   anna: TPerson;
   weg: nilable TPerson;
-  treffer: borrowed nilable TPerson;
+var
+  treffer: borrowed nilable TPerson;     { Ausleihe }
 begin
   buch := TBuch.Create;
   buch.Neu(TPerson.Create('Bert'));      { Temporaeres Objekt direkt uebergeben }

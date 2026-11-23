@@ -12,8 +12,7 @@ static int level;
 static int indent;
 static int tmpc;
 static VEC(int) loops; /* continue label id, or 0 for native 'continue' */
-static const char *self_override;
-static Routine *tobject_free;
+static Routine *tobject_free, *tobject_destroy;
 
 static char *gx(Expr *e);
 static void gs(Stmt *s);
@@ -21,8 +20,10 @@ static void gs(Stmt *s);
 static char *ctype(Type *t);
 
 /* runtime nil check around a reference-valued expression */
+/* Only needed when the compile-time nil analysis is switched off (--no-nil-check):
+ * with the analysis on, every dereferenced reference is proven non-nil. */
 static char *nilchk(Expr *base, char *code, Pos p) {
-    if (!g_nil_check) return code;
+    if (g_nil_check) return code;
     Expr *x = base;
     while (x->kind == E_CONV || x->kind == E_CAST) x = x->a;
     if (x->kind == E_VAR && (x->var->vkind == VK_SELF || x->var->vkind == VK_WITH)) return code;
@@ -65,7 +66,7 @@ static void ensure_struct(Struct *s) {
     s->emitted = 1;
     for (int i = 0; i < s->fields.len; i++) {
         Type *ft = s->fields.items[i]->type;
-        if (ft->kind == T_RECORD || ft->kind == T_OBJECT) ensure_struct(ft->st);
+        if (ft->kind == T_RECORD) ensure_struct(ft->st);
         else if (ft->kind == T_ARRAY) ctype(ft);
     }
     Buf b = {0};
@@ -100,7 +101,7 @@ static char *ctype(Type *t) {
     case T_ENUM: return "int32_t";
     case T_NIL: return "void*";
     case T_PTR: return t->base ? sfmt("%s*", ctype(t->base)) : "void*";
-    case T_RECORD: case T_OBJECT: return sfmt("struct S%d", t->st->id);
+    case T_RECORD: return sfmt("struct S%d", t->st->id);
     case T_CLASS: return sfmt("struct S%d*", t->st->id);
     case T_ARRAY: {
         char *elem = ctype(t->base);
@@ -108,7 +109,7 @@ static char *ctype(Type *t) {
         char *key = sfmt("%s|%lld", elem, n);
         for (int i = 0; i < arrs.len; i++)
             if (STREQ(arrs.items[i].key, key)) return sfmt("struct %s", arrs.items[i].name);
-        if (t->base->kind == T_RECORD || t->base->kind == T_OBJECT) ensure_struct(t->base->st);
+        if (t->base->kind == T_RECORD) ensure_struct(t->base->st);
         ArrDef d = {key, sfmt("A%d", arrs.len + 1)};
         vpush(arrs, d);
         buf_printf(&b_fwd, "struct %s;\n", d.name);
@@ -150,6 +151,14 @@ static char *var_ref(Var *v) {
     char *r = var_raw(v);
     return v->is_ref ? sfmt("(*%s)", r) : r;
 }
+/* auxiliary storage of a variable (stack object storage / live flag) */
+static char *var_aux(Var *v, const char *suffix) {
+    Var t = *v;
+    t.cname = sfmt("%s%s", v->cname, suffix);
+    t.is_ref = 0;
+    return var_raw(&t);
+}
+
 
 static char *int_lit(long long v) {
     if (v == LLONG_MIN) return "(-9223372036854775807LL-1)";
@@ -174,6 +183,9 @@ static Routine *find_method(Struct *s, const char *name) {
 
 /* ============================================================== calls */
 
+static char *gcall_core(Expr *e, const char *selfp, Struct *sst, const char *as);
+
+
 static char *gcall(Expr *e) {
     Routine *r = e->rt;
     char *selfp = NULL;
@@ -181,7 +193,8 @@ static char *gcall(Expr *e) {
     if (e->a) {
         Type *bt = e->a->type;
         char *bv = gx(e->a);
-        if (bt->kind == T_CLASS && r != tobject_free) bv = nilchk(e->a, bv, e->pos);
+        if (bt->kind == T_CLASS && r != tobject_free && !(e->a->kind == E_VAR && e->a->var->is_stack))
+            bv = nilchk(e->a, bv, e->pos);
         selfp = bt->kind == T_CLASS ? bv : sfmt("(&%s)", bv);
         sst = bt->st;
     }
@@ -194,8 +207,11 @@ static char *gcall(Expr *e) {
         else
             buf_put(&args, gx(e->args.items[i]));
     }
-    const char *as = buf_str(&args);
-    int is_class = r->owner && r->owner->kind == SK_CLASS;
+    return gcall_core(e, selfp, sst, buf_str(&args));
+}
+
+static char *gcall_core(Expr *e, const char *selfp, Struct *sst, const char *as) {
+    Routine *r = e->rt;
     const char *dflag = "";
     switch (e->cmode) {
     case CM_NORMAL:
@@ -204,21 +220,16 @@ static char *gcall(Expr *e) {
     case CM_NEWCLASS:
         return sfmt("((%s)%s(NULL, &VMTI%d%s))", ctype(e->ctype), r->cname, e->ctype->st->id, as);
     case CM_CTOR_INST: {
-        const char *vmt = "NULL";
-        if (!is_class && sst->has_vmt && !(e->a->kind == E_VAR && e->a->var->vkind == VK_SELF))
-            vmt = sfmt("&VMTI%d", sst->id);
-        return sfmt("%s((struct S%d*)%s, %s%s)", r->cname, r->owner->id, selfp, vmt, as);
-    }
-    case CM_CTOR_NEW: {
-        Struct *st = e->ctype->st;
-        const char *vmt = st->has_vmt ? sfmt("&VMTI%d", st->id) : "NULL";
-        return sfmt("%s((struct S%d*)%s, %s%s)", r->cname, r->owner->id, self_override, vmt, as);
+        char *call = sfmt("%s((struct S%d*)%s, NULL%s)", r->cname, r->owner->id, selfp, as);
+        if (e->a->kind == E_VAR && e->a->var->is_stack) /* stack object: construct in place */
+            return sfmt("(%s, %s = 1, %s)", call, var_aux(e->a->var, "__live"), selfp);
+        return call;
     }
     case CM_VIRTUAL:
-        if (r->kind == RK_DTOR) dflag = is_class ? ", 1" : ", 0";
+        if (r->kind == RK_DTOR) dflag = ", 1";
         return sfmt("((struct VMT%d*)((%s)->__vmt))->v%d(%s%s%s)", sst->id, selfp, r->slot, selfp, dflag, as);
     case CM_STATIC:
-        if (r->kind == RK_DTOR) dflag = is_class ? ", 1" : ", 0";
+        if (r->kind == RK_DTOR) dflag = ", 1";
         return sfmt("%s((struct S%d*)%s%s%s)", r->cname, r->owner->id, selfp, dflag, as);
     case CM_INHERITED:
         if (r->kind == RK_CTOR) dflag = ", NULL";
@@ -341,19 +352,11 @@ static char *gbuiltin(Expr *e) {
         char *tn = sfmt("__n%d", id);
         Buf b = {0};
         buf_printf(&b, "({ %s %s = (%s)__ppc_alloc(sizeof(%s)); ", ctype(pt), tn, ctype(pt), ctype(bt));
-        if (bt->kind == T_OBJECT && bt->st->has_vmt) buf_printf(&b, "%s->__vmt = &VMTI%d; ", tn, bt->st->id);
         if (a->kind != E_TYPEREF) buf_printf(&b, "%s = %s; ", gx(a), tn);
-        if (e->b) {
-            const char *save = self_override;
-            self_override = tn;
-            buf_printf(&b, "%s; ", gx(e->b));
-            self_override = save;
-        }
         buf_printf(&b, "%s; })", a->kind == E_TYPEREF ? tn : "(void)0");
         return b.d;
     }
     case BI_DISPOSE:
-        if (e->b) return sfmt("({ %s; __ppc_free(%s); })", gx(e->b), G(0));
         return sfmt("__ppc_free(%s)", G(0));
     case BI_FREEANDNIL: {
         int id = ++tmpc;
@@ -471,20 +474,11 @@ static char *gx(Expr *e) {
         if (to->kind == T_REAL) return sfmt("((double)(%s))", a);
         if (to->kind == T_STR && from->kind == T_CHAR) return sfmt("__pstr_char(%s)", a);
         if (to->kind == T_PTR || to->kind == T_CLASS) return sfmt("((%s)(%s))", ctype(to), a);
-        if (to->kind == T_OBJECT) {
-            int id = ++tmpc;
-            Buf b = {0};
-            buf_printf(&b, "({ %s __s%d = %s; %s __t%d; memcpy(&__t%d, &__s%d, sizeof __t%d); ", ctype(from), id, a,
-                       ctype(to), id, id, id, id);
-            if (to->st->has_vmt) buf_printf(&b, "__t%d.__vmt = &VMTI%d; ", id, to->st->id);
-            buf_printf(&b, "__t%d; })", id);
-            return b.d;
-        }
         return a;
     }
     case E_CAST: {
         Type *t = e->type;
-        if (t->kind == T_RECORD || t->kind == T_OBJECT) return sfmt("(*(%s*)&%s)", ctype(t), gx(e->a));
+        if (t->kind == T_RECORD) return sfmt("(*(%s*)&%s)", ctype(t), gx(e->a));
         return sfmt("((%s)(%s))", ctype(t), gx(e->a));
     }
     case E_RCALL: return gcall(e);
@@ -495,13 +489,21 @@ static char *gx(Expr *e) {
 
 /* ============================================================== statements */
 
-static void obj_vmt_init(const char *ref, Type *t) {
-    if (t->kind == T_OBJECT && t->st->has_vmt) {
-        line("%s.__vmt = &VMTI%d;", ref, t->st->id);
-    } else if (t->kind == T_ARRAY && t->base->kind == T_OBJECT && t->base->st->has_vmt) {
-        int id = ++tmpc;
-        line("for (int64_t __k%d = 0; __k%d < %lld; __k%d++) (%s).a[__k%d].__vmt = &VMTI%d;", id, id,
-             t->hi - t->lo + 1, id, ref, id, t->base->st->id);
+/* stack object: point the reference at its storage in the frame and set the VMT */
+static void stack_init(Var *v) {
+    if (!v->is_stack) return;
+    line("%s = &%s;", var_raw(v), var_aux(v, "__st"));
+    line("%s->__vmt = &VMTI%d;", var_raw(v), v->type->st->id);
+}
+
+/* stack objects are destroyed (Destroy without freeing) when their block ends,
+ * in reverse declaration order */
+static void stack_destroy(Var **vars, int n) {
+    for (int i = n - 1; i >= 0; i--) {
+        Var *v = vars[i];
+        if (!v->is_stack) continue;
+        line("if (%s) ((struct VMT%d*)(%s->__vmt))->v%d(%s, 0);", var_aux(v, "__live"), v->type->st->id, var_raw(v),
+             tobject_destroy->slot, var_raw(v));
     }
 }
 
@@ -512,15 +514,7 @@ static void gstmts(StmtVec *v) {
 static void gs(Stmt *s) {
     switch (s->kind) {
     case S_EMPTY: return;
-    case S_ASSIGN: {
-        char *l = gx(s->a), *r = gx(s->b);
-        Type *t = s->a->type;
-        if (t->kind == T_OBJECT && t->st->has_vmt)
-            line("{ void *__v = (%s).__vmt; %s = %s; (%s).__vmt = __v; }", l, l, r, l);
-        else
-            line("%s = %s;", l, r);
-        return;
-    }
+    case S_ASSIGN: line("%s = %s;", gx(s->a), gx(s->b)); return;
     case S_CALL: line("%s;", gx(s->a)); return;
     case S_COMPOUND:
         line("{");
@@ -712,8 +706,11 @@ static void gen_routine(Routine *r) {
             buf_printf(&f, "  %s%s %s;\n", ctype(v->type), v->is_ref ? "*" : "", v->cname);
         }
         if (r->result) buf_printf(&f, "  %s Result;\n", ctype(r->result->type));
-        for (int i = 0; i < r->locals.len; i++)
-            buf_printf(&f, "  %s %s;\n", ctype(r->locals.items[i]->type), r->locals.items[i]->cname);
+        for (int i = 0; i < r->locals.len; i++) {
+            Var *v = r->locals.items[i];
+            buf_printf(&f, "  %s %s;\n", ctype(v->type), v->cname);
+            if (v->is_stack) buf_printf(&f, "  struct S%d %s__st;\n  int %s__live;\n", v->type->st->id, v->cname, v->cname);
+        }
         buf_put(&f, "  char __dummy;\n};\n");
         buf_put(&b_frames, buf_str(&f));
         line("struct F%d __f;", r->id);
@@ -723,7 +720,6 @@ static void gen_routine(Routine *r) {
     if (r->kind == RK_CTOR && r->owner->kind == SK_CLASS)
         line("if (__vmt) { self = (struct S%d*)__ppc_alloc(((struct __VMTHdr*)__vmt)->size); self->__vmt = __vmt; }",
              r->owner->id);
-    if (r->kind == RK_CTOR && r->owner->kind == SK_OBJECT && r->owner->has_vmt) line("if (__vmt) self->__vmt = __vmt;");
     if (r->has_frame) {
         if (r->self) line("__f.self = self;");
         for (int i = 0; i < r->params.len; i++) line("__f.%s = %s;", r->params.items[i].var->cname, r->params.items[i].var->cname);
@@ -732,16 +728,20 @@ static void gen_routine(Routine *r) {
         for (int i = 0; i < r->locals.len; i++) {
             Var *v = r->locals.items[i];
             line("%s %s; memset(&%s, 0, sizeof %s);", ctype(v->type), v->cname, v->cname, v->cname);
+            if (v->is_stack)
+                line("struct S%d %s__st; memset(&%s__st, 0, sizeof %s__st); int %s__live = 0;", v->type->st->id, v->cname,
+                     v->cname, v->cname, v->cname);
         }
     }
-    for (int i = 0; i < r->locals.len; i++) obj_vmt_init(var_ref(r->locals.items[i]), r->locals.items[i]->type);
-    if (r->result) obj_vmt_init(var_ref(r->result), r->result->type);
+    for (int i = 0; i < r->locals.len; i++) stack_init(r->locals.items[i]);
     gstmts(&r->body);
     line("goto __exit;");
     indent = 0;
     line("__exit:;");
     indent = 1;
-    if (r->kind == RK_DTOR && r->owner->kind == SK_CLASS) line("if (__free) __ppc_free(self);");
+    stack_destroy(r->locals.items, r->locals.len);
+    if (r->kind == RK_DTOR && r->owner->kind == SK_CLASS)
+        line("if (__free) __ppc_free(self);");
     if (r->result) line("return %s;", var_ref(r->result));
     else if (r->kind == RK_CTOR && r->owner->kind == SK_CLASS) line("return self;");
     indent = 0;
@@ -754,7 +754,10 @@ static void gen_routine(Routine *r) {
 
 void codegen(Program *p, FILE *f) {
     prog = p;
-    if (p->tobject) tobject_free = find_method(p->tobject, "Free");
+    if (p->tobject) {
+        tobject_free = find_method(p->tobject, "Free");
+        tobject_destroy = find_method(p->tobject, "Destroy");
+    }
 
     for (int i = 0; i < p->structs.len; i++) buf_printf(&b_fwd, "struct S%d;\n", p->structs.items[i]->id);
     for (int i = 0; i < p->routines.len; i++)
@@ -792,6 +795,7 @@ void codegen(Program *p, FILE *f) {
     for (int i = 0; i < p->globals.len; i++) {
         Var *v = p->globals.items[i];
         buf_printf(&b_globals, "static %s %s;\n", ctype(v->type), v->cname);
+        if (v->is_stack) buf_printf(&b_globals, "static struct S%d %s__st;\nstatic int %s__live;\n", v->type->st->id, v->cname, v->cname);
     }
     /* prototypes and bodies */
     for (int i = 0; i < p->routines.len; i++) {
@@ -815,13 +819,14 @@ void codegen(Program *p, FILE *f) {
     line("int main(int argc, char **argv) {");
     indent = 1;
     line("(void)argc; (void)argv;");
-    for (int i = 0; i < p->globals.len; i++) obj_vmt_init(p->globals.items[i]->cname, p->globals.items[i]->type);
+    for (int i = 0; i < p->globals.len; i++) stack_init(p->globals.items[i]);
     gstmts(&p->init);
     gstmts(&p->body);
     line("goto __exit;");
     indent = 0;
     line("__exit:;");
     indent = 1;
+    stack_destroy(p->globals.items, p->globals.len);
     line("fflush(stdout);");
     line("return 0;");
     indent = 0;

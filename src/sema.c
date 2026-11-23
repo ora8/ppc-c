@@ -80,7 +80,7 @@ const char *type_name(Type *t) {
     case T_NIL: return "Pointer(nil)";
     case T_PTR: return t->base ? sfmt("^%s", type_name(t->base)) : "Pointer";
     case T_ARRAY: return sfmt("array[%lld..%lld] of %s", t->lo, t->hi, type_name(t->base));
-    case T_RECORD: case T_OBJECT: case T_CLASS: return t->st->name;
+    case T_RECORD: case T_CLASS: return t->st->name;
     case T_ENUM: return t->en->name;
     }
     return "?";
@@ -96,6 +96,18 @@ static int is_ptrlike(Type *t) { return t->kind == T_PTR || t->kind == T_CLASS |
 
 /* owning types: class instances and typed pointers (borrow checker) */
 int is_ref_type(Type *t) { return t && (t->kind == T_CLASS || (t->kind == T_PTR && t->base)); }
+/* an expression that yields a freshly owned object nobody holds yet */
+int is_owning_temp(Expr *e) {
+    while (e->kind == E_CONV || e->kind == E_CAST || e->kind == E_AS) e = e->a;
+    if (e->kind == E_RCALL) {
+        Routine *r = e->rt;
+        if (r->kind == RK_CTOR) return e->cmode == CM_NEWCLASS;
+        return r->kind == RK_FUNC && is_ref_type(r->ret) && !r->ret_borrowed;
+    }
+    if (e->kind == E_BUILTIN) return e->bi == BI_TAKE || (e->bi == BI_NEW && e->type && is_ref_type(e->type));
+    return 0;
+}
+
 int is_owning_type(Type *t) { return t && (t->kind == T_CLASS || (t->kind == T_PTR && t->base)); }
 
 int struct_descends(Struct *d, Struct *b) {
@@ -113,7 +125,7 @@ static int same_type(Type *a, Type *b) {
         if (!a->base || !b->base) return !a->base && !b->base;
         return same_type(a->base, b->base);
     case T_ARRAY: return a->lo == b->lo && a->hi == b->hi && same_type(a->base, b->base);
-    case T_RECORD: case T_OBJECT: case T_CLASS: return a->st == b->st;
+    case T_RECORD: case T_CLASS: return a->st == b->st;
     case T_ENUM: return a->en == b->en;
     default: return 1;
     }
@@ -135,19 +147,11 @@ static int assign_compat(Type *to, Type *from) {
     case T_STR: return from->kind == T_CHAR ? 2 : 0;
     case T_PTR:
         if (from->kind == T_NIL) return 1;
-        if (from->kind == T_PTR) {
-            if (!to->base || !from->base) return 2;
-            if (to->base->st && from->base->st && to->base->kind == T_OBJECT &&
-                from->base->kind == T_OBJECT && struct_descends(from->base->st, to->base->st))
-                return 2;
-        }
+        if (from->kind == T_PTR && (!to->base || !from->base)) return 2;
         return 0;
     case T_CLASS:
         if (from->kind == T_NIL) return 1;
         if (from->kind == T_CLASS && struct_descends(from->st, to->st)) return 2;
-        return 0;
-    case T_OBJECT:
-        if (from->kind == T_OBJECT && struct_descends(from->st, to->st)) return 2;
         return 0;
     default: return 0;
     }
@@ -280,13 +284,16 @@ static int is_lvalue(Expr *e) {
     case E_FIELD: return e->a->type->kind == T_CLASS || is_lvalue(e->a);
     case E_INDEX: return is_lvalue(e->a);
     case E_DEREF: return 1;
-    case E_CAST: return (e->type->kind == T_RECORD || e->type->kind == T_OBJECT) && is_lvalue(e->a);
+    case E_CAST: return e->type->kind == T_RECORD && is_lvalue(e->a);
     default: return 0;
     }
 }
 
 static void check_writable(Expr *e, const char *what) {
     if (!is_lvalue(e)) error_at(e->pos, "%s: variable identifier expected", what);
+    if (e->kind == E_VAR && e->var->is_stack)
+        error_at(e->pos, "%s: \"%s\" is a stack object and cannot be reassigned; construct it with %s.Create(...) (heap objects are declared in a 'heap' section)", what,
+                 e->var->name, e->var->name);
     if (e->kind == E_VAR && e->var->is_const)
         error_at(e->pos, "%s: cannot modify constant/loop variable \"%s\"", what, e->var->name);
 }
@@ -457,13 +464,20 @@ static Struct *new_struct(const char *name, int kind, Pos p) {
     s->name = xstrdup(name);
     s->kind = kind;
     s->pos = p;
-    s->type = new_type(kind == SK_RECORD ? T_RECORD : kind == SK_OBJECT ? T_OBJECT : T_CLASS, name);
+    s->type = new_type(kind == SK_RECORD ? T_RECORD : T_CLASS, name);
     s->type->st = s;
     return s;
 }
 
+/* zero-initialized storage (arrays, records, New(p)^) cannot hold non-nilable references */
+static void require_nilable(Type *t, Pos p, const char *where) {
+    if (g_nil_check && is_ref_type(t) && !t->nilable)
+        error_at(p, "%s of type \"%s\" must be declared 'nilable %s' (this storage starts out empty)", where, type_name(t),
+                 type_name(t));
+}
+
 static void check_complete(Type *t, Pos p) {
-    if ((t->kind == T_RECORD || t->kind == T_OBJECT) && !t->st->defined)
+    if (t->kind == T_RECORD && !t->st->defined)
         error_at(p, "type \"%s\" is not completely defined", t->st->name);
 }
 
@@ -472,6 +486,7 @@ static void add_fields(Struct *s, FieldDeclVec *fields) {
         FieldDecl *fd = &fields->items[i];
         Type *t = resolve_type(fd->ty);
         check_complete(t, fd->ty->pos);
+        if (s->kind == SK_RECORD) require_nilable(t, fd->ty->pos, "record field");
         if (fd->borrowed && !is_owning_type(t))
             error_at(fd->ty->pos, "'borrowed' requires a class or typed pointer type");
         for (int k = 0; k < fd->names.len; k++) {
@@ -548,12 +563,14 @@ static Type *resolve_type_inner(TypeExpr *te) {
         Look L = lookup(te->name.name);
         if (L.kind != LK_SYM || L.sym->kind != SY_TYPE)
             error_at(te->pos, "type identifier expected after '^' (\"%s\")", te->name.name);
+        require_nilable(L.sym->type, te->pos, "pointer target");
         return ptr_to(L.sym->type);
     }
     case TE_STR: return t_str;
     case TE_ARRAY: {
         Type *elem = resolve_type(te->elem);
         check_complete(elem, te->elem->pos);
+        require_nilable(elem, te->elem->pos, "array element");
         for (int i = te->ranges.len - 1; i >= 0; i--) {
             Type *t = new_type(T_ARRAY, NULL);
             t->hi = range_of(te->ranges.items[i], &t->lo, &t->index);
@@ -645,12 +662,9 @@ static void define_struct(Struct *s, StructDecl *sd) {
     Struct *par = NULL;
     if (sd->has_parent) {
         Look L = lookup(sd->parent.name);
-        if (L.kind != LK_SYM || L.sym->kind != SY_TYPE ||
-            (L.sym->type->kind != T_OBJECT && L.sym->type->kind != T_CLASS))
-            error_at(sd->parent.pos, "\"%s\" is not an object or class type", sd->parent.name);
+        if (L.kind != LK_SYM || L.sym->kind != SY_TYPE || L.sym->type->kind != T_CLASS)
+            error_at(sd->parent.pos, "\"%s\" is not a class type", sd->parent.name);
         par = L.sym->type->st;
-        if (par->kind != s->kind)
-            error_at(sd->parent.pos, "cannot mix 'object' and 'class' in inheritance");
         if (!par->defined) error_at(sd->parent.pos, "parent type \"%s\" is not completely defined", par->name);
     } else if (s->kind == SK_CLASS && prog->tobject && s != prog->tobject)
         par = prog->tobject;
@@ -694,8 +708,7 @@ static void define_struct(Struct *s, StructDecl *sd) {
             error_at(md->name.pos, "virtual constructors are not supported");
         if (md->is_abstract && md->virt == VIRT_NONE)
             error_at(md->name.pos, "abstract methods must be virtual");
-        if (md->virt == VIRT_OVERRIDE ||
-            (md->virt == VIRT_VIRTUAL && s->kind == SK_OBJECT && find_slot(s, md->name.name) >= 0)) {
+        if (md->virt == VIRT_OVERRIDE) {
             int idx = find_slot(s, md->name.name);
             if (idx < 0) error_at(md->name.pos, "there is no method in an ancestor class to be overridden: \"%s\"", md->name.name);
             if (!same_signature(s->slots.items[idx].intro, r))
@@ -734,7 +747,7 @@ static Routine *enclosing_method(void) {
 
 static int var_compat(Type *formal, Type *actual) {
     if (same_type(formal, actual)) return 1;
-    if ((formal->kind == T_OBJECT || formal->kind == T_CLASS) && formal->kind == actual->kind &&
+    if (formal->kind == T_CLASS && formal->kind == actual->kind &&
         struct_descends(actual->st, formal->st))
         return 1;
     return 0;
@@ -769,7 +782,7 @@ static Expr *make_call(Routine *rt, Expr *base, ExprVec *args, int mode, Type *n
         } else
             mode = CM_NORMAL;
     }
-    if (rt->owner && !base && mode != CM_NEWCLASS && mode != CM_CTOR_NEW)
+    if (rt->owner && !base && mode != CM_NEWCLASS)
         error_at(p, "method \"%s\" needs an instance", rt->name);
     if ((mode == CM_INHERITED || mode == CM_STATIC) && rt->is_abstract)
         error_at(p, "abstract method \"%s\" cannot be called directly", rt->name);
@@ -783,7 +796,7 @@ static Expr *make_call(Routine *rt, Expr *base, ExprVec *args, int mode, Type *n
 
 static Expr *autoderef(Expr *e) {
     if (e->type->kind == T_PTR && e->type->base &&
-        (e->type->base->kind == T_RECORD || e->type->base->kind == T_OBJECT)) {
+        e->type->base->kind == T_RECORD) {
         Expr *d = new_expr(E_DEREF, e->pos);
         d->a = e;
         d->type = e->type->base;
@@ -826,7 +839,7 @@ static Expr *cast_expr(Type *t, ExprVec *args, Pos p) {
     else if ((t->kind == T_CLASS || t->kind == T_PTR) && (is_ptrlike(f) || is_int(f))) ok = 1;
     else if (is_int(t) && (f->kind == T_PTR || f->kind == T_CLASS)) ok = 1;
     else if (t->kind == T_STR && is_strlike(f)) ok = 1;
-    else if ((t->kind == T_OBJECT || t->kind == T_RECORD) && f->kind == t->kind && is_lvalue(a)) ok = 1;
+    else if (t->kind == T_RECORD && f->kind == t->kind && is_lvalue(a)) ok = 1;
     if (!ok) error_at(p, "illegal type conversion: \"%s\" to \"%s\"", type_name(f), type_name(t));
     if (t->kind == T_STR) return conv(a, t_str);
     Expr *e = new_expr(E_CAST, p);
@@ -895,7 +908,7 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
         }
         Expr *base = autoderef(value(e->a));
         Type *bt = base->type;
-        if (bt->kind != T_RECORD && bt->kind != T_OBJECT && bt->kind != T_CLASS)
+        if (bt->kind != T_RECORD && bt->kind != T_CLASS)
             error_at(p, "illegal qualifier: \"%s\" has no members", type_name(bt));
         Look L = {0};
         if (!find_member(bt->st, name, &L.f, &L.m, &L.p))
@@ -1135,24 +1148,6 @@ static int printable(Type *t) {
            t->kind == T_STR || t->kind == T_ENUM;
 }
 
-/* resolve "Init" or "Init(args)" against struct st as ctor/dtor */
-static Expr *struct_method_call(Expr *ref, Struct *st, Expr *base, int want_kind, int mode) {
-    Ident *id = NULL;
-    ExprVec *args = NULL;
-    if (ref->kind == E_IDENT) id = &ref->id;
-    else if (ref->kind == E_CALL && ref->a->kind == E_IDENT) {
-        id = &ref->a->id;
-        args = &ref->args;
-    } else
-        error_at(ref->pos, "constructor/destructor name expected");
-    Look L = {0};
-    if (!find_member(st, id->name, &L.f, &L.m, &L.p) || !L.m || L.m->kind != want_kind)
-        error_at(ref->pos, "\"%s\" is not a %s of \"%s\"", id->name, want_kind == RK_CTOR ? "constructor" : "destructor",
-                 st->name);
-    Expr *c = make_call(L.m, base, args, mode, NULL, ref->pos);
-    return c;
-}
-
 static Expr *builtin(int bi, ExprVec *args, Pos p) {
     ExprVec empty = {0};
     if (!args) args = &empty;
@@ -1381,11 +1376,10 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
         return e;
     }
     case BI_NEW: {
-        NARGS(1, 2);
+        NARGS(1, 1);
         Expr *a = ex(A(0));
         Type *pt;
         if (a->kind == E_TYPEREF) {
-            if (n != 2) error_at(p, "New(Type, Constructor) needs a constructor");
             pt = a->ctype;
             e->type = pt;
         } else {
@@ -1393,27 +1387,15 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
             check_writable(a, nm);
             pt = a->type;
         }
-        if (pt->kind != T_PTR || !pt->base) error_at(p, "New needs a typed pointer");
+        if (pt->kind != T_PTR || !pt->base) error_at(p, "New needs a typed pointer (use TClass.Create for classes)");
         vpush(e->args, a);
-        if (n == 2) {
-            if (pt->base->kind != T_OBJECT) error_at(p, "constructor call in New needs a pointer to an object type");
-            e->b = struct_method_call(A(1), pt->base->st, NULL, RK_CTOR, CM_CTOR_NEW);
-            e->b->ctype = pt->base;
-        }
         return e;
     }
     case BI_DISPOSE: {
-        NARGS(1, 2);
+        NARGS(1, 1);
         Expr *a = value(A(0));
-        if (a->type->kind != T_PTR || !a->type->base) error_at(p, "Dispose needs a typed pointer");
+        if (a->type->kind != T_PTR || !a->type->base) error_at(p, "Dispose needs a typed pointer (use .Free for classes)");
         vpush(e->args, a);
-        if (n == 2) {
-            if (a->type->base->kind != T_OBJECT) error_at(p, "destructor call in Dispose needs an object pointer");
-            Expr *d = new_expr(E_DEREF, p);
-            d->a = a;
-            d->type = a->type->base;
-            e->b = struct_method_call(A(1), a->type->base->st, d, RK_DTOR, -1);
-        }
         return e;
     }
     case BI_FREEANDNIL: {
@@ -1502,7 +1484,7 @@ static void assign(Stmt *s) {
         }
         if (!is_type) {
             Expr *b = autoderef(value(l->a));
-            if (b->type->kind == T_RECORD || b->type->kind == T_OBJECT || b->type->kind == T_CLASS) {
+            if (b->type->kind == T_RECORD || b->type->kind == T_CLASS) {
                 if (!find_member(b->type->st, l->id.name, &L.f, &L.m, &L.p))
                     error_at(l->pos, "identifier \"%s\" is not a member of \"%s\"", l->id.name, b->type->st->name);
                 if (L.p) base = b;
@@ -1633,8 +1615,8 @@ static void stmt(Stmt *s) {
         for (int i = 0; i < s->exprs.len; i++) {
             Expr *v = autoderef(value(s->exprs.items[i]));
             Type *t = v->type;
-            if (t->kind != T_RECORD && t->kind != T_OBJECT && t->kind != T_CLASS)
-                error_at(v->pos, "record, object or class expected in 'with'");
+            if (t->kind != T_RECORD && t->kind != T_CLASS)
+                error_at(v->pos, "record or class expected in 'with'");
             if (t->kind != T_CLASS && !is_lvalue(v)) error_at(v->pos, "'with' needs a variable");
             Var *w = new_var("with", t, VK_WITH, v->pos);
             w->is_ref = t->kind != T_CLASS;
@@ -1691,8 +1673,8 @@ static void routine_decl(RoutineDecl *d) {
         if (cur) error_at(d->pos, "method implementations must be at program level");
         Look L = lookup(d->cls.name);
         if (L.kind != LK_SYM || L.sym->kind != SY_TYPE ||
-            (L.sym->type->kind != T_CLASS && L.sym->type->kind != T_OBJECT))
-            error_at(d->cls.pos, "\"%s\" is not an object or class type", d->cls.name);
+            L.sym->type->kind != T_CLASS)
+            error_at(d->cls.pos, "\"%s\" is not a class type", d->cls.name);
         Struct *st = L.sym->type->st;
         for (int i = 0; i < st->methods.len; i++)
             if (STREQ(st->methods.items[i]->name, d->name.name)) rt = st->methods.items[i];
@@ -1769,7 +1751,6 @@ static void routine_body(Routine *rt, RoutineDecl *d) {
 
     if (rt->owner) {
         Var *self = new_var("Self", rt->owner->type, VK_SELF, rt->pos);
-        self->is_ref = rt->owner->kind == SK_OBJECT;
         self->borrowed = 1;
         self->in_frame = has_frame;
         rt->self = self;
@@ -1885,11 +1866,23 @@ static void decls(Block *b, int has_frame) {
                 check_complete(t, vd->ty->pos);
                 if (vd->borrowed && !is_owning_type(t))
                     error_at(vd->ty->pos, "'borrowed' requires a class or typed pointer type");
+                int is_stack = 0;
+                if (vd->is_heap) {
+                    if (!is_ref_type(t))
+                        error_at(vd->ty->pos, "only class and pointer types can be declared in a heap section (use 'var' for \"%s\")",
+                                 type_name(t));
+                } else if (t->kind == T_CLASS && !vd->borrowed) {
+                    if (t->nilable)
+                        error_at(vd->ty->pos, "a nilable class variable refers to a heap object: declare it in a 'heap' section (or as 'borrowed nilable')");
+                    is_stack = 1; /* class variable in 'var': the object itself lives in the stack frame */
+                    if (vd->init) error_at(vd->ty->pos, "stack objects are constructed with x.Create(...) in the code");
+                }
                 if (vd->init && vd->names.len > 1) error_at(vd->ty->pos, "only one variable can be initialized");
                 for (int k = 0; k < vd->names.len; k++) {
                     Ident *id = &vd->names.items[k];
                     Var *v = new_var(id->name, t, cur ? VK_LOCAL : VK_GLOBAL, id->pos);
-                    v->borrowed = vd->borrowed;
+                    v->borrowed = vd->borrowed || is_stack;
+                    v->is_stack = is_stack;
                     v->in_frame = has_frame;
                     if (cur) vpush(cur->locals, v);
                     else vpush(prog->globals, v);

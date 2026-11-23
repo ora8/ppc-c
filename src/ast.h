@@ -30,7 +30,7 @@ typedef VEC(Ident) IdentVec;
 enum { PM_VALUE, PM_VAR, PM_CONST, PM_OUT, PM_OWNED };
 enum { RK_PROC, RK_FUNC, RK_CTOR, RK_DTOR };
 enum { VIRT_NONE, VIRT_VIRTUAL, VIRT_OVERRIDE };
-enum { SK_RECORD, SK_OBJECT, SK_CLASS };
+enum { SK_RECORD, SK_CLASS };
 
 typedef struct {
     IdentVec names;
@@ -64,7 +64,7 @@ typedef struct {
 } PropDecl;
 
 typedef struct {
-    int kind; /* SK_OBJECT / SK_CLASS */
+    int kind; /* SK_CLASS */
     Ident parent;
     int has_parent;
     FieldDeclVec fields;
@@ -101,6 +101,7 @@ typedef struct {
     TypeExpr *ty;
     Expr *init;
     int borrowed;
+    int is_heap; /* declared in a 'heap' section */
 } VarDecl;
 
 typedef struct {
@@ -151,7 +152,7 @@ enum { OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_IDIV, OP_MOD, OP_AND, OP_OR, OP_XOR, O
        OP_EQ, OP_NE, OP_LT, OP_LE, OP_GT, OP_GE, OP_NEG, OP_PLUS, OP_NOT };
 
 /* call modes for E_RCALL */
-enum { CM_NORMAL, CM_STATIC, CM_VIRTUAL, CM_INHERITED, CM_NEWCLASS, CM_CTOR_INST, CM_CTOR_NEW };
+enum { CM_NORMAL, CM_STATIC, CM_VIRTUAL, CM_INHERITED, CM_NEWCLASS, CM_CTOR_INST };
 
 struct Expr {
     ExprKind kind;
@@ -206,7 +207,7 @@ struct Stmt {
 
 /* ------------------------------------------------------------- semantics */
 
-typedef enum { T_VOID, T_INT, T_BOOL, T_CHAR, T_REAL, T_STR, T_PTR, T_ARRAY, T_RECORD, T_OBJECT, T_CLASS, T_ENUM, T_NIL } TypeKind;
+typedef enum { T_VOID, T_INT, T_BOOL, T_CHAR, T_REAL, T_STR, T_PTR, T_ARRAY, T_RECORD, T_CLASS, T_ENUM, T_NIL } TypeKind;
 enum { IK_I8, IK_U8, IK_I16, IK_U16, IK_I32, IK_U32, IK_I64 };
 
 struct Type {
@@ -278,6 +279,7 @@ struct Var {
     int vkind;
     int mode;     /* parameter mode */
     int is_const; /* const parameter / for-loop var */
+    int is_stack; /* class variable in a 'var' section: object lives in the stack frame */
     Routine *owner;
     int id;
     Pos pos;
@@ -356,6 +358,7 @@ const char *type_name(Type *t);
 int borrow_check(Program *p);
 extern int g_borrow_check, g_nil_check;
 int is_ref_type(Type *t);
+int is_owning_temp(Expr *e);
 
 /* codegen.c */
 void codegen(Program *p, FILE *out);

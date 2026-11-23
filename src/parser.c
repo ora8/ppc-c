@@ -21,7 +21,7 @@ static const char *KEYWORDS[] = {
     "inherited", "interface", "is", "label", "mod", "nil", "not", "object", "of", "or", "packed",
     "procedure", "program", "property", "record", "repeat", "set", "shl", "shr", "then", "to",
     "type", "unit", "until", "uses", "var", "while", "with", "xor", "try", "except", "finally",
-    "raise", "otherwise", NULL};
+    "raise", "otherwise", "heap", NULL};
 
 static const char *SYMS[] = {":=", "<=", ">=", "<>", "..", "+", "-", "*", "/", "=", "<", ">", "(",
                              ")", "[", "]", ",", ";", ":", ".", "^", "@", NULL};
@@ -432,7 +432,7 @@ static StructDecl *parse_struct(int kind) {
             vpush(sd->fields, f);
             continue;
         }
-        error_at(pos(), "unexpected %s in %s declaration", describe(), kind == SK_CLASS ? "class" : "object");
+        error_at(pos(), "unexpected %s in class declaration", describe());
     }
     return sd;
 }
@@ -476,11 +476,8 @@ static TypeExpr *parse_type(void) {
         expect_kw("end");
         return t;
     }
-    if (accept_kw("object")) {
-        TypeExpr *t = new_te(TE_STRUCT, p);
-        t->sd = parse_struct(SK_OBJECT);
-        return t;
-    }
+    if (is_kw("object"))
+        error_at(p, "'object' types are not supported: use 'class' (class variables in 'var' are stack objects, in 'heap' heap objects)");
     if (accept_kw("class")) {
         if (is_sym(";")) return new_te(TE_CLASSFWD, p);
         if (is_kw("of")) error_at(pos(), "class references ('class of') are not supported");
@@ -600,6 +597,24 @@ static void parse_decls(Block *blk) {
                 expect_sym(";");
                 vpush(d->vars, v);
             }
+            vpush(blk->decls, d);
+        } else if (accept_kw("heap")) {
+            /* heap section: owning references to heap objects (created with TClass.Create, freed with Free) */
+            Decl *d = NEW(Decl);
+            d->kind = D_VAR;
+            while (CUR.kind == TK_IDENT) {
+                VarDecl v = {0};
+                v.names = ident_list();
+                expect_sym(":");
+                if (is_ident("borrowed"))
+                    error_at(pos(), "a heap section declares owners; borrowed references belong into 'var'");
+                v.ty = parse_type();
+                v.is_heap = 1;
+                if (accept_sym("=")) v.init = parse_init();
+                expect_sym(";");
+                vpush(d->vars, v);
+            }
+            if (!d->vars.len) error_at(pos(), "identifier expected in heap section");
             vpush(blk->decls, d);
         } else if (is_kw("label")) {
             error_at(pos(), "labels/goto are not supported");

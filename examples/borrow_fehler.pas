@@ -26,8 +26,9 @@ procedure Tausche(var A, B: Integer);
 var t: Integer;
 begin t := A; A := B; B := t; end;
 
-var
+heap
   a, b: TKonto;
+var
   blick: borrowed TKonto;
   x: Integer;
 begin

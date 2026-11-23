@@ -71,8 +71,9 @@ begin
   Result := Mid(x) * 10 + depth;
 end;
 
-var
+heap
   acc: TAccount;
+var
   d: TDay;
   p: PRec;
   arr: TArr5;

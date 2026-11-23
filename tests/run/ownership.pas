@@ -66,25 +66,26 @@ begin
 end;
 
 type
-  TVec = object                 { Stackobjekt }
+  TVec = class                  { wird unten als Stackobjekt benutzt }
     X, Y: Real;
-    procedure SetTo(AX, AY: Real);
+    constructor Create(AX, AY: Real);
     function Len: Real;
   end;
-procedure TVec.SetTo(AX, AY: Real); begin X := AX; Y := AY; end;
+constructor TVec.Create(AX, AY: Real); begin inherited Create; X := AX; Y := AY; end;
 function TVec.Len: Real; begin Result := Sqrt(X * X + Y * Y); end;
 
-procedure Scale(var V: TVec; F: Real);
+procedure Scale(V: TVec; F: Real);   { Ausleihe genuegt, um die Felder zu aendern }
 begin V.X := V.X * F; V.Y := V.Y * F; end;
 
-var
-  list: TList;
+heap
+  list: TList;                   { Heapobjekte: Besitzer, von Hand freigeben }
   item: TItem;
   popped: nilable TItem;
+var
   found: borrowed nilable TItem;
   i: Integer;
-  v: TVec;
-  pv: borrowed ^TVec;
+  pv: borrowed TVec;
+  v: TVec;                       { Stackobjekt }
 begin
   list := TList.Create;
   for i := 1 to 5 do list.Push(TItem.Create(i * 10));
@@ -101,8 +102,8 @@ begin
   PrintList(list);
   list.Free;
 
-  v.SetTo(3, 4);
-  pv := @v;                      { Ausleihe eines Stackobjekts }
-  Scale(pv^, 2);
-  WriteLn('Laenge: ', pv^.Len:0:1);
+  v.Create(3, 4);
+  pv := v;                       { Ausleihe eines Stackobjekts }
+  Scale(pv, 2);
+  WriteLn('Laenge: ', pv.Len:0:1);
 end.

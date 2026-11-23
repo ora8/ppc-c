@@ -1,70 +1,56 @@
 program StackVsHeap;
-{ Gleiche Daten, zwei Speichermodelle:
-    TStackZaehler = object  -> Wert, liegt auf dem Stack
-    THeapZaehler  = class   -> Referenz, liegt auf dem Heap }
+{ Eine Klasse, zwei Speicherorte:
+    var  z: TZaehler;   -> Stackobjekt: x.Create(...), Destroy automatisch am Blockende
+    heap h: TZaehler;   -> Heapobjekt:  h := TZaehler.Create(...), h.Free von Hand }
 type
-  TStackZaehler = object
+  TZaehler = class
+    Name: String;
     Wert: Integer;
+    constructor Create(const AName: String);
+    destructor Destroy; override;
     procedure Erhoehe;
   end;
 
-  THeapZaehler = class
-    Wert: Integer;
-    procedure Erhoehe;
-  end;
+constructor TZaehler.Create(const AName: String);
+begin inherited Create; Name := AName; WriteLn('  ', Name, ' erzeugt'); end;
+destructor TZaehler.Destroy;
+begin WriteLn('  ', Name, ' abgebaut (Wert ', Wert, ')'); inherited Destroy; end;
+procedure TZaehler.Erhoehe; begin Wert := Wert + 1; end;
 
-procedure TStackZaehler.Erhoehe; begin Wert := Wert + 1; end;
-procedure THeapZaehler.Erhoehe; begin Wert := Wert + 1; end;
+{ Beide Arten werden gleich uebergeben: als Referenz auf dieselbe Instanz }
+procedure ZweimalErhoehen(Z: TZaehler); begin Z.Erhoehe; Z.Erhoehe; end;
 
-{ Wertparameter: Stackobjekt wird KOPIERT, Klasse wird nur als Referenz uebergeben }
-procedure ErhoeheStack(Z: TStackZaehler); begin Z.Erhoehe; end;
-procedure ErhoeheHeap(Z: THeapZaehler);   begin Z.Erhoehe; end;
+{ Nur ein Heapobjekt kann die Routine ueberleben (Besitz geht an den Aufrufer) }
+function NeuerZaehler(const N: String): TZaehler;
+begin Result := TZaehler.Create(N); end;
 
-{ var-Parameter: auch das Stackobjekt wird direkt veraendert }
-procedure ErhoeheStackVar(var Z: TStackZaehler); begin Z.Erhoehe; end;
-
-procedure Lebensdauer;
-var s: TStackZaehler;
-    h: THeapZaehler;
-begin
-  s.Wert := 1;                         { sofort benutzbar, kein Create }
-  h := THeapZaehler.Create;            { muss erzeugt werden }
-  h.Wert := 1;
-  WriteLn('  in Lebensdauer: s=', s.Wert, ' h=', h.Wert);
-  h.Free;                              { muss freigegeben werden }
-end;                                   { s verschwindet hier von selbst }
-
+procedure Block;
 var
-  s1, s2: TStackZaehler;
-  h1: THeapZaehler;
-  h2: borrowed THeapZaehler;
+  s: TZaehler;                    { Stackobjekt: Speicher liegt im Stackframe }
+heap
+  h: TZaehler;                    { Heapobjekt: Speicher kommt vom Heap }
 begin
-  WriteLn('1) Erzeugen');
-  s1.Wert := 0;                        { s1 existiert schon (Stack/Datensegment) }
-  h1 := THeapZaehler.Create;           { h1 ist zuerst nil, Create holt Heap-Speicher }
-  WriteLn('   SizeOf(TStackZaehler) = ', SizeOf(TStackZaehler), ' Bytes (das Objekt selbst)');
-  WriteLn('   SizeOf(THeapZaehler)  = ', SizeOf(THeapZaehler), ' Bytes (nur ein Zeiger)');
+  WriteLn('Block beginnt');
+  s.Create('stack-s');            { nur Konstruktor, kein malloc }
+  h := TZaehler.Create('heap-h'); { malloc + Konstruktor }
+  ZweimalErhoehen(s);
+  ZweimalErhoehen(h);
+  WriteLn('  s=', s.Wert, ' h=', h.Wert);
+  h.Free;                         { Heapobjekt: von Hand freigeben }
+  WriteLn('Block endet');
+end;                              { Stackobjekt s wird hier automatisch abgebaut }
 
-  WriteLn('2) Zuweisung');
-  s2 := s1;                            { Kopie der Daten }
-  s2.Erhoehe;
-  WriteLn('   Stack: s1=', s1.Wert, ' s2=', s2.Wert, '   -> zwei unabhaengige Objekte');
-  h2 := h1;                            { Kopie der Referenz, gleiches Objekt }
-  h2.Erhoehe;
-  WriteLn('   Heap:  h1=', h1.Wert, ' h2=', h2.Wert, '   -> ein gemeinsames Objekt');
+heap
+  r: TZaehler;
+var
+  b: borrowed TZaehler;
+begin
+  Block;
 
-  WriteLn('3) Uebergabe als Wertparameter');
-  ErhoeheStack(s1);
-  WriteLn('   Stack: s1=', s1.Wert, '   (Prozedur hat eine Kopie veraendert)');
-  ErhoeheHeap(h1);
-  WriteLn('   Heap:  h1=', h1.Wert, '   (Prozedur hat das Original veraendert)');
-  ErhoeheStackVar(s1);
-  WriteLn('   Stack per var: s1=', s1.Wert);
-
-  WriteLn('4) Lebensdauer');
-  Lebensdauer;
-
-  WriteLn('5) Freigeben');
-  h1.Free;                             { nur das Heapobjekt braucht Free }
-  WriteLn('   h1 freigegeben, s1/s2 brauchen nichts');
+  WriteLn('Heapobjekt aus einer Funktion:');
+  r := NeuerZaehler('heap-r');
+  b := r;                         { zweite Referenz (Ausleihe) auf dasselbe Objekt }
+  b.Erhoehe;
+  WriteLn('  r.Wert=', r.Wert, ' (ueber b erhoeht: gleiche Instanz)');
+  r.Free;                         { ohne Free: Warnung "memory leak" }
 end.
