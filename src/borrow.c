@@ -316,6 +316,10 @@ static void check_var_use(Var *v, Pos p, State *s) {
             berror(p, "use of %smoved value '%s' (ownership was transferred away)", maybe ? "possibly " : "", v->name);
         if (st & O_FREED)
             berror(p, "use of '%s' after it %s freed", v->name, maybe ? "may have been" : "was");
+    } else if ((s->bor[i] & B_DANGLING) && v->is_stack) {
+        int maybe = s->bor[i] & B_VALID;
+        berror(p, "use of %smoved stack object '%s' (%s)", maybe ? "possibly " : "", v->name,
+               s->why[i] ? s->why[i] : "it was moved");
     } else if (s->bor[i] & B_DANGLING) {
         int maybe = s->bor[i] & B_VALID;
         berror(p, "borrowed reference '%s' is used after its owner %s%s", v->name, maybe ? "may have been invalidated: " : "",
@@ -998,6 +1002,18 @@ static void do_bind(Var *v, Expr *rhs, State *s, Pos p) {
     s->org[i] = o;
 }
 
+/* val b := k: the stack object k moves into b; k and every borrow of it are dead afterwards */
+static void do_stack_move(Var *b, Var *k, State *s, Pos p) {
+    check_var_use(k, p, s);
+    invalidate(s, sfmt("#%d", k->id), sfmt("'%s' was moved to '%s' at line %d", k->name, b->name, p.line));
+    int i = slot(b);
+    if (i >= 0) {
+        s->nn[i] = N_NN;
+        s->bor[i] = B_VALID;
+        s->why[i] = NULL;
+    }
+}
+
 static void do_assign(Expr *lhs, Expr *rhs, State *s, Pos p) {
     if (lhs->kind == E_DEREF && lhs->a->kind == E_VAR && lhs->a->var->is_box) {
         /* storing into a heap value: allocates the cell if it has none yet */
@@ -1478,7 +1494,8 @@ static void an_stmt(Stmt *st, State *s) {
     switch (st->kind) {
     case S_EMPTY: return;
     case S_ASSIGN:
-        if (st->bind) do_bind(st->a->var, st->b, s, st->pos);
+        if (st->bind == 2) do_stack_move(st->a->var, st->b->var, s, st->pos);
+        else if (st->bind) do_bind(st->a->var, st->b, s, st->pos);
         else do_assign(st->a, st->b, s, st->pos);
         return;
     case S_CALL: {

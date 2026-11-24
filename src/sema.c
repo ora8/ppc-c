@@ -2725,16 +2725,18 @@ static void decls(Block *b, int has_frame) {
                         error_at(dpos, "a stack object always exists, it cannot be optional: use 'vao %s: %s := none' for a heap object that may be missing",
                                  vn, type_name(t));
                     if (!r) r = value(vd->init);
-                    if (r->kind == E_VAR && r->var->is_stack)
-                        error_at(vd->init->pos, "'%s' is a stack object and cannot be copied or moved: borrow it ('var %s: %s := %s') or copy it ('vao %s := %s.Clone')",
-                                 r->var->name, vn, type_name(t), r->var->name, vn, r->var->name);
-                    if (r->kind != E_RCALL || r->cmode != CM_NEWCLASS)
+                    if (r->kind == E_VAR && r->var->is_stack) { /* val b := k: the object moves into b */
+                        if (vd->ty && r->var->type->st != t->st)
+                            error_at(vd->init->pos, "stack object '%s' is declared as \"%s\" but '%s' is a \"%s\": both must be the same class",
+                                     vn, type_name(t), r->var->name, type_name(r->var->type));
+                        if (!vd->ty) t = r->var->type;
+                    } else if (r->kind != E_RCALL || r->cmode != CM_NEWCLASS)
                         error_at(vd->init->pos, "a stack object is created in its declaration: 'val %s := %s.Create(...)' (for a reference use 'var', to own a heap object 'vao')",
                                  vn, type_name(t));
                     if (vd->ty && r->ctype->st != t->st)
                         error_at(vd->init->pos, "stack object '%s' is declared as \"%s\" but created as \"%s\": it is stored in place, so both must be the same class",
                                  vn, type_name(t), type_name(r->ctype));
-                    if (!vd->ty) t = r->ctype;
+                    if (r->kind == E_RCALL && !vd->ty) t = r->ctype;
                     ctor = r;
                 }
                 int is_alias = vd->borrowed && t->kind != T_CLASS; /* var x: Integer := y: x refers to y */
@@ -2761,7 +2763,13 @@ static void decls(Block *b, int has_frame) {
                     else vpush(prog->globals, v);
                     add_sym(SY_VAR, id->name, id->pos)->var = v;
                     StmtVec *dst = (cur || in_block) ? local_init : &prog->init;
-                    if (is_stack) { /* construct the object in its storage in the frame */
+                    if (is_stack && ctor->kind == E_VAR) { /* move the other stack object into this one */
+                        Stmt *ms = new_stmt(S_ASSIGN, vd->init->pos);
+                        ms->bind = 2;
+                        ms->a = var_expr(v, id->pos);
+                        ms->b = ctor;
+                        vpush(*dst, ms);
+                    } else if (is_stack) { /* construct the object in its storage in the frame */
                         Expr *c = NEW(Expr);
                         *c = *ctor;
                         c->cmode = CM_CTOR_INST;

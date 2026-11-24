@@ -950,6 +950,12 @@ static void gs(Stmt *s) {
     switch (s->kind) {
     case S_EMPTY: return;
     case S_ASSIGN:
+        if (s->bind == 2) { /* val b := k: the stack object moves (byte copy), k is dead afterwards */
+            Var *b = s->a->var, *k = s->b->var;
+            line("memcpy(%s, %s, sizeof(struct S%d)); %s = 1; %s = 0;", var_raw(b), var_raw(k), b->type->st->id,
+                 var_aux(b, "__live"), var_aux(k, "__live"));
+            return;
+        }
         if (s->bind) { /* var x := y: x refers to y */
             line("%s = &%s;", var_raw(s->a->var), gx(s->b));
             return;

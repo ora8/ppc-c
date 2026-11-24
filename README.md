@@ -161,9 +161,14 @@ end;                                        { k.Destroy läuft hier, k.Name wird
 * Das Objekt wird bei der Deklaration konstruiert und am Ende seines Blocks automatisch abgebaut
   (`Destroy`, danach werden seine besitzenden Felder freigegeben) – auch bei `Break`, `Exit` und
   `try`. In einem Schleifenrumpf entsteht in jedem Durchlauf ein frisches Objekt.
-* Ein Stackobjekt **bleibt, wo es ist**: Es kann nicht neu zugewiesen, nicht freigegeben, nicht
-  in einen `vao` oder an einen `vao`-Parameter verschoben und nicht kopiert werden
-  (`val t := k` ist ein Fehler). Für eine Kopie auf dem Heap: `vao t := k.Clone`.
+* **Verschieben** in ein anderes Stackobjekt geht wie in Rust: `val b := k` kopiert das Objekt
+  byteweise nach `b` (ohne Konstruktor, ohne `malloc`); `k` ist danach tot – seine Benutzung und
+  Ausleihen von `k` sind Fehler (`use of moved stack object 'k'`), und am Blockende wird nur `b`
+  abgebaut. Geschieht der Move nur auf einem Pfad, merkt sich das Programm, ob `k` noch abgebaut
+  werden muss.
+* Sonst **bleibt ein Stackobjekt, wo es ist**: Es kann nicht neu zugewiesen, nicht freigegeben
+  und nicht in einen `vao` oder an einen `vao`-Parameter gegeben werden. Für eine Kopie auf dem
+  Heap: `vao t := k.Clone`.
 * Ausleihen (`var r: TFigur := k`, Parameter) sind erlaubt, dürfen aber den Block nicht
   überleben: Speichern in globalen Variablen, Feldern oder Funktionsergebnissen meldet der
   Borrow Checker.
