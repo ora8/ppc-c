@@ -131,6 +131,7 @@ typedef struct {
     Block *body;
     Pos pos;
     IdentVec cls_tparams; /* method of a generic type: procedure TListe<T>.Add */
+    IdentVec tparams;     /* generic routine: function Max<T>(a, b: T): T */
     void *toks;           /* tokens to parse the routine again for each instance */
     int tok_start;
 } RoutineDecl;

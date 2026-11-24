@@ -21,6 +21,9 @@ typedef struct {
     VEC(char *) keys;
     VEC(Instance) insts;
     VEC(RoutineDecl *) impls; /* method implementations, parsed again per instance */
+    int is_routine;           /* generic function/procedure: Max<T> */
+    RoutineDecl *rdecl;       /* its first parse (parameter types for inference) */
+    VEC(Routine *) rts;       /* routine instances, parallel to keys */
 } Generic;
 
 typedef struct {
@@ -63,7 +66,11 @@ typedef struct {
     Generic *g;
     Instance in;
     RoutineDecl *impl;
+    Routine *rt;    /* instance of a generic routine: its body */
+    RoutineDecl *rd;
+    char *key;
 } PendingBody;
+static const char *inst_cname; /* C name of the generic routine instance being declared */
 static VEC(PendingBody) pending_bodies;
 static int var_counter, routine_counter, struct_counter, enum_counter, with_counter;
 static StmtVec *local_init;
@@ -931,7 +938,7 @@ static Type *instantiate(Generic *g, Type **args, int n, Pos p) {
     g_err_context = save_ctx;
     leave_generic(ss, sc, sl);
     for (int i = 0; i < g->impls.len; i++) {
-        PendingBody pb = {g, in, g->impls.items[i]};
+        PendingBody pb = {g, in, g->impls.items[i], NULL, NULL, NULL};
         vpush(pending_bodies, pb);
     }
     depth--;
@@ -939,7 +946,7 @@ static Type *instantiate(Generic *g, Type **args, int n, Pos p) {
 }
 
 static Type *generic_type(Look *L, Ident name, TypeExprVec *targs, Pos p) {
-    if (L->kind != LK_SYM || L->sym->kind != SY_GENERIC)
+    if (L->kind != LK_SYM || L->sym->kind != SY_GENERIC || L->sym->gen->is_routine)
         error_at(p, "\"%s\" is not a generic type", name.name);
     Type **args = (Type **)xcalloc(targs->len ? targs->len : 1, sizeof(Type *));
     for (int i = 0; i < targs->len; i++) args[i] = resolve_type(targs->items[i]);
@@ -948,12 +955,135 @@ static Type *generic_type(Look *L, Ident name, TypeExprVec *targs, Pos p) {
 
 /* method bodies of generic instances: checked with the type arguments filled in */
 static void routine_decl(RoutineDecl *d);
+static void routine_body(Routine *rt, RoutineDecl *d);
+static Sym *find_local(const char *name);
+
+/* Max<Integer>: the instance of a generic routine (header now, body checked at the end) */
+static Routine *instantiate_routine(Generic *g, Type **args, int n, Pos p) {
+    if (n != g->params.len)
+        error_at(p, "\"%s\" has %d type parameter%s, but %d type argument%s given", g->name, g->params.len,
+                 g->params.len == 1 ? "" : "s", n, n == 1 ? " is" : "s are");
+    Buf kb = {0};
+    buf_printf(&kb, "%s<", g->name);
+    for (int i = 0; i < n; i++) buf_printf(&kb, "%s%s", i ? ", " : "", type_name(args[i]));
+    buf_put(&kb, ">");
+    char *key = xstrdup(buf_str(&kb));
+    for (int i = 0; i < g->keys.len; i++)
+        if (STREQ(g->keys.items[i], key)) return g->rts.items[i];
+    static int counter;
+    Scope *ss;
+    Routine *sc;
+    int sl;
+    enter_generic(g, args, &ss, &sc, &sl);
+    const char *save_ctx = g_err_context;
+    g_err_context = key;
+    RoutineDecl *d = reparse_routine(g->toks, g->tok);
+    d->tparams = (IdentVec){0};
+    d->forward = 1; /* the header now: calls (also recursive ones) can be checked right away */
+    inst_cname = sfmt("G%d_%s", ++counter, g->name);
+    routine_decl(d);
+    inst_cname = NULL;
+    Routine *rt = find_local(d->name.name)->rt;
+    g_err_context = save_ctx;
+    leave_generic(ss, sc, sl);
+    Instance in = {NULL, (Type **)xcalloc(n ? n : 1, sizeof(Type *))};
+    for (int i = 0; i < n; i++) in.args[i] = args[i];
+    vpush(g->keys, key);
+    vpush(g->insts, in);
+    vpush(g->rts, rt);
+    PendingBody pb = {g, in, NULL, rt, d, key};
+    vpush(pending_bodies, pb);
+    return rt;
+}
+
+static int tparam_index(Generic *g, const char *name) {
+    for (int i = 0; i < g->params.len; i++)
+        if (STREQ(g->params.items[i].name, name)) return i;
+    return -1;
+}
+
+/* infer type arguments: match a parameter type (syntax) against the type of an argument */
+static void unify(Generic *g, TypeExpr *te, Type *at, Type **b, Pos p) {
+    if (!at || at->kind == T_LIT || at->kind == T_NIL || at->kind == T_VOID) return;
+    if (te->kind == TE_NAMED && !te->targs.len) {
+        int k = tparam_index(g, te->name.name);
+        if (k < 0) return;
+        Type *x = at;
+        if (x->kind == T_CLASS && (x->readonly || x->nilable)) {
+            if (te->nilable || x->readonly) x = x->st->type; /* optional T / T const: the class itself */
+        }
+        if (te->nilable && x->kind == T_OPT) x = x->base;
+        if (x->kind == T_PTR && x->base && !STREQ(type_name(x), "")) { /* heap value: its value type */
+            if (strncmp(type_name(x), "heap ", 5) == 0) x = x->base;
+        }
+        if (!b[k]) b[k] = x;
+        else if (!same_type(b[k], x)) {
+            if (b[k]->kind == T_INT && x->kind == T_REAL) b[k] = x; /* Max(3, 7.5): Real */
+            else if (b[k]->kind == T_REAL && x->kind == T_INT) {
+            } else if (b[k]->kind == T_INT && x->kind == T_INT) {
+            } else if (b[k]->kind == T_CLASS && x->kind == T_CLASS && struct_descends(x->st, b[k]->st)) {
+            } else if (b[k]->kind == T_CLASS && x->kind == T_CLASS && struct_descends(b[k]->st, x->st))
+                b[k] = x;
+            else
+                error_at(p, "cannot infer '%s' of \"%s\": it is \"%s\" from one argument and \"%s\" from another; write '%s<...>(...)'",
+                         g->params.items[k].name, g->name, type_name(b[k]), type_name(x), g->name);
+        }
+        return;
+    }
+    if (te->kind == TE_NAMED && te->targs.len && (at->kind == T_CLASS || at->kind == T_RECORD)) {
+        Look L = lookup(te->name.name);
+        if (L.kind != LK_SYM || L.sym->kind != SY_GENERIC) return;
+        Generic *tg = L.sym->gen;
+        for (int i = 0; i < tg->insts.len; i++)
+            if (tg->insts.items[i].st == at->st)
+                for (int j = 0; j < te->targs.len && j < tg->params.len; j++) unify(g, te->targs.items[j], tg->insts.items[i].args[j], b, p);
+        return;
+    }
+    if (te->kind == TE_ARRAY && at->kind == T_ARRAY) unify(g, te->elem, at->base, b, p);
+    if (te->kind == TE_RESULT && at->kind == T_RES) {
+        if (te->elem && at->base) unify(g, te->elem, at->base, b, p);
+        if (te->errt) unify(g, te->errt, at->err, b, p);
+    }
+}
+
+static Expr *make_call(Routine *rt, Expr *base, ExprVec *args, int mode, Type *newcls, Pos p);
+static Expr *value(Expr *e);
+/* Max(3, 7): the type arguments come from the arguments */
+static Routine *infer_routine(Generic *g, ExprVec *args, Pos p) {
+    RoutineDecl *d = g->rdecl;
+    int np = 0;
+    for (int i = 0; i < d->params.len; i++) np += d->params.items[i].names.len;
+    int na = args ? args->len : 0;
+    if (na != np) error_at(p, "wrong number of arguments calling \"%s\" (expected %d, got %d)", g->name, np, na);
+    Type **b = (Type **)xcalloc(g->params.len ? g->params.len : 1, sizeof(Type *));
+    int k = 0;
+    for (int i = 0; i < d->params.len; i++)
+        for (int j = 0; j < d->params.items[i].names.len; j++, k++) {
+            Expr *a = value(args->items[k]);
+            args->items[k] = a;
+            unify(g, d->params.items[i].ty, a->type, b, a->pos);
+        }
+    for (int i = 0; i < g->params.len; i++)
+        if (!b[i])
+            error_at(p, "cannot infer type parameter '%s' of \"%s\" from the arguments: write '%s<...>(...)'",
+                     g->params.items[i].name, g->name, g->name);
+    return instantiate_routine(g, b, g->params.len, p);
+}
 static void run_pending_bodies(void) {
     for (int k = 0; k < pending_bodies.len; k++) {
         PendingBody pb = pending_bodies.items[k];
         Scope *ss;
         Routine *sc;
         int sl;
+        if (pb.rt) { /* body of a generic routine instance */
+            enter_generic(pb.g, pb.in.args, &ss, &sc, &sl);
+            g_err_context = pb.key;
+            pb.rt->forward = 0;
+            routine_body(pb.rt, pb.rd);
+            g_err_context = NULL;
+            leave_generic(ss, sc, sl);
+            continue;
+        }
         enter_generic(pb.g, pb.in.args, &ss, &sc, &sl);
         RoutineDecl *d = reparse_routine(pb.impl->toks, pb.impl->tok_start);
         inst_cls = pb.in.st;
@@ -1350,6 +1480,11 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
             error_at(p, "identifier not found \"%s\"", name);
         }
         if (L.kind == LK_MEMBER) return member_ref(L.base ? var_expr(L.base, p) : NULL, &L, args, p, name);
+        if (e->targs.len && L.kind == LK_SYM && L.sym->kind == SY_GENERIC && L.sym->gen->is_routine) { /* Max<Real>(...) */
+            Type **ta = (Type **)xcalloc(e->targs.len, sizeof(Type *));
+            for (int i = 0; i < e->targs.len; i++) ta[i] = resolve_type(e->targs.items[i]);
+            return make_call(instantiate_routine(L.sym->gen, ta, e->targs.len, p), NULL, args, -1, NULL, p);
+        }
         if (e->targs.len) { /* TListe<TKunde> as a type: cast or type reference */
             Type *gt = generic_type(&L, e->id, &e->targs, p);
             if (args) return cast_expr(gt, args, p);
@@ -1361,6 +1496,7 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
         Sym *s = L.sym;
         switch (s->kind) {
         case SY_GENERIC:
+            if (s->gen->is_routine) return make_call(infer_routine(s->gen, args, p), NULL, args, -1, NULL, p);
             error_at(p, "\"%s\" is generic: give its type arguments, e.g. '%s<Integer>'", name, name);
         case SY_VAR:
             if (args) error_at(p, "\"%s\" is a variable and cannot be called", name);
@@ -2620,6 +2756,20 @@ static void check_settled(Var **vars, int n) {
 
 static void routine_decl(RoutineDecl *d) {
     Routine *rt = NULL;
+    if (d->tparams.len) { /* function Max<T>(...): kept, made for every type combination it is called with */
+        if (cur) error_at(d->pos, "generic routines must be declared at program level");
+        if (d->forward) error_at(d->pos, "generic routines cannot be forward declared");
+        Generic *g = NEW(Generic);
+        g->name = d->name.name;
+        g->params = d->tparams;
+        g->toks = d->toks;
+        g->tok = d->tok_start;
+        g->pos = d->name.pos;
+        g->is_routine = 1;
+        g->rdecl = d;
+        add_sym(SY_GENERIC, d->name.name, d->name.pos)->gen = g;
+        return;
+    }
     if (d->has_cls && d->cls_tparams.len && !inst_cls) { /* procedure TListe<T>.Add: kept for every instance */
         if (cur) error_at(d->pos, "method implementations must be at program level");
         Look L = lookup(d->cls.name);
@@ -2629,7 +2779,7 @@ static void routine_decl(RoutineDecl *d) {
             error_at(d->cls.pos, "\"%s\" has %d type parameter%s", g->name, g->params.len, g->params.len == 1 ? "" : "s");
         vpush(g->impls, d);
         for (int i = 0; i < g->insts.len; i++) { /* instances made before this implementation was seen */
-            PendingBody pb = {g, g->insts.items[i], d};
+            PendingBody pb = {g, g->insts.items[i], d, NULL, NULL, NULL};
             vpush(pending_bodies, pb);
         }
         return;
@@ -2697,15 +2847,17 @@ static void routine_decl(RoutineDecl *d) {
         rt->is_constm = d->is_const;
         rt->level = level + 1;
         rt->parent = cur;
-        rt->cname = cur ? sfmt("%s_%s", cur->cname, d->name.name) : sfmt("R_%s", d->name.name);
+        rt->cname = inst_cname ? xstrdup(inst_cname) : cur ? sfmt("%s_%s", cur->cname, d->name.name) : sfmt("R_%s", d->name.name);
         build_params(rt, &d->params);
         if (d->kind == RK_FUNC) {
             if (!d->ret) error_at(d->pos, "function result type expected");
             rt->ret = resolve_type(d->ret);
         }
         rt->ret_borrowed = d->ret_borrowed;
-        if (d->ret_borrowed && !is_owning_type(rt->ret))
-            error_at(d->pos, "a 'var' result (reference without ownership) needs a class type");
+        if (d->ret_borrowed && !is_owning_type(rt->ret)) {
+            if (!generic_depth) error_at(d->pos, "a 'var' result (reference without ownership) needs a class type");
+            rt->ret_borrowed = 0;
+        }
         Sym *s = add_sym(SY_ROUTINE, d->name.name, d->name.pos);
         s->rt = rt;
     }

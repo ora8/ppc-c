@@ -517,8 +517,37 @@ kunden.Add(TKunde.Create('Anna'));
 if kunden.Suche('Anna') is some k then WriteLn(k.Name);    { k ist ein TKunde }
 ```
 
-* Generische Typen werden auf Programmebene deklariert; nur Records und Klassen können generisch
-  sein. Generische Funktionen und Einschränkungen (`T: Comparable`) kommen in den nächsten Stufen.
+* Generische Typen werden auf Programmebene deklariert; generisch sein können Records, Klassen,
+  Funktionen und Prozeduren. Einschränkungen (`T: Comparable`) kommen in der nächsten Stufe.
+
+**Generische Funktionen und Prozeduren:**
+
+```pascal
+function Max<T>(a, b: T): T;
+begin
+  if a > b then Result := a else Result := b;
+end;
+
+procedure Tausche<T>(var a, b: T);
+val h: T := a;
+begin a := b; b := h; end;
+
+function Paar<A, B>(x: A; y: B): TPaar<A, B>;
+…
+WriteLn(Max(3, 7), Max('Anna', 'Bert'));     { T aus den Argumenten: Integer, String }
+WriteLn(Max(3, 7.5));                        { Integer und Real: T = Real }
+WriteLn(Max<Real>(1, 2));                    { T ausdrücklich }
+Tausche(i, j);
+val p := Paar('x', 42);                       { TPaar<Char, Integer> }
+```
+
+* Die Typargumente werden aus den Argumenten abgeleitet – auch aus `optional T`, Arrays,
+  `result T` und generischen Typen (`Erstes<A, B>(p: TPaar<A, B>)`). Geht das nicht (z. B. wenn
+  `T` nur im Ergebnis vorkommt), schreibt man sie aus: `Neu<Integer>`.
+* Widersprechen sich die Argumente, meldet der Compiler das:
+  `cannot infer 'T' of "Max": it is "Integer" from one argument and "Char" from another`.
+* Jede Instanz wird einzeln geprüft: `Max` mit einem Record ohne `>` ergibt
+  `incompatible types in comparison: "TP" and "TP" (in Max<TP>)`. Rekursion funktioniert.
 * Jede Instanz wird mit den eingesetzten Typen geprüft. Ein Fehler im generischen Code nennt die
   Instanz: `operator not applicable to "TK" and "TK" (in TBox<TK>.Doppelt)`. Auch der Borrow
   Checker prüft jede Instanz.

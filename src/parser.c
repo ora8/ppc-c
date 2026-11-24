@@ -628,7 +628,10 @@ static RoutineDecl *parse_routine(void) {
         next();
         d->cls_tparams = ident_list();
         expect_sym(">");
-        if (!is_sym(".")) error_at(pos(), "generic functions and procedures ('%s<T>') are not supported yet: only records and classes can be generic", d->name.name);
+        if (!is_sym(".")) { /* generic routine: function Max<T>(a, b: T): T */
+            d->tparams = d->cls_tparams;
+            d->cls_tparams = (IdentVec){0};
+        }
     }
     if (accept_sym(".")) {
         d->cls = d->name;

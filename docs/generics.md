@@ -1,6 +1,6 @@
 # Design: Generics für ppc
 
-Status: **abgenommen** (alle Vorschläge aus Abschnitt 8 angenommen). Stufe 1 (generische Records und Klassen) ist gebaut.
+Status: **abgenommen** (alle Vorschläge aus Abschnitt 8 angenommen). Stufe 1 (generische Records und Klassen) und Stufe 2 (generische Funktionen und Prozeduren) sind gebaut.
 
 ## 1. Ziel
 
