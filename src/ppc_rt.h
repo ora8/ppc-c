@@ -22,6 +22,15 @@ static void *__ppc_alloc(size_t n) {
     return p;
 }
 static void __ppc_free(void *p) { free(p); }
+static void *__ppc_realloc(void *p, size_t n) { /* dynamic arrays: SetLength */
+    if (!n) {
+        free(p);
+        return NULL;
+    }
+    void *q = realloc(p, n);
+    if (!q) __rt_error(203, "heap overflow");
+    return q;
+}
 static void __abstract_err(void) { __rt_error(211, "abstract method called"); }
 static int __is(void *o, void *vmt) {
     if (!o) return 0;

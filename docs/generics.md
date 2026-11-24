@@ -1,6 +1,6 @@
 # Design: Generics für ppc
 
-Status: **abgenommen** (alle Vorschläge aus Abschnitt 8 angenommen). Stufe 1 (generische Records und Klassen), Stufe 2 (generische Funktionen und Prozeduren), Stufe 3 (Einschränkungen) und Stufe 4 (Prüfung des Rumpfs gegen die Einschränkungen) sind gebaut.
+Status: **abgenommen** (alle Vorschläge aus Abschnitt 8 angenommen). Stufe 1 (generische Records und Klassen), Stufe 2 (generische Funktionen und Prozeduren), Stufe 3 (Einschränkungen), Stufe 4 (Prüfung des Rumpfs gegen die Einschränkungen) und Stufe 5 (dynamische Arrays) sind gebaut.
 
 ## 1. Ziel
 

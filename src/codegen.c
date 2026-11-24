@@ -104,6 +104,18 @@ static char *ctype(Type *t) {
     case T_NIL: return "void*";
     case T_LIT: return "void";
     case T_PARAM: return "void"; /* placeholders never reach the C code */
+    case T_DYN: { /* dynamic array: length + buffer on the heap */
+        char *elem = ctype(t->base);
+        char *key = sfmt("dyn|%s", elem);
+        for (int i = 0; i < arrs.len; i++)
+            if (STREQ(arrs.items[i].key, key)) return sfmt("struct %s", arrs.items[i].name);
+        if (t->base->kind == T_RECORD) ensure_struct(t->base->st);
+        ArrDef d = {key, sfmt("D%d", arrs.len + 1)};
+        vpush(arrs, d);
+        buf_printf(&b_fwd, "struct %s;\n", d.name);
+        buf_printf(&b_types, "struct %s { int64_t len; %s *a; };\n", d.name, elem);
+        return sfmt("struct %s", d.name);
+    }
     case T_RES: { /* result: struct { err; value; error } (zero = ok with the zero value) */
         char *elem = t->base ? ctype(t->base) : NULL, *et = ctype(t->err);
         char *key = sfmt("res|%s|%s", elem ? elem : "", et);
@@ -228,7 +240,15 @@ static char *agg_drop_fn(Type *t) {
     buf_printf(&b_protos, "static void %s(%s *p);\n", name, ct);
     Buf b = {0};
     buf_printf(&b, "static void %s(%s *p) {\n", name, ct);
-    if (t->kind == T_ARRAY) {
+    if (t->kind == T_DYN) { /* elements, then the buffer */
+        if (is_ref_type(t->base) || has_owned(t->base)) {
+            buf_put(&b, "  for (int64_t i = 0; i < p->len; i++) {\n");
+            if (is_ref_type(t->base)) buf_printf(&b, "    if (p->a[i]) { %s; p->a[i] = 0; }\n", drop_code(t->base, "p->a[i]"));
+            else buf_printf(&b, "    %s;\n", agg_drop(t->base, "p->a[i]"));
+            buf_put(&b, "  }\n");
+        }
+        buf_put(&b, "  __ppc_free(p->a); p->a = 0; p->len = 0;\n");
+    } else if (t->kind == T_ARRAY) {
         long long n = t->hi - t->lo + 1;
         buf_printf(&b, "  for (long i = 0; i < %lld; i++) {\n", n);
         if (is_ref_type(t->base))
@@ -302,7 +322,17 @@ static char *agg_clone_fn(Type *t) {
     buf_printf(&b_protos, "static void %s(%s *p);\n", name, ct);
     Buf b = {0};
     buf_printf(&b, "static void %s(%s *p) {\n", name, ct);
-    if (t->kind == T_ARRAY) {
+    if (t->kind == T_DYN) { /* own buffer for the copy, then clone what the elements own */
+        char *et = ctype(t->base);
+        buf_printf(&b, "  if (p->len) { %s *n = (%s*)__ppc_alloc((size_t)p->len * sizeof(%s)); memcpy(n, p->a, (size_t)p->len * sizeof(%s)); p->a = n; }\n",
+                   et, et, et, et);
+        if (is_ref_type(t->base) || has_owned(t->base)) {
+            buf_put(&b, "  for (int64_t i = 0; i < p->len; i++) {\n");
+            if (is_ref_type(t->base)) buf_printf(&b, "    if (p->a[i]) p->a[i] = %s;\n", clone_call(t->base, "p->a[i]", "[]"));
+            else buf_printf(&b, "    %s;\n", agg_clone(t->base, "p->a[i]"));
+            buf_put(&b, "  }\n");
+        }
+    } else if (t->kind == T_ARRAY) {
         buf_printf(&b, "  for (long i = 0; i < %lld; i++) {\n", t->hi - t->lo + 1);
         if (is_ref_type(t->base)) buf_printf(&b, "    if (p->a[i]) p->a[i] = %s;\n", clone_call(t->base, "p->a[i]", "[]"));
         else buf_printf(&b, "    %s;\n", agg_clone(t->base, "p->a[i]"));
@@ -594,6 +624,7 @@ static char *gbuiltin(Expr *e) {
         return b.d;
     }
     case BI_LENGTH:
+        if (A->items[0]->type->kind == T_DYN) return sfmt("((int32_t)(%s).len)", G(0));
         if (A->items[0]->type->kind == T_CHAR) return "1";
         return sfmt("((int32_t)(%s).s[0])", G(0));
     case BI_ORD: return sfmt("((%s)(%s))", ctype(e->type), G(0));
@@ -691,9 +722,31 @@ static char *gbuiltin(Expr *e) {
     case BI_TAKE: {
         int id = ++tmpc;
         char *l = G(0);
+        if (e->type->kind == T_OPT) return sfmt("({ %s __t%d = %s; (%s).has = 0; __t%d; })", ctype(e->type), id, l, l, id);
         return sfmt("({ %s __t%d = %s; %s = 0; __t%d; })", ctype(e->type), id, l, l, id);
     }
-    case BI_SETLENGTH: return sfmt("((%s).s[0] = (uint8_t)(%s))", G(0), G(1));
+    case BI_SETLENGTH: {
+        Type *t = A->items[0]->type;
+        if (t->kind != T_DYN) return sfmt("((%s).s[0] = (uint8_t)(%s))", G(0), G(1));
+        /* dynamic array: elements cut off are freed (if they own something), new ones start at zero */
+        int id = ++tmpc;
+        char *et = ctype(t->base);
+        Buf b = {0};
+        buf_printf(&b, "({ %s *__d%d = &(%s); int64_t __n%d = (int64_t)(%s); if (__n%d < 0) __n%d = 0; ", ctype(t), id, G(0), id, G(1), id, id);
+        if (is_ref_type(t->base) || has_owned(t->base)) {
+            char *x = sfmt("__d%d->a[__k%d]", id, id);
+            buf_printf(&b, "for (int64_t __k%d = __n%d; __k%d < __d%d->len; __k%d++) { ", id, id, id, id, id);
+            if (is_ref_type(t->base)) buf_printf(&b, "if (%s) %s; ", x, drop_code(t->base, x));
+            else buf_printf(&b, "%s; ", agg_drop(t->base, x));
+            buf_put(&b, "} ");
+        }
+        buf_printf(&b, "__d%d->a = (%s*)__ppc_realloc(__d%d->a, (size_t)__n%d * sizeof(%s)); ", id, et, id, id, et);
+        buf_printf(&b, "if (__n%d > __d%d->len) memset(__d%d->a + __d%d->len, 0, (size_t)(__n%d - __d%d->len) * sizeof(%s)); ", id, id,
+                   id, id, id, id, et);
+        buf_printf(&b, "__d%d->len = __n%d; (void)0; })", id, id);
+        return b.d;
+    }
+    case BI_HIGH: return sfmt("((int32_t)(%s).len - 1)", G(0));
     case BI_CLASSNAME: return sfmt("__pstr_cstr((*(struct __VMTHdr**)(%s))->name)", G(0));
     }
 #undef G
@@ -744,6 +797,13 @@ static char *gx(Expr *e) {
     case E_INDEX: {
         Expr *a = e->a;
         char *idx = gx(e->args.items[0]);
+        if (a->type->kind == T_DYN) { /* a[i]: 0 .. Length(a) - 1 */
+            if (!g_range_check) return sfmt("(%s).a[%s]", gx(a), idx);
+            int id = ++tmpc;
+            Pos p = e->args.items[0]->pos;
+            return sfmt("(*({ %s *__d%d = &(%s); int64_t __i%d = (int64_t)(%s); __rangechk(__i%d, 0, __d%d->len - 1, %d, %d); &__d%d->a[__i%d]; }))",
+                        ctype(a->type), id, gx(a), id, idx, id, id, p.line, p.col, id, id);
+        }
         if (g_range_check && !e->in_range) { /* index checked at run time (Runtime error 201) */
             Pos p = e->args.items[0]->pos;
             if (a->type->kind == T_STR) idx = sfmt("__rangechk((int64_t)(%s), 0, 255, %d, %d)", idx, p.line, p.col);
@@ -824,6 +884,15 @@ static char *gx(Expr *e) {
         return sfmt("((%s){0})", ctype(e->type));
     case E_LIST: { /* array literal */
         Buf b = {0};
+        if (e->type->kind == T_DYN) { /* (1, 2, 3) for 'array of T': a fresh buffer */
+            int id = ++tmpc;
+            char *et = ctype(e->type->base);
+            buf_printf(&b, "({ %s __l%d; __l%d.len = %d; __l%d.a = (%s*)__ppc_alloc(%d * sizeof(%s)); ", ctype(e->type), id, id,
+                       e->args.len, id, et, e->args.len ? e->args.len : 1, et);
+            for (int i = 0; i < e->args.len; i++) buf_printf(&b, "__l%d.a[%d] = %s; ", id, i, gx(e->args.items[i]));
+            buf_printf(&b, "__l%d; })", id);
+            return b.d;
+        }
         buf_printf(&b, "((%s){ { ", ctype(e->type));
         for (int i = 0; i < e->args.len; i++) buf_printf(&b, "%s%s", i ? ", " : "", gx(e->args.items[i]));
         buf_put(&b, " } })");

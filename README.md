@@ -245,6 +245,36 @@ end;                                        { k.Destroy läuft hier, k.Name wird
 * Messung: 50 Millionen kurzlebige Objekte brauchen mit `-O2` 0,08 s als Stackobjekt und 0,32 s
   als Heapobjekt.
 
+### Dynamische Arrays: `array of T`
+
+Ein dynamisches Array besitzt einen Puffer auf dem Heap, der mit `SetLength` wächst und schrumpft
+(Index ab 0, wie in Delphi):
+
+```pascal
+val zahlen: array of Integer := (1, 2, 3);
+vao kunden: array of optional TKunde := default;   { leer }
+begin
+  SetLength(zahlen, 5);                     { neue Elemente sind 0 }
+  zahlen[4] := 42;
+  WriteLn(Length(zahlen), ' ', High(zahlen));   { 5 4 }
+  SetLength(kunden, 1);
+  kunden[0] := TKunde.Create('Anna');
+end;                                        { Puffer und Kunden werden freigegeben }
+
+function Summe(a: array of Integer): Integer;     { Ausleihe, keine Kopie }
+procedure Fuelle(var a: array of Integer; n: Integer);   { darf die Länge ändern }
+```
+
+* `Length(a)`, `High(a)` (= `Length(a) - 1`), `Low(a)` (= 0); jeder Zugriff wird geprüft
+  (`Runtime error 201: … index 3 is outside 0..2`).
+* `SetLength` gibt abgeschnittene Elemente frei (wenn sie Objekte besitzen); neue beginnen mit dem
+  Nullwert bzw. `none`. Weil der Puffer dabei umziehen kann, sind Ausleihen von Elementen danach
+  ungültig – der Borrow Checker meldet ihre Benutzung
+  (`… used after its owner 'a' was resized by SetLength at line 3`).
+* Das Array besitzt seinen Puffer: `b := a` **verschiebt** (`a` ist danach leer), `a.Clone` kopiert
+  (samt Klonen enthaltener Objekte); als Parameter wird es ausgeliehen.
+* Funktioniert auch generisch, z. B. ein `TStapel<T>` mit `Elemente: array of optional T`.
+
 ### Arrays und Records, die Objekte besitzen
 
 Ein Array oder Record mit besitzenden Elementen bzw. Feldern (`array[1..9] of optional TK`,
@@ -941,8 +971,8 @@ Objekte sofort frei (in jeder Schleifenart); Ausleihen auf sie sind danach ungü
   bei `optional`: `HasValue`, `ValueOr`; bei `result`: `IsOk`, `IsError`, `ValueOr`
 
 Nicht unterstützt: `nil` (ersetzt durch `optional`/`none`), Zeiger (`^`, `@`, `New`, `Dispose`,
-`Pointer` – ersetzt durch Objekte, `var`-Referenzen und `var`-Parameter), `object`-Typen (ersetzt durch `class`), Units, Mengentypen (außer Mengen-Literalen bei `in`), dynamische/offene
-Arrays, Exceptions (ersetzt durch `result T` und `try`), Interfaces, Überladen, Prozedurtypen,
+`Pointer` – ersetzt durch Objekte, `var`-Referenzen und `var`-Parameter), `object`-Typen (ersetzt durch `class`), Units, Mengentypen (außer Mengen-Literalen bei `in`), offene
+Array-Parameter (`array of T` ist ein dynamisches Array), Exceptions (ersetzt durch `result T` und `try`), Interfaces, Überladen, Prozedurtypen,
 varianten Records, `goto`, Datei-I/O.
 
 ## Aufbau

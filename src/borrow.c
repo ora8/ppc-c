@@ -660,8 +660,9 @@ static void builtin_effects(Expr *e, State *s) {
         Var *root = NULL;
         char *path = path_of(a, &root);
         use_lvalue(a, s);
-        if (g_nil_check && !a->type->nilable)
-            nerror(e->pos, "Take() would leave non-nilable '%s' nil; declare it as 'nilable %s'", desc_of(a), type_name(a->type));
+        if (g_nil_check && !a->type->nilable && a->type->kind != T_OPT)
+            nerror(e->pos, "Take() would leave '%s' without an object, but it is not optional; declare it as 'optional %s'", desc_of(a),
+                   type_name(a->type));
         if (a->kind == E_VAR && slot(a->var) >= 0) s->nn[slot(a->var)] = N_NIL;
         if (a->kind == E_VAR) {
             Var *v = a->var;
@@ -689,6 +690,12 @@ static void builtin_effects(Expr *e, State *s) {
                     use_expr(a, s);
             } else
                 use_expr(a, s);
+        }
+        if (e->bi == BI_SETLENGTH && A->len && A->items[0]->type->kind == T_DYN) {
+            /* the buffer may move: borrows of its elements are dangling afterwards */
+            Var *root = NULL;
+            char *path = path_of(A->items[0], &root);
+            if (path) invalidate(s, sfmt("%s[]", path), sfmt("'%s' was resized by SetLength at line %d", root ? root->name : desc_of(A->items[0]), e->pos.line));
         }
         return;
     case BI_INSERT:

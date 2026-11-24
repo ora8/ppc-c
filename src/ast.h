@@ -92,6 +92,7 @@ struct TypeExpr {
     FieldDeclVec fields;      /* TE_RECORD */
     StructDecl *sd;           /* TE_STRUCT */
     TypeExprVec targs;        /* TE_NAMED: type arguments of a generic type, TListe<TKunde> */
+    int dyn;                  /* TE_ARRAY: 'array of T' (dynamic, grows with SetLength) */
     int nilable;              /* 'optional' modifier */
     int readonly;             /* 'const T': read-only object reference */
 };
@@ -241,7 +242,7 @@ struct Stmt {
 
 /* ------------------------------------------------------------- semantics */
 
-typedef enum { T_VOID, T_INT, T_BOOL, T_CHAR, T_REAL, T_STR, T_PTR, T_ARRAY, T_RECORD, T_CLASS, T_OPT, T_RES, T_LIT, T_ENUM, T_NIL, T_PARAM } TypeKind;
+typedef enum { T_VOID, T_INT, T_BOOL, T_CHAR, T_REAL, T_STR, T_PTR, T_ARRAY, T_RECORD, T_CLASS, T_OPT, T_RES, T_LIT, T_ENUM, T_NIL, T_PARAM, T_DYN } TypeKind; /* T_DYN: dynamic array 'array of T' (base) */
 /* T_PARAM: placeholder for a type parameter while a generic is checked on its own; ik holds PC_* */
 enum { PC_EQ = 1, PC_CMP = 2, PC_CLONE = 4, PC_COPY = 8, PC_NUM = 16 };
 enum { IK_I8, IK_U8, IK_I16, IK_U16, IK_I32, IK_U32, IK_I64 };

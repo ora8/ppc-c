@@ -148,6 +148,7 @@ const char *type_name(Type *t) {
     case T_RES: return res_name(t->base, t->err);
     case T_LIT: return "literal";
     case T_PARAM: return "type parameter";
+    case T_DYN: return sfmt("array of %s", type_name(t->base));
     }
     return "?";
 }
@@ -166,6 +167,7 @@ int is_ref_type(Type *t) { return t && (t->kind == T_CLASS || (t->kind == T_PTR 
 int has_owned(Type *t) {
     if (!t) return 0;
     switch (t->kind) {
+    case T_DYN: return 1; /* owns its buffer */
     case T_ARRAY: return is_ref_type(t->base) || has_owned(t->base);
     case T_OPT: return has_owned(t->base);
     case T_RECORD:
@@ -210,6 +212,7 @@ static int same_type(Type *a, Type *b) {
     case T_ENUM: return a->en == b->en;
     case T_OPT: return same_type(a->base, b->base);
     case T_PARAM: return 0; /* two placeholders are only the same if they are one object */
+    case T_DYN: return same_type(a->base, b->base);
     case T_RES:
         if (!a->base || !b->base) return !a->base && !b->base && same_type(a->err, b->err);
         return same_type(a->base, b->base) && same_type(a->err, b->err);
@@ -320,6 +323,11 @@ static Expr *literal_to(Expr *e, Type *to, const char *ctx) {
     if (to->kind == T_RES) {
         if (!to->base) error_at(e->pos, "\"%s\" has no value: use 'ok' or 'error(...)'", type_name(to));
         return coerce(literal_to(e, to->base, ctx), to, ctx);
+    }
+    if (e->kind == E_LIST && to->kind == T_DYN) { /* (1, 2, 3) for 'array of T': any length */
+        for (int i = 0; i < e->args.len; i++) e->args.items[i] = coerce(value(e->args.items[i]), to->base, "array literal");
+        e->type = to;
+        return e;
     }
     if (e->kind == E_LIST) {
         if (to->kind != T_ARRAY) error_at(e->pos, "an array literal cannot be used as \"%s\" in %s", type_name(to), ctx);
@@ -1181,7 +1189,7 @@ static int has_clone(Type *t) {
         Prop *pr;
         return find_member(t->st, "Clone", &f, &m, &pr) && m && m->kind == RK_FUNC && !m->params.len;
     }
-    if (t->kind == T_ARRAY) return (is_ref_type(t->base) || has_owned(t->base)) ? has_clone(t->base) : 1;
+    if (t->kind == T_ARRAY || t->kind == T_DYN) return (is_ref_type(t->base) || has_owned(t->base)) ? has_clone(t->base) : 1;
     return 0;
 }
 static int satisfies(Type *t, const char *c) {
@@ -1260,6 +1268,11 @@ static Type *resolve_type_inner(TypeExpr *te) {
         Type *elem = resolve_type(te->elem);
         check_complete(elem, te->elem->pos);
         require_nilable(elem, te->elem->pos, "array element");
+        if (te->dyn) { /* array of T: owns a buffer on the heap that grows with SetLength */
+            Type *d = new_type(T_DYN, sfmt("array of %s", type_name(elem)));
+            d->base = elem;
+            return d;
+        }
         for (int i = te->ranges.len - 1; i >= 0; i--) {
             Type *t = new_type(T_ARRAY, NULL);
             t->hi = range_of(te->ranges.items[i], &t->lo, &t->index);
@@ -1736,7 +1749,7 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
             error_at(p, "'%s' is not known for type parameter \"%s\": add a constraint that provides it (e.g. '%s: TBasis' for a class, '%s: Clone' for Clone)",
                      name, type_name(bt), type_name(bt), type_name(bt));
         }
-        if (bt->kind == T_ARRAY && STREQ(name, "Clone")) { /* a.Clone: copy, cloning the objects it owns */
+        if ((bt->kind == T_ARRAY || bt->kind == T_DYN) && STREQ(name, "Clone")) { /* a.Clone: copy, cloning the objects it owns */
             if (args && args->len) error_at(p, "Clone takes no arguments");
             Expr *c = new_expr(E_BUILTIN, p);
             c->bi = BI_ARRCLONE;
@@ -1820,7 +1833,11 @@ static Expr *ex(Expr *e) {
             Expr *idx = value(e->args.items[i]);
             Expr *n = new_expr(E_INDEX, e->pos);
             n->a = a;
-            if (a->type->kind == T_ARRAY) {
+            if (a->type->kind == T_DYN) { /* index from 0, checked at run time */
+                if (!is_int(idx->type)) error_at(idx->pos, "integer index expected for \"%s\"", type_name(a->type));
+                n->type = a->type->base;
+                if (rooted_const(a)) n->type = readonly_of(n->type);
+            } else if (a->type->kind == T_ARRAY) {
                 Type *it = a->type->index;
                 if (!is_ordinal(idx->type) || (is_int(it) ? !is_int(idx->type) : !same_type(it, idx->type)))
                     error_at(idx->pos, "incompatible index type: got \"%s\" expected \"%s\"", type_name(idx->type),
@@ -2117,7 +2134,7 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
         NARGS(1, 1);
         Expr *a = value(A(0));
         if (a->type->kind == T_ARRAY) return lit_int(a->type->hi - a->type->lo + 1, t_int, p);
-        if (!is_strlike(a->type)) error_at(p, "Length needs a string or array");
+        if (!is_strlike(a->type) && a->type->kind != T_DYN) error_at(p, "Length needs a string or array");
         vpush(e->args, a);
         e->type = t_int;
         return e;
@@ -2170,6 +2187,11 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
         Type *t = a->kind == E_TYPEREF ? a->ctype : a->type;
         int hi = bi == BI_HIGH;
         switch (t->kind) {
+        case T_DYN:
+            if (!hi) return lit_int(0, t_int, p);
+            vpush(e->args, value(a)); /* High(a) = Length(a) - 1 */
+            e->type = t_int;
+            return e;
         case T_ARRAY: return lit_int(hi ? t->hi : t->lo, t->index, p);
         case T_STR: return lit_int(hi ? 255 : 0, t_int, p);
         case T_CHAR: return lit_int(hi ? 255 : 0, t_char, p);
@@ -2345,7 +2367,8 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
         NARGS(1, 1);
         Expr *a = value(A(0));
         check_writable(a, nm);
-        if (!is_owning_type(a->type)) error_at(p, "Take needs a class or typed pointer location");
+        if (!is_owning_type(a->type) && a->type->kind != T_OPT)
+            error_at(p, "Take needs an optional place (an object or an optional value)");
         vpush(e->args, a);
         e->type = a->type;
         return e;
@@ -2354,7 +2377,7 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
         NARGS(2, 2);
         Expr *s = value(A(0));
         check_writable(s, nm);
-        if (s->type->kind != T_STR) error_at(p, "string variable expected");
+        if (s->type->kind != T_STR && s->type->kind != T_DYN) error_at(p, "string or 'array of' variable expected");
         vpush(e->args, s);
         vpush(e->args, coerce(value(A(1)), t_i64, nm));
         return e;
@@ -2471,7 +2494,7 @@ static void move_check(Expr *src, const char *ctx) {
     if (!is_lvalue(e)) return; /* fresh value (function result, literal): nothing to empty */
     Var *rv = root_var(e);
     if (rooted_const(e) || (rv && (rv->no_drop || rv->is_const)))
-        error_at(e->pos, "'%s' owns objects and cannot be copied (%s); only its owner can move it away",
+        error_at(e->pos, "'%s' owns its contents (objects or heap memory) and cannot be copied (%s); move it from its owner or copy it with '.Clone'",
                  const_root_name(e), ctx);
     if (has_call(e)) error_at(e->pos, "moving a value that owns objects needs a plain place (no calls in it)");
 }
@@ -3542,7 +3565,7 @@ Program *sema_program(Block *prelude, Block *pb, const char *name) {
 
     for (int i = 0; i < prog->routines.len; i++) {
         Routine *r = prog->routines.items[i];
-        if (r->owner && !r->defined)
+        if (r->owner && !r->defined && !g_errors) /* after errors: possibly skipped instance bodies */
             error_at(r->pos, "method \"%s.%s\" is declared but not implemented", r->owner->name, r->name);
     }
     return prog;

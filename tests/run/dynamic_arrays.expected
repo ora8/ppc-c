@@ -1,0 +1,13 @@
+Length 3 High 2 Summe 6
+nach Fuelle: 16 Summe 30
+p[1].X = 7, p[0].X = 0
+w 5, z 0
+w[0] = 0, c[0] = 99
+  frei 3
+objs 1
+pop 20
+si 5
+Ende
+  frei 20
+  frei 10
+  frei 1

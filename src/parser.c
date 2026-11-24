@@ -359,7 +359,8 @@ static ParamGroupVec parse_params(void) {
             g.mode = PM_VALUE;
         g.names = ident_list();
         if (!accept_sym(":")) error_at(pos(), "untyped parameters are not supported");
-        if (is_kw("array")) error_at(pos(), "array types in parameter lists must be named (declare a type; open arrays are not supported)");
+        if (is_kw("array") && !(T.items[P + 1].kind == TK_KW && STREQ(T.items[P + 1].s, "of")))
+            error_at(pos(), "fixed-size array types in parameter lists must be named (declare a type), or use 'array of T'");
         g.ty = parse_type();
         if (is_sym("=")) error_at(pos(), "default parameter values are not supported");
         vpush(v, g);
@@ -586,7 +587,13 @@ static TypeExpr *parse_type_core(void) {
     accept_kw("packed");
     if (accept_kw("array")) {
         TypeExpr *t = new_te(TE_ARRAY, p);
-        if (!accept_sym("[")) error_at(pos(), "dynamic arrays ('array of') are not supported");
+        if (is_kw("of")) { /* array of T: dynamic array */
+            next();
+            t->dyn = 1;
+            t->elem = parse_type();
+            return t;
+        }
+        expect_sym("[");
         vpush(t->ranges, parse_type());
         while (accept_sym(",")) vpush(t->ranges, parse_type());
         expect_sym("]");
