@@ -241,7 +241,9 @@ struct Stmt {
 
 /* ------------------------------------------------------------- semantics */
 
-typedef enum { T_VOID, T_INT, T_BOOL, T_CHAR, T_REAL, T_STR, T_PTR, T_ARRAY, T_RECORD, T_CLASS, T_OPT, T_RES, T_LIT, T_ENUM, T_NIL } TypeKind;
+typedef enum { T_VOID, T_INT, T_BOOL, T_CHAR, T_REAL, T_STR, T_PTR, T_ARRAY, T_RECORD, T_CLASS, T_OPT, T_RES, T_LIT, T_ENUM, T_NIL, T_PARAM } TypeKind;
+/* T_PARAM: placeholder for a type parameter while a generic is checked on its own; ik holds PC_* */
+enum { PC_EQ = 1, PC_CMP = 2, PC_CLONE = 4, PC_COPY = 8, PC_NUM = 16 };
 enum { IK_I8, IK_U8, IK_I16, IK_U16, IK_I32, IK_U32, IK_I64 };
 
 struct Type {

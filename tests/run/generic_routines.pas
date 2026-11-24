@@ -11,7 +11,7 @@ type
   end;
 constructor TKunde.Create(AName: String const); begin inherited Create; Name := AName; end;
 
-function Max<T>(a, b: T): T;
+function Max<T: Comparable>(a, b: T): T;
 begin
   if a > b then Result := a else Result := b;
 end;
@@ -32,12 +32,12 @@ end;
 function Erstes<A, B>(p: TPaar<A, B>): A;
 begin Result := p.Erstes; end;
 
-function Fakultaet<T>(n: T): T;          { rekursiv }
+function Fakultaet<T: Numeric>(n: T): T;          { rekursiv }
 begin
   if n <= 1 then Result := 1 else Result := n * Fakultaet(n - 1);
 end;
 
-function Name<T>(k: T): String;
+function Name<T: TKunde>(k: T): String;
 begin Result := k.Name; end;
 
 val

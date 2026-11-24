@@ -1,6 +1,6 @@
 # Design: Generics für ppc
 
-Status: **abgenommen** (alle Vorschläge aus Abschnitt 8 angenommen). Stufe 1 (generische Records und Klassen), Stufe 2 (generische Funktionen und Prozeduren) und Stufe 3 (Einschränkungen) sind gebaut.
+Status: **abgenommen** (alle Vorschläge aus Abschnitt 8 angenommen). Stufe 1 (generische Records und Klassen), Stufe 2 (generische Funktionen und Prozeduren), Stufe 3 (Einschränkungen) und Stufe 4 (Prüfung des Rumpfs gegen die Einschränkungen) sind gebaut.
 
 ## 1. Ziel
 
@@ -82,6 +82,7 @@ Alles andere muss angekündigt werden:
 | `T: Clone` | `x.Clone` | Klassen/Records mit `Clone`, Arrays davon |
 | `T: Equatable` | `=`, `<>` | Zahlen, Strings, Char, Boolean, Aufzählungen |
 | `T: Comparable` | zusätzlich `<`, `<=`, `>`, `>=` | Zahlen, Strings, Char, Aufzählungen |
+| `T: Numeric` | `+`, `-`, `*`, Zahl-Literale, Vergleiche | Integer-Typen, Real |
 
 Mehrere Einschränkungen: `T: Clone, Comparable`; Parametergruppen mit Einschränkungen werden wie in Delphi mit `;` getrennt: `TMap<K: Comparable; V>`. Die Prüfung der Einschränkungen passiert bei
 jeder Instanziierung: `TListe<TKunde>` mit `T: Comparable` ergibt
@@ -141,8 +142,10 @@ C-Structs mit eigenen Funktionen und eigener VMT. Das kostet zur Laufzeit nichts
    jede Benutzung von `T`, die keine Einschränkung erlaubt, ist sofort ein Fehler. Bessere
    Meldungen, aber deutlich mehr Arbeit in der Typprüfung.
 
-**Vorschlag:** Mit (1) beginnen und die Einschränkungen bei jeder Instanziierung prüfen; (2) in
-Stufe 4 nachrüsten. Meldungen in (1) sehen dann so aus:
+**Umsetzung:** (1) seit Stufe 1; (2) seit Stufe 4: Jedes Generic wird zusätzlich einmal mit
+Platzhaltertypen geprüft, die genau das können, was ihre Einschränkungen erlauben (mit einer
+Basisklasse als Einschränkung ist der Platzhalter diese Klasse). Dabei entsteht kein Code; ein
+Generic mit Fehlern wird für seine Instanzen nicht noch einmal gemeldet. Meldungen in (1) sehen dann so aus:
 
 ```
 liste.pas(12,5) Error: in TListe<TKunde>.Sortiere: operator '<' is not defined for "TKunde"

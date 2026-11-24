@@ -103,6 +103,7 @@ static char *ctype(Type *t) {
     case T_ENUM: return "int32_t";
     case T_NIL: return "void*";
     case T_LIT: return "void";
+    case T_PARAM: return "void"; /* placeholders never reach the C code */
     case T_RES: { /* result: struct { err; value; error } (zero = ok with the zero value) */
         char *elem = t->base ? ctype(t->base) : NULL, *et = ctype(t->err);
         char *key = sfmt("res|%s|%s", elem ? elem : "", et);

@@ -25,7 +25,14 @@ typedef struct {
     int is_routine;           /* generic function/procedure: Max<T> */
     RoutineDecl *rdecl;       /* its first parse (parameter types for inference) */
     VEC(Routine *) rts;       /* routine instances, parallel to keys */
+    VEC(char *) akeys;        /* instances made while generics are checked with placeholders */
+    VEC(Instance) ainsts;
+    VEC(Routine *) arts;
+    RoutineDecl *arch_rd;     /* routine: its placeholder instance (body checked once) */
+    Routine *arch_rt;
+    int broken;               /* the generic itself has errors: its instances are not checked again */
 } Generic;
+static VEC(Generic *) all_generics;
 
 typedef struct {
     SymKind kind;
@@ -60,6 +67,7 @@ static Routine *cur;
 static int level;
 static int loop_depth;
 static int in_prelude;
+static int archetype_mode; /* > 0 while a generic is checked with placeholder types (no code is produced) */
 static struct Scope *gscope;   /* program scope: generic instances are made there */
 static VEC(char *) broken_names; /* variables whose declaration had an error: their uses are not reported again */
 static Struct *inst_cls;       /* method body of a generic instance being checked */
@@ -86,6 +94,7 @@ static Type *t_void, *t_int, *t_i64, *t_i8, *t_u8, *t_i16, *t_u16, *t_u32, *t_bo
 static Expr *value(Expr *e);
 static Expr *try_expr(Expr *e);
 static void move_check(Expr *src, const char *ctx);
+static Expr *param_binary(Expr *e);
 static Expr *ex(Expr *e);
 static Type *resolve_type(TypeExpr *te);
 static void decls(Block *b, int has_frame);
@@ -138,6 +147,7 @@ const char *type_name(Type *t) {
     case T_OPT: return sfmt("optional %s", type_name(t->base));
     case T_RES: return res_name(t->base, t->err);
     case T_LIT: return "literal";
+    case T_PARAM: return "type parameter";
     }
     return "?";
 }
@@ -199,6 +209,7 @@ static int same_type(Type *a, Type *b) {
     case T_RECORD: case T_CLASS: return a->st == b->st;
     case T_ENUM: return a->en == b->en;
     case T_OPT: return same_type(a->base, b->base);
+    case T_PARAM: return 0; /* two placeholders are only the same if they are one object */
     case T_RES:
         if (!a->base || !b->base) return !a->base && !b->base && same_type(a->err, b->err);
         return same_type(a->base, b->base) && same_type(a->err, b->err);
@@ -336,6 +347,10 @@ static Expr *literal_to(Expr *e, Type *to, const char *ctx) {
 }
 
 static Expr *coerce(Expr *e, Type *to, const char *ctx) {
+    if (to->kind == T_PARAM && (to->ik & PC_NUM) && (e->kind == E_INT || e->kind == E_REAL)) {
+        e->type = to; /* a number literal is a value of every numeric type */
+        return e;
+    }
     if (e->type && e->type->kind == T_LIT) return literal_to(e, to, ctx);
     int c = assign_compat(to, e->type);
     if (!c && e->type->kind == T_NIL)
@@ -815,7 +830,7 @@ static void define_record(Struct *s, TypeExpr *te) {
         vpush(s->props, pr);
     }
     s->defined = 1;
-    vpush(prog->structs, s);
+    if (!archetype_mode) vpush(prog->structs, s); /* placeholder instances are only checked */
 }
 
 /* 'function Clone: T; const; auto;': the compiler writes a deep copy */
@@ -912,19 +927,38 @@ static void leave_generic(Scope *saved_scope, Routine *saved_cur, int saved_leve
     level = saved_level;
 }
 
+/* name of an instance for messages and ClassName: TListe<TKunde> */
+static char *inst_name(Generic *g, Type **args, int n) {
+    Buf kb = {0};
+    buf_printf(&kb, "%s<", g->name);
+    for (int i = 0; i < n; i++) buf_printf(&kb, "%s%s", i ? ", " : "", type_name(args[i]));
+    buf_put(&kb, ">");
+    return xstrdup(buf_str(&kb));
+}
+/* cache key: like the name, but placeholders of different generics never collide */
+static char *inst_key(Generic *g, Type **args, int n) {
+    Buf kb = {0};
+    buf_printf(&kb, "%s<", g->name);
+    for (int i = 0; i < n; i++)
+        if (args[i]->kind == T_PARAM) buf_printf(&kb, "%s%s#%p", i ? ", " : "", type_name(args[i]), (void *)args[i]);
+        else buf_printf(&kb, "%s%s", i ? ", " : "", type_name(args[i]));
+    buf_put(&kb, ">");
+    return xstrdup(buf_str(&kb));
+}
+
 /* TListe<TKunde>: the instance of a generic type for these type arguments (made once) */
 static Type *instantiate(Generic *g, Type **args, int n, Pos p) {
     if (n != g->params.len)
         error_at(p, "\"%s\" has %d type parameter%s, but %d type argument%s given", g->name, g->params.len,
                  g->params.len == 1 ? "" : "s", n, n == 1 ? " is" : "s are");
     check_constraints(g, args, p);
-    Buf kb = {0};
-    buf_printf(&kb, "%s<", g->name);
-    for (int i = 0; i < n; i++) buf_printf(&kb, "%s%s", i ? ", " : "", type_name(args[i]));
-    buf_put(&kb, ">");
-    char *key = xstrdup(buf_str(&kb));
-    for (int i = 0; i < g->keys.len; i++)
-        if (STREQ(g->keys.items[i], key)) return g->insts.items[i].st->type;
+    char *key = inst_key(g, args, n);
+    if (archetype_mode) {
+        for (int i = 0; i < g->akeys.len; i++)
+            if (STREQ(g->akeys.items[i], key)) return g->ainsts.items[i].st->type;
+    } else
+        for (int i = 0; i < g->keys.len; i++)
+            if (STREQ(g->keys.items[i], key)) return g->insts.items[i].st->type;
     static int depth;
     if (++depth > 50) error_at(p, "generic instances nested too deeply (%s)", key);
     Scope *ss;
@@ -932,19 +966,25 @@ static Type *instantiate(Generic *g, Type **args, int n, Pos p) {
     int sl;
     enter_generic(g, args, &ss, &sc, &sl);
     const char *save_ctx = g_err_context;
-    g_err_context = key;
+    char *shown = inst_name(g, args, n);
+    g_err_context = shown;
     TypeExpr *te = reparse_type(g->toks, g->tok);
     int sk = te->kind == TE_RECORD ? SK_RECORD : te->sd->kind;
-    Struct *st = new_struct(key, sk, g->pos);
+    Struct *st = new_struct(shown, sk, g->pos);
     Instance in = {st, (Type **)xcalloc(n ? n : 1, sizeof(Type *))};
     for (int i = 0; i < n; i++) in.args[i] = args[i];
-    vpush(g->keys, key);
-    vpush(g->insts, in); /* registered before it is defined: recursive uses (optional TKnoten<T>) find it */
+    if (archetype_mode) {
+        vpush(g->akeys, key);
+        vpush(g->ainsts, in);
+    } else {
+        vpush(g->keys, key);
+        vpush(g->insts, in); /* registered before it is defined: recursive uses (optional TKnoten<T>) find it */
+    }
     if (te->kind == TE_RECORD) define_record(st, te);
     else define_struct(st, te->sd);
     g_err_context = save_ctx;
     leave_generic(ss, sc, sl);
-    for (int i = 0; i < g->impls.len; i++) {
+    for (int i = 0; !archetype_mode && i < g->impls.len; i++) {
         PendingBody pb = {g, in, g->impls.items[i], NULL, NULL, NULL};
         vpush(pending_bodies, pb);
     }
@@ -971,20 +1011,20 @@ static Routine *instantiate_routine(Generic *g, Type **args, int n, Pos p) {
         error_at(p, "\"%s\" has %d type parameter%s, but %d type argument%s given", g->name, g->params.len,
                  g->params.len == 1 ? "" : "s", n, n == 1 ? " is" : "s are");
     check_constraints(g, args, p);
-    Buf kb = {0};
-    buf_printf(&kb, "%s<", g->name);
-    for (int i = 0; i < n; i++) buf_printf(&kb, "%s%s", i ? ", " : "", type_name(args[i]));
-    buf_put(&kb, ">");
-    char *key = xstrdup(buf_str(&kb));
-    for (int i = 0; i < g->keys.len; i++)
-        if (STREQ(g->keys.items[i], key)) return g->rts.items[i];
+    char *key = inst_key(g, args, n);
+    if (archetype_mode) {
+        for (int i = 0; i < g->akeys.len; i++)
+            if (STREQ(g->akeys.items[i], key)) return g->arts.items[i];
+    } else
+        for (int i = 0; i < g->keys.len; i++)
+            if (STREQ(g->keys.items[i], key)) return g->rts.items[i];
     static int counter;
     Scope *ss;
     Routine *sc;
     int sl;
     enter_generic(g, args, &ss, &sc, &sl);
     const char *save_ctx = g_err_context;
-    g_err_context = key;
+    g_err_context = inst_name(g, args, n);
     RoutineDecl *d = reparse_routine(g->toks, g->tok);
     d->tparams = (IdentVec){0};
     d->forward = 1; /* the header now: calls (also recursive ones) can be checked right away */
@@ -996,10 +1036,20 @@ static Routine *instantiate_routine(Generic *g, Type **args, int n, Pos p) {
     leave_generic(ss, sc, sl);
     Instance in = {NULL, (Type **)xcalloc(n ? n : 1, sizeof(Type *))};
     for (int i = 0; i < n; i++) in.args[i] = args[i];
+    if (archetype_mode) {
+        vpush(g->akeys, key);
+        vpush(g->ainsts, in);
+        vpush(g->arts, rt);
+        if (!g->arch_rd) { /* the generic's own placeholder instance: its body is checked once */
+            g->arch_rd = d;
+            g->arch_rt = rt;
+        }
+        return rt;
+    }
     vpush(g->keys, key);
     vpush(g->insts, in);
     vpush(g->rts, rt);
-    PendingBody pb = {g, in, NULL, rt, d, key};
+    PendingBody pb = {g, in, NULL, rt, d, inst_name(g, args, n)};
     vpush(pending_bodies, pb);
     return rt;
 }
@@ -1080,6 +1130,7 @@ static Routine *infer_routine(Generic *g, ExprVec *args, Pos p) {
 static void run_pending_body(int k) {
     {
         PendingBody pb = pending_bodies.items[k];
+        if (pb.g->broken) return; /* errors were already reported for the generic itself */
         Scope *ss;
         Routine *sc;
         int sl;
@@ -1106,7 +1157,7 @@ static void run_pending_body(int k) {
 static int find_member(Struct *st, const char *name, Field **f, Routine **m, Prop **p);
 
 /* ---- constraints: T: class | Copy | Clone | Equatable | Comparable | TBasis ---- */
-static const char *BUILTIN_CONS[] = {"class", "Copy", "Clone", "Equatable", "Comparable", NULL};
+static const char *BUILTIN_CONS[] = {"class", "Copy", "Clone", "Equatable", "Comparable", "Numeric", NULL};
 static int builtin_cons(const char *c) {
     for (int i = 0; BUILTIN_CONS[i]; i++)
         if (STREQ(BUILTIN_CONS[i], c)) return 1;
@@ -1119,7 +1170,7 @@ static void validate_constraints(Generic *g) {
             if (builtin_cons(c->name)) continue;
             Look L = lookup(c->name);
             if (L.kind != LK_SYM || L.sym->kind != SY_TYPE || L.sym->type->kind != T_CLASS)
-                error_at(c->pos, "unknown constraint '%s': use class, Copy, Clone, Equatable, Comparable or the name of a class",
+                error_at(c->pos, "unknown constraint '%s': use class, Copy, Clone, Equatable, Comparable, Numeric or the name of a class",
                          c->name);
         }
 }
@@ -1134,6 +1185,15 @@ static int has_clone(Type *t) {
     return 0;
 }
 static int satisfies(Type *t, const char *c) {
+    if (t->kind == T_PARAM) { /* a placeholder can do what its own constraints allow */
+        if (STREQ(c, "Copy")) return t->ik & PC_COPY;
+        if (STREQ(c, "Clone")) return t->ik & PC_CLONE;
+        if (STREQ(c, "Equatable")) return t->ik & (PC_EQ | PC_CMP | PC_NUM);
+        if (STREQ(c, "Comparable")) return t->ik & (PC_CMP | PC_NUM);
+        if (STREQ(c, "Numeric")) return t->ik & PC_NUM;
+        return 0;
+    }
+    if (STREQ(c, "Numeric")) return t->kind == T_INT || t->kind == T_REAL;
     if (STREQ(c, "class")) return t->kind == T_CLASS;
     if (STREQ(c, "Copy")) return t->kind != T_CLASS && !is_ref_type(t) && !has_owned(t);
     if (STREQ(c, "Clone")) return has_clone(t);
@@ -1285,7 +1345,7 @@ static Routine *new_routine(const char *name, int kind, Pos p) {
     r->slot = -1;
     r->pos = p;
     r->prelude = in_prelude;
-    vpush(prog->routines, r);
+    if (!archetype_mode) vpush(prog->routines, r);
     return r;
 }
 
@@ -1387,7 +1447,7 @@ static void define_struct(Struct *s, StructDecl *sd) {
         vpush(s->props, p);
     }
     s->defined = 1;
-    vpush(prog->structs, s);
+    if (!archetype_mode) vpush(prog->structs, s); /* placeholder instances are only checked */
 }
 
 /* ============================================================== calls */
@@ -1665,6 +1725,17 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
                          type_name(bt), what, name);
             }
         }
+        if (bt->kind == T_PARAM) {
+            if (STREQ(name, "Clone") && (bt->ik & PC_CLONE) && !(args && args->len)) {
+                Expr *c = new_expr(E_BUILTIN, p); /* only checked, never generated */
+                c->bi = BI_ARRCLONE;
+                vpush(c->args, base);
+                c->type = bt;
+                return c;
+            }
+            error_at(p, "'%s' is not known for type parameter \"%s\": add a constraint that provides it (e.g. '%s: TBasis' for a class, '%s: Clone' for Clone)",
+                     name, type_name(bt), type_name(bt), type_name(bt));
+        }
         if (bt->kind == T_ARRAY && STREQ(name, "Clone")) { /* a.Clone: copy, cloning the objects it owns */
             if (args && args->len) error_at(p, "Clone takes no arguments");
             Expr *c = new_expr(E_BUILTIN, p);
@@ -1786,6 +1857,9 @@ static Expr *ex(Expr *e) {
             if (t->kind == T_BOOL) e->type = t_bool;
             else if (is_int(t)) e->type = arith_int(t, t);
             else error_at(e->pos, "'not' needs a Boolean or integer operand");
+        } else if (t->kind == T_PARAM) {
+            if (!(t->ik & PC_NUM)) error_at(e->pos, "'-' on \"%s\" needs the constraint '%s: Numeric'", type_name(t), type_name(t));
+            e->type = t;
         } else {
             if (!is_numeric(t)) error_at(e->pos, "numeric operand expected");
             e->type = t->kind == T_REAL ? t_real : arith_int(t, t);
@@ -1797,6 +1871,7 @@ static Expr *ex(Expr *e) {
         e->b = value(e->b);
         Type *ta = e->a->type, *tb = e->b->type;
         int op = e->op;
+        if (ta->kind == T_PARAM || tb->kind == T_PARAM) return param_binary(e);
         if (op == OP_ADD && is_strlike(ta) && is_strlike(tb)) {
             e->a = coerce(e->a, t_str, "string concatenation");
             e->b = coerce(e->b, t_str, "string concatenation");
@@ -1909,6 +1984,32 @@ static Expr *ex(Expr *e) {
     case E_TRY: return try_expr(e);
     default: return e; /* already resolved */
     }
+}
+
+/* operators on a placeholder type parameter: only what its constraints allow */
+static Expr *param_binary(Expr *e) {
+    Type *ta = e->a->type, *tb = e->b->type;
+    Type *pt = ta->kind == T_PARAM ? ta : tb;
+    if (pt->ik & PC_NUM) { /* 'n <= 1', 'n * 2': number literals take the type of the parameter */
+        if (ta != pt && (e->a->kind == E_INT || e->a->kind == E_REAL)) e->a->type = ta = pt;
+        if (tb != pt && (e->b->kind == E_INT || e->b->kind == E_REAL)) e->b->type = tb = pt;
+    }
+    int op = e->op;
+    const char *need = NULL;
+    switch (op) {
+    case OP_ADD: case OP_SUB: case OP_MUL: need = (pt->ik & PC_NUM) ? NULL : "Numeric"; e->type = pt; break;
+    case OP_EQ: case OP_NE: need = (pt->ik & (PC_EQ | PC_CMP | PC_NUM)) ? NULL : "Equatable"; e->type = t_bool; break;
+    case OP_LT: case OP_LE: case OP_GT: case OP_GE:
+        need = (pt->ik & (PC_CMP | PC_NUM)) ? NULL : "Comparable";
+        e->type = t_bool;
+        break;
+    default: error_at(e->pos, "operator not applicable to type parameter \"%s\"", type_name(pt));
+    }
+    if (need) error_at(e->pos, "operator needs the constraint '%s: %s'", type_name(pt), need);
+    if (ta != tb)
+        error_at(e->pos, "operator not applicable to \"%s\" and \"%s\" (a type parameter only combines with itself)",
+                 type_name(ta), type_name(tb));
+    return e;
 }
 
 /* 'try r': the value of a successful result; a failed one ends the function with its error */
@@ -2882,6 +2983,7 @@ static void routine_decl(RoutineDecl *d) {
         g->rdecl = d;
         g->cons = d->tcons;
         validate_constraints(g);
+        vpush(all_generics, g);
         add_sym(SY_GENERIC, d->name.name, d->name.pos)->gen = g;
         return;
     }
@@ -3106,6 +3208,7 @@ static void decl1(Decl *d, int has_frame) {
                 g->tok = td->tok_start;
                 g->pos = td->name.pos;
                 g->cons = td->tcons;
+                vpush(all_generics, g);
                 add_sym(SY_GENERIC, td->name.name, td->name.pos)->gen = g;
             }
             /* pass 1: pre-register records/objects/classes for forward references */
@@ -3303,6 +3406,76 @@ static void decls_tail(Block *b) {
     }
 }
 
+/* ---- stage 4: every generic is checked once on its own, with placeholder types ---- */
+
+/* the placeholder for a type parameter: it can do exactly what its constraints allow */
+static Type *archetype(Generic *g, int i) {
+    int flags = 0;
+    if (i < g->cons.len)
+        for (int k = 0; k < g->cons.items[i].len; k++) {
+            const char *c = g->cons.items[i].items[k].name;
+            if (STREQ(c, "class")) return prog->tobject->type;
+            else if (STREQ(c, "Copy")) flags |= PC_COPY;
+            else if (STREQ(c, "Clone")) flags |= PC_CLONE;
+            else if (STREQ(c, "Equatable")) flags |= PC_EQ;
+            else if (STREQ(c, "Comparable")) flags |= PC_CMP | PC_EQ;
+            else if (STREQ(c, "Numeric")) flags |= PC_NUM | PC_CMP | PC_EQ;
+            else { /* a class: the placeholder is that class (its members are available) */
+                Look L = lookup(c);
+                if (L.kind == LK_SYM && L.sym->kind == SY_TYPE) return L.sym->type;
+            }
+        }
+    Type *t = new_type(T_PARAM, g->params.items[i].name);
+    t->ik = flags;
+    return t;
+}
+
+static void check_generic_alone(Generic *g) {
+    int n = g->params.len;
+    Type **args = (Type **)xcalloc(n ? n : 1, sizeof(Type *));
+    for (int i = 0; i < n; i++) args[i] = archetype(g, i);
+    int before = g_errors;
+    archetype_mode++;
+    if (g->is_routine) {
+        RECOVER_BEGIN
+        instantiate_routine(g, args, n, g->pos);
+        if (g->arch_rd) {
+            Scope *ss;
+            Routine *sc;
+            int sl;
+            enter_generic(g, args, &ss, &sc, &sl);
+            g_err_context = inst_name(g, args, n);
+            g->arch_rt->forward = 0;
+            routine_body(g->arch_rt, g->arch_rd);
+            g_err_context = NULL;
+            leave_generic(ss, sc, sl);
+        }
+        RECOVER_END
+    } else {
+        Type *volatile t = NULL;
+        RECOVER_BEGIN
+        t = instantiate(g, args, n, g->pos);
+        RECOVER_END
+        for (volatile int i = 0; t && i < g->impls.len; i++) {
+            RECOVER_BEGIN
+            Scope *ss;
+            Routine *sc;
+            int sl;
+            enter_generic(g, args, &ss, &sc, &sl);
+            RoutineDecl *d = reparse_routine(g->impls.items[i]->toks, g->impls.items[i]->tok_start);
+            inst_cls = t->st;
+            g_err_context = sfmt("%s.%s", t->st->name, d->name.name);
+            routine_decl(d);
+            g_err_context = NULL;
+            inst_cls = NULL;
+            leave_generic(ss, sc, sl);
+            RECOVER_END
+        }
+    }
+    archetype_mode--;
+    if (g_errors > before) g->broken = 1; /* reported once here, not again for every instance */
+}
+
 /* ============================================================== program */
 
 static void add_type(const char *name, Type *t) { add_sym(SY_TYPE, name, (Pos){0, 0})->type = t; }
@@ -3356,6 +3529,7 @@ Program *sema_program(Block *prelude, Block *pb, const char *name) {
 
     gscope = push_scope();
     decls(pb, 0);
+    for (int i = 0; i < all_generics.len; i++) check_generic_alone(all_generics.items[i]);
     stmts(&pb->body);
     for (int k = 0; k < pending_bodies.len; k++) { /* bodies of generic instances (may add more) */
         RECOVER_BEGIN

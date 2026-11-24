@@ -1,8 +1,20 @@
 # ppc – Perfect Pascal Compiler
 
-`ppc` (**Perfect Pascal Compiler**) übersetzt einen objektorientierten Pascal-Dialekt (Turbo Pascal / Delphi / Free Pascal)
-nach **C** und ruft danach `gcc` auf, um ein natives Programm zu erzeugen.
-Der Compiler ist selbst in C geschrieben (C11, keine Abhängigkeiten).
+`ppc` (**Perfect Pascal Compiler**) ist der Compiler für **Perfect Pascal**, eine Weiterentwicklung von
+Pascal und Delphi. Die Sprache übernimmt von **Pascal** die klare Syntax (`begin … end`, `:=`,
+`procedure`/`function`, Records, Aufzählungen, Teilbereiche, `case`, `for … to/downto`) und von
+**Delphi** die Objektorientierung (Klassen mit `constructor`/`destructor`, `virtual`/`override`,
+`inherited`, Properties, `is`/`as`, Klassenmethoden, Records mit Methoden, Generics mit `<T>`).
+Darüber hinaus entwickelt sie beide weiter – mit Ideen aus Rust: Besitz und Ausleihen statt
+manueller Speicherverwaltung, `optional T` statt `nil`, `result T` statt Exceptions,
+Stack- und Heapobjekte derselben Klasse und unterschiedenes Groß-/Kleinschreiben.
+
+Perfect Pascal ist daher **nicht** quellcodekompatibel zu Delphi oder Free Pascal: Vertrautes sieht
+vertraut aus, aber `var`/`val`/`vao`, die Pflicht zur Initialisierung und die Regeln für Besitz
+unterscheiden sich bewusst.
+
+`ppc` übersetzt Perfect Pascal nach **C** und ruft danach `gcc` auf, um ein natives Programm zu
+erzeugen. Der Compiler ist selbst in C geschrieben (C11, keine Abhängigkeiten).
 
 Besonderheiten:
 
@@ -590,9 +602,32 @@ type
 | `Clone` | Klassen und Records mit `Clone`, Arrays davon |
 | `Equatable` (`=`, `<>`) | Zahlen, Char, Boolean, Strings, Aufzählungen, Klassen (gleiches Objekt) |
 | `Comparable` (`<`, `>` …) | Zahlen, Char, Boolean, Strings, Aufzählungen |
+| `Numeric` (`+`, `-`, `*`, Zahl-Literale, Vergleiche) | Integer-Typen, Real |
 
 Passt ein Typ nicht, meldet der Compiler das schon beim Aufruf bzw. bei der Instanz:
 `"TK" does not satisfy 'T: Comparable' (required by Max<T>)`.
+
+**Der generische Rumpf wird für sich geprüft** (wie in Rust), auch wenn das Generic nie benutzt
+wird: Mit einem `T` darf man nur tun, was seine Einschränkungen erlauben. Ohne Einschränkung kann
+man es speichern, verschieben, übergeben und in `optional T`, Arrays oder `result T` packen –
+aber nicht rechnen, vergleichen oder Felder und Methoden aufrufen:
+
+```pascal
+function Summe<T>(a, b: T): T;
+begin Result := a + b; end;           { Fehler: operator needs the constraint 'T: Numeric' (in Summe<T>) }
+
+function Name<T>(x: T): String;
+begin Result := x.Name; end;          { Fehler: 'Name' is not known for type parameter "T" … }
+
+function Fakultaet<T: Numeric>(n: T): T;
+begin
+  if n <= 1 then Result := 1 else Result := n * Fakultaet(n - 1);   { ok }
+end;
+```
+
+Ein Fehler im Rumpf wird so einmal gemeldet – nicht für jede Instanz erneut. Mit einer Basisklasse
+als Einschränkung (`T: TTier`) stehen alle Felder und Methoden von `TTier` zur Verfügung, mit
+`T: class` die von `TObject`.
 * Jede Instanz wird mit den eingesetzten Typen geprüft. Ein Fehler im generischen Code nennt die
   Instanz: `operator not applicable to "TK" and "TK" (in TBox<TK>.Doppelt)`. Auch der Borrow
   Checker prüft jede Instanz.
