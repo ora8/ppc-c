@@ -20,8 +20,8 @@ begin
   if x < 0 then Result := none else Result := Sqrt(x);
 end;
 
-function Parse(const s: String): optional Integer;
-val i, v: Integer;
+function Parse(s: String const): optional Integer;
+val i, v: Integer := default;
 begin
   Result := none;
   if Length(s) = 0 then Exit;
@@ -48,16 +48,16 @@ begin
 end;
 
 val
-  a, b: optional Integer;
-  r: optional Real;
-  s: optional String;
-  e: TEintrag;
-  tab: array[1..3] of optional Integer;
-  i, summe: Integer;
-  p: borrowed optional TKnoten;
-var
-  liste: optional TKnoten;
-  k: TKnoten;
+  a, b: optional Integer := none;
+  r: optional Real := none;
+  s: optional String := none;
+  e: TEintrag := default;
+  tab: array[1..3] of optional Integer := default;
+  i, summe: Integer := default;
+  var p: optional TKnoten := none;
+vao
+  liste: optional TKnoten := none;
+  k: TKnoten := TKnoten.Create(3);
 begin
   a := 7;
   WriteLn('a = ', Beschreibe(a), ', b = ', Beschreibe(b));
@@ -94,7 +94,7 @@ begin
   WriteLn('Summe der gesetzten Werte: ', summe);
 
   liste := TKnoten.Create(20);
-  k := TKnoten.Create(3);
+  
   if liste is some h then h.Next := k;
   WriteLn('Gross(liste) = ', Gross(liste));
   p := liste;

@@ -1,11 +1,11 @@
---- Stackobjekte ---
+--- Objekte ---
 Kreis bei (1,2) Flaeche=7.07
 Kreis bei (1,2) Flaeche=7.07
 Kreis bei (11,2) Flaeche=7.07
 Rechteck(Shape) bei (0,0) Flaeche=12.00
   Destroy Rechteck(Shape)
 c is TShape: TRUE, c is TRect: FALSE, Klasse: TCircle
---- Heapobjekt derselben Klassen ---
+--- frueh freigegeben ---
 Rechteck(Shape) bei (5,5) Flaeche=4.00
 Rechteck(Shape) bei (5,5) Flaeche=4.00
   Destroy Rechteck(Shape)

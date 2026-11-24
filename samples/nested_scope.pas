@@ -1,11 +1,9 @@
 program nested_scope;
-
 begin
-    val I = 5;
+    val I := 5;
     begin
-        val I: Integer;
+        val I: Integer := 6;
         begin
-            I := 6;
             WriteLn(I);
         end;
         WriteLn(I);

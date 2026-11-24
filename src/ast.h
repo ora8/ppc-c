@@ -54,7 +54,8 @@ typedef struct {
     int ret_borrowed;
     int virt;
     int is_abstract;
-    int is_const; /* constfunc / constproc */
+    int is_const;  /* '; const;' */
+    int is_classm; /* class function / class procedure */
 } MethodDecl;
 
 typedef struct {
@@ -117,7 +118,8 @@ typedef struct {
     TypeExpr *ret;
     int ret_borrowed;
     int forward;
-    int is_const; /* constfunc / constproc */
+    int is_const;  /* '; const;' */
+    int is_classm; /* class function / class procedure */
     Block *body;
     Pos pos;
 } RoutineDecl;
@@ -151,7 +153,9 @@ typedef enum {
     E_CAST,    /* explicit typecast T(a) */
     E_TYPEREF, /* a type used in expression position: ctype */
     E_ISSOME,  /* a is some id: unpacks an optional into the new variable var */
-    E_SOMEPAT  /* 'some id' as a case label */
+    E_SOMEPAT, /* 'some id' as a case label */
+    E_RECLIT,  /* record literal (F: v; G: w): fnames, args */
+    E_DEFAULT  /* 'default': the zero value of the expected type */
 } ExprKind;
 
 enum { OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_IDIV, OP_MOD, OP_AND, OP_OR, OP_XOR, OP_SHL, OP_SHR,
@@ -172,6 +176,7 @@ struct Expr {
     Expr *a, *b, *c;
     ExprVec args;
     ExprVec args2; /* set literal: upper bounds (NULL entries for single values) */
+    IdentVec fnames; /* record literal: field names */
     int op;
     int has_args;
     /* annotations */
@@ -201,9 +206,11 @@ struct Stmt {
     Pos pos;
     Expr *a, *b, *c; /* assign: a := b; if/while: a cond; for: c var, a from, b to; exit: a */
     Stmt *s1, *s2;
+    int bind; /* S_ASSIGN: bind a reference variable (var x: Integer := y) instead of assigning */
     StmtVec body;
     Ident var;
     int down;
+    int decl_var; /* for val i := ...: the loop declares its counter */
     VEC(CaseArm) arms;
     StmtVec else_;
     int has_else;
@@ -214,7 +221,7 @@ struct Stmt {
 
 /* ------------------------------------------------------------- semantics */
 
-typedef enum { T_VOID, T_INT, T_BOOL, T_CHAR, T_REAL, T_STR, T_PTR, T_ARRAY, T_RECORD, T_CLASS, T_OPT, T_ENUM, T_NIL } TypeKind;
+typedef enum { T_VOID, T_INT, T_BOOL, T_CHAR, T_REAL, T_STR, T_PTR, T_ARRAY, T_RECORD, T_CLASS, T_OPT, T_LIT, T_ENUM, T_NIL } TypeKind;
 enum { IK_I8, IK_U8, IK_I16, IK_U16, IK_I32, IK_U32, IK_I64 };
 
 struct Type {
@@ -290,7 +297,8 @@ struct Var {
     int is_stack; /* class variable in a 'val' section: object lives in the stack frame */
     int is_box;   /* value variable in a 'var' section: value lives on the heap (like Box<T>) */
     int pending;  /* declared without a type: the first assignment decides it */
-    int decl_heap; /* declared in a 'var' section */
+    int decl_heap; /* declared in a 'vao' section (owning) */
+    int is_alias;  /* 'var x: T := y' for a value type: x refers to y */
     Routine *owner;
     int id;
     Pos pos;
@@ -318,7 +326,8 @@ struct Routine {
     int virt;
     int slot;
     int is_abstract;
-    int is_constm; /* constfunc/constproc: method does not change Self, routine has no side effects */
+    int is_constm; /* '; const;': method does not change Self, routine has no side effects */
+    int is_classm; /* class method: no Self, called as TClass.Name(...) */
     int has_frame;
     int defined;
     int forward;

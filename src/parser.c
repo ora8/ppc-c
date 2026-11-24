@@ -21,7 +21,7 @@ static const char *KEYWORDS[] = {
     "inherited", "interface", "is", "label", "mod", "nil", "none", "some", "optional", "not", "object", "of", "or", "packed",
     "procedure", "program", "property", "record", "repeat", "set", "shl", "shr", "then", "to",
     "type", "unit", "until", "uses", "var", "while", "with", "xor", "try", "except", "finally",
-    "raise", "otherwise", "heap", "val", NULL};
+    "raise", "otherwise", "val", "vao", "default", NULL};
 
 static const char *SYMS[] = {":=", "<=", ">=", "<>", "..", "+", "-", "*", "/", "=", "<", ">", "(",
                              ")", "[", "]", ",", ";", ":", ".", "^", "@", NULL};
@@ -284,6 +284,7 @@ static Expr *parse_simple(void);
 static Expr *parse_postfix(void);
 static Stmt *parse_stmt(void);
 static TypeExpr *parse_type(void);
+static TypeExpr *parse_type_core(void);
 static Block *parse_block(void);
 static void parse_decls(Block *blk);
 
@@ -296,11 +297,10 @@ static TypeExpr *new_te(TEKind k, Pos p) {
     return t;
 }
 
+/* 'var T' in a field or function result: a reference that does not own its object */
 static int accept_borrowed(void) {
-    if (is_ident("borrowed")) {
-        next();
-        return 1;
-    }
+    if (is_ident("borrowed")) error_at(pos(), "'borrowed' was replaced by 'var' (for example 'Parent: var TNode')");
+    if (accept_kw("var")) return 1;
     return 0;
 }
 
@@ -341,16 +341,14 @@ static ParamGroupVec parse_params(void) {
     for (;;) {
         ParamGroup g = {0};
         if (accept_kw("var")) g.mode = PM_VAR;
-        else if (accept_kw("const")) g.mode = PM_CONST;
+        else if (accept_kw("vao")) g.mode = PM_OWNED; /* takes over the ownership */
+        else if (is_kw("const") || is_ident("constref"))
+            error_at(pos(), "read-only parameters are written 'x: T const' (passed by reference, not copied)");
+        else if (is_ident("owned"))
+            error_at(pos(), "'owned' was replaced by 'vao' (for example 'procedure Add(vao Item: TItem)')");
         else if (is_ident("out")) {
             next();
             g.mode = PM_OUT;
-        } else if (is_ident("owned")) {
-            next();
-            g.mode = PM_OWNED;
-        } else if (is_ident("constref")) { /* read-only, passed by reference (no copy) */
-            next();
-            g.mode = PM_CONSTREF;
         } else
             g.mode = PM_VALUE;
         g.names = ident_list();
@@ -373,9 +371,20 @@ static int const_routine_ahead(void) {
 }
 
 static int last_const; /* the routine was declared with 'const' */
+static int class_routine_ahead(void) {
+    return is_kw("class") && T.items[P + 1].kind == TK_KW &&
+           (STREQ(T.items[P + 1].s, "function") || STREQ(T.items[P + 1].s, "procedure"));
+}
+
+static int last_classm; /* 'class function' / 'class procedure': no Self, called on the class */
 static int routine_kind(void) {
     int k = RK_PROC;
     last_const = 0;
+    last_classm = 0;
+    if (class_routine_ahead()) {
+        next();
+        last_classm = 1;
+    }
     if (const_routine_ahead())
         error_at(pos(), "write 'const' at the end of the declaration: '%s Name(...); const;'", T.items[P + 1].s);
     if (is_kw("function")) k = RK_FUNC;
@@ -387,7 +396,7 @@ static int routine_kind(void) {
 
 static int is_routine_kw(void) {
     return is_kw("procedure") || is_kw("function") || is_kw("constructor") || is_kw("destructor") ||
-           const_routine_ahead();
+           const_routine_ahead() || class_routine_ahead();
 }
 
 static Expr *parse_postfix(void);
@@ -399,7 +408,9 @@ static int ctor_decl_ahead(void) {
 }
 
 static void parse_decl_type(VarDecl *v) {
-    if (ctor_decl_ahead()) {
+    if (ctor_decl_ahead())
+        error_at(pos(), "objects are created in the initializer: 'vao x := %s.%s(...)'", CUR.s, T.items[P + 2].s);
+    if (0) {
         Pos tp = pos();
         Expr *c = parse_postfix();
         Expr *m = c->kind == E_CALL ? c->a : c;
@@ -432,11 +443,14 @@ static StructDecl *parse_struct(int kind) {
             continue;
         }
         if (accept_kw("var") || accept_kw("val")) continue;
-        if (is_kw("class")) error_at(pos(), "class methods/fields are not supported");
+        if (is_kw("class") && !(T.items[P + 1].kind == TK_KW && (STREQ(T.items[P + 1].s, "function") ||
+                                                              STREQ(T.items[P + 1].s, "procedure"))))
+            error_at(pos(), "class fields are not supported (only 'class function' / 'class procedure')");
         if (kind == SK_RECORD && is_kw("case")) error_at(pos(), "variant records are not supported");
         if (is_routine_kw()) {
             MethodDecl m = {0};
             m.kind = routine_kind();
+            m.is_classm = last_classm;
             m.name = ident();
             m.params = parse_params();
             if (m.kind == RK_FUNC) {
@@ -495,13 +509,20 @@ static TypeExpr *parse_type(void) {
         t->nilable = 1;
         return t;
     }
-    if (accept_kw("const")) { /* const TFoo: read-only object reference */
-        TypeExpr *t = parse_type();
+    if (is_kw("const")) error_at(p, "write the modifier after the type: 'T const'");
+    TypeExpr *t = parse_type_core();
+    /* 'T const': read-only (values: unchangeable; objects: only readable through this reference) */
+    if (is_kw("const") && T.items[P + 1].kind != TK_IDENT) {
+        next();
         t->readonly = 1;
-        return t;
     }
+    return t;
+}
+
+static TypeExpr *parse_type_core(void) {
+    Pos p = pos();
     if (is_sym("^"))
-        error_at(p, "pointer types are not supported: use a class (objects declared in a 'var' section live on the heap)");
+        error_at(p, "pointer types are not supported: use a class (objects are owned by 'vao' variables, referenced by 'var' variables)");
     accept_kw("packed");
     if (accept_kw("array")) {
         TypeExpr *t = new_te(TE_ARRAY, p);
@@ -520,7 +541,7 @@ static TypeExpr *parse_type(void) {
         return t;
     }
     if (is_kw("object"))
-        error_at(p, "'object' types are not supported: use 'class' (class variables in 'val' are stack objects, in 'var' heap objects)");
+        error_at(p, "'object' types are not supported: use 'class' (objects are created with 'vao x := TFoo.Create(...)')");
     if (accept_kw("class")) {
         if (is_sym(";")) return new_te(TE_CLASSFWD, p);
         if (is_kw("of")) error_at(pos(), "class references ('class of') are not supported");
@@ -558,24 +579,13 @@ static TypeExpr *parse_type(void) {
 
 /* ------------------------------------------------------------- declarations */
 
-static Expr *parse_init(void) {
-    if (is_sym("(")) {
-        int save = P;
-        Pos p = pos();
-        next();
-        Expr *l = new_expr(E_LIST, p);
-        vpush(l->args, parse_init());
-        while (accept_sym(",")) vpush(l->args, parse_init());
-        if (l->args.len > 1 && accept_sym(")")) return l;
-        P = save;
-    }
-    return parse_expr();
-}
+static Expr *parse_init(void) { return parse_expr(); }
 
 static RoutineDecl *parse_routine(void) {
     RoutineDecl *d = NEW(RoutineDecl);
     d->pos = pos();
     d->kind = routine_kind();
+    d->is_classm = last_classm;
     d->name = ident();
     if (accept_sym(".")) {
         d->cls = d->name;
@@ -627,44 +637,27 @@ static void parse_decls(Block *blk) {
                 vpush(d->types, t);
             }
             vpush(blk->decls, d);
-        } else if (accept_kw("val")) {
-            /* val section: values; class variables here are stack objects */
+        } else if (is_kw("val") || is_kw("var") || is_kw("vao")) {
+            /* val: values;  var: references that do not own (no freeing);  vao: owning references (freed at scope end) */
+            const char *kw = CUR.s;
+            next();
             Decl *d = NEW(Decl);
             d->kind = D_VAR;
             while (CUR.kind == TK_IDENT) {
                 VarDecl v = {0};
                 v.names = ident_list();
-                if (accept_sym(":")) { /* without ': Type' the first assignment decides the type */
-                    v.borrowed = accept_borrowed();
+                if (accept_sym(":")) { /* without ': Type' the initializer decides the type */
+                    if (is_ident("borrowed")) error_at(pos(), "'borrowed' was replaced by the 'var' section ('var r: T := x')");
                     parse_decl_type(&v);
                 }
-                if (accept_sym("=")) v.init = parse_init();
-                if (v.ctor && v.init) error_at(pos(), "use either 'x: T.Create(...)' or 'x: T = ...', not both");
+                v.borrowed = STREQ(kw, "var");
+                v.is_heap = STREQ(kw, "vao");
+                if (is_sym("=")) error_at(pos(), "variables are initialized with ':=' (for example '%s I := 5')", kw);
+                if (accept_sym(":=")) v.init = parse_init();
                 expect_sym(";");
                 vpush(d->vars, v);
             }
-            vpush(blk->decls, d);
-        } else if (is_kw("heap")) {
-            error_at(pos(), "the 'heap' section is now called 'var' (and the old 'var' section is called 'val')");
-        } else if (accept_kw("var")) {
-            /* var section: owning references to heap objects (created with TClass.Create, freed with Free) */
-            Decl *d = NEW(Decl);
-            d->kind = D_VAR;
-            while (CUR.kind == TK_IDENT) {
-                VarDecl v = {0};
-                v.names = ident_list();
-                if (accept_sym(":")) {
-                    if (is_ident("borrowed"))
-                        error_at(pos(), "a 'var' section declares heap objects (owners); borrowed references belong into 'val'");
-                    parse_decl_type(&v);
-                }
-                v.is_heap = 1;
-                if (accept_sym("=")) v.init = parse_init();
-                if (v.ctor && v.init) error_at(pos(), "use either 'x: T.Create(...)' or 'x: T = ...', not both");
-                expect_sym(";");
-                vpush(d->vars, v);
-            }
-            if (!d->vars.len) error_at(pos(), "identifier expected in var section");
+            if (!d->vars.len) error_at(pos(), "identifier expected in %s section", kw);
             vpush(blk->decls, d);
         } else if (is_kw("label")) {
             error_at(pos(), "labels/goto are not supported");
@@ -695,7 +688,7 @@ static StmtVec parse_stmt_list(const char *term) {
 static Stmt *parse_stmt(void) {
     Pos p = pos();
     if (is_sym(";") || is_kw("end") || is_kw("until") || is_kw("else")) return new_stmt(S_EMPTY, p);
-    if (is_kw("val") || is_kw("var") || is_kw("const")) {
+    if (is_kw("val") || is_kw("var") || is_kw("vao") || is_kw("const")) {
         /* block statement: declarations followed by begin ... end form a new scope */
         Stmt *s = new_stmt(S_BLOCK, p);
         s->blk = NEW(Block);
@@ -735,6 +728,7 @@ static Stmt *parse_stmt(void) {
     }
     if (accept_kw("for")) {
         Stmt *s = new_stmt(S_FOR, p);
+        s->decl_var = accept_kw("val"); /* for val i := 1 to n: the counter is declared by the loop */
         s->var = ident();
         expect_sym(":=");
         s->a = parse_expr();
@@ -978,8 +972,29 @@ static Expr *parse_primary(void) {
     }
     if (accept_kw("none")) return new_expr(E_NIL, p);
     if (is_kw("nil")) error_at(p, "'nil' does not exist: optional values are empty with 'none'");
+    if (accept_kw("default")) return new_expr(E_DEFAULT, p);
     if (accept_sym("(")) {
+        if (CUR.kind == TK_IDENT && T.items[P + 1].kind == TK_SYM && STREQ(T.items[P + 1].s, ":")) {
+            /* record literal (X: 1; Y: 2) */
+            e = new_expr(E_RECLIT, p);
+            for (;;) {
+                vpush(e->fnames, ident());
+                expect_sym(":");
+                vpush(e->args, parse_expr());
+                if (!accept_sym(";")) break;
+                if (is_sym(")")) break;
+            }
+            expect_sym(")");
+            return e;
+        }
         e = parse_expr();
+        if (is_sym(",")) { /* array literal (1, 2, 3) */
+            Expr *l = new_expr(E_LIST, p);
+            vpush(l->args, e);
+            while (accept_sym(",")) vpush(l->args, parse_expr());
+            expect_sym(")");
+            return l;
+        }
         expect_sym(")");
         return e;
     }

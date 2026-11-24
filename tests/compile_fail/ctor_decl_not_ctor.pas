@@ -1,4 +1,4 @@
-{ EXPECT: "Free" is not a constructor of "TFoo" }
+{ EXPECT: "TFoo.Free" is neither a constructor nor a class method }
 program T; type TFoo = class V: Integer; constructor Create(AV: Integer); end; constructor TFoo.Create(AV: Integer); begin inherited Create; V := AV; end;
-val s: TFoo.Free;
+vao s := TFoo.Free;
 begin end.

@@ -4,7 +4,7 @@ program OhneZeiger;
     1. verkettete Liste             -> Heapobjekte mit 'optional' Nachfolger
     2. binaerer Suchbaum            -> optionale Teilbaeume, Auspacken mit 'is some'
     3. Werte "per Zeiger" aendern   -> var-Parameter
-    4. Referenz auf ein Stackobjekt -> 'borrowed'
+    4. Referenz auf ein Objekt     -> 'var' (Referenz ohne Besitz)
     5. Ergebnis, das fehlen kann    -> 'optional Integer' (wie Option<i32>) }
 type
   { ---------------------------------------------------- 1. Liste }
@@ -38,7 +38,7 @@ type
     function Hoehe: Integer;
   end;
 
-  { ---------------------------------------------------- 4. Stackobjekt }
+  { ---------------------------------------------------- 4. Referenz }
   TPunkt = class
     X, Y: Integer;
     constructor Create(AX, AY: Integer);
@@ -49,18 +49,18 @@ constructor TKnoten.Create(W: Integer); begin inherited Create; Wert := W; end;
 destructor TKnoten.Destroy; begin Next.Free; inherited Destroy; end;
 
 procedure TListe.Vorne(W: Integer);
-var
-  k: TKnoten;
+vao
+  k: TKnoten := TKnoten.Create(W);
 begin
-  k := TKnoten.Create(W);
+  
   k.Next := Take(Kopf);                 { alte Kette wandert hinter den neuen Knoten }
   Kopf := k;                            { Move: k besitzt danach nichts mehr }
   Inc(Anzahl);
 end;
 
 procedure TListe.Umdrehen;              { klassisches Zeiger-Umhaengen, nur mit Moves }
-var
-  rest, neu: optional TKnoten;
+vao
+  rest, neu: optional TKnoten := none;
 begin
   neu := none;
   rest := Take(Kopf);
@@ -73,7 +73,7 @@ begin
 end;
 
 function TListe.Summe: Integer;
-val p: borrowed optional TKnoten;       { Ausleihe zum Durchlaufen }
+var p: optional TKnoten := none;       { Ausleihe zum Durchlaufen }
 begin
   Result := 0;
   p := Kopf;
@@ -84,8 +84,8 @@ begin
 end;
 
 function TListe.Position(W: Integer): optional Integer;
-val p: borrowed optional TKnoten;
-    i: Integer;
+var p: optional TKnoten := none;
+    val i: Integer := default;
 begin
   Result := none;
   p := Kopf;
@@ -98,7 +98,7 @@ begin
 end;
 
 procedure TListe.Zeige;
-val p: borrowed optional TKnoten;
+var p: optional TKnoten := none;
 begin
   p := Kopf;
   while p is some k do begin Write(k.Wert, ' '); p := k.Next; end;
@@ -135,7 +135,7 @@ begin
 end;
 
 function TBaum.Hoehe: Integer;
-val hl, hr: Integer;
+val hl, hr: Integer := default;
 begin
   hl := 0; hr := 0;
   if Links is some l then hl := l.Hoehe;
@@ -145,25 +145,26 @@ end;
 
 { ======================================================= 3. var-Parameter }
 procedure Tausche(var A, B: Integer);   { statt Tausche(pa, pb: ^Integer) }
-val t: Integer;
+val t: Integer := default;
 begin t := A; A := B; B := t; end;
 
-{ ======================================================= 4. Stackobjekt }
+{ ======================================================= 4. Referenz }
 constructor TPunkt.Create(AX, AY: Integer); begin inherited Create; X := AX; Y := AY; end;
 
 procedure Verschiebe(P: TPunkt; DX: Integer);   { bekommt eine Referenz, kein ^TPunkt }
 begin P.X := P.X + DX; end;
 
+vao
+  liste := TListe.Create;             { vao: besitzt das Objekt }
+  baum := TBaum.Create(50);
+  pkt := TPunkt.Create(3, 4);
 var
-  liste: TListe;
-  baum: TBaum;
+  ref: TPunkt := pkt;                 { Referenz darauf (statt @pkt) }
 val
-  pkt: TPunkt;                          { Stackobjekt }
-  ref: borrowed TPunkt;                 { Referenz darauf (statt @pkt) }
-  a, b, i: Integer;
+  a, b, i: Integer := default;
 begin
   WriteLn('--- 1. verkettete Liste ---');
-  liste := TListe.Create;
+  
   for i := 1 to 5 do liste.Vorne(i * 10);
   liste.Zeige;
   liste.Umdrehen;
@@ -182,7 +183,7 @@ begin
   liste.Free;                           { gibt alle Knoten frei (Destroy-Kette) }
 
   WriteLn('--- 2. binaerer Suchbaum ---');
-  baum := TBaum.Create(50);
+  
   baum.Einfuegen(30); baum.Einfuegen(70); baum.Einfuegen(20);
   baum.Einfuegen(40); baum.Einfuegen(60); baum.Einfuegen(80); baum.Einfuegen(35);
   Write('sortiert: '); baum.InOrder; WriteLn;
@@ -194,9 +195,7 @@ begin
   Tausche(a, b);
   WriteLn('a=', a, ' b=', b);
 
-  WriteLn('--- 4. Referenz auf ein Stackobjekt ---');
-  pkt.Create(3, 4);
-  ref := pkt;                           { wie @pkt, aber sicher geprueft }
-  Verschiebe(ref, 10);
+  WriteLn('--- 4. Referenz auf ein Objekt ---');
+  Verschiebe(ref, 10);                  { wie @pkt, aber sicher geprueft }
   WriteLn('pkt = (', pkt.X, ',', pkt.Y, ')');
 end.

@@ -1,4 +1,4 @@
-{ EXPECT: use either 'x: T.Create(...)' or 'x: T = ...', not both }
+{ EXPECT: 'Make' returns a reference to 's', which is owned by local variable 's' }
 program T; type TFoo = class V: Integer; constructor Create(AV: Integer); end; constructor TFoo.Create(AV: Integer); begin inherited Create; V := AV; end;
-var h: TFoo.Create(1) = TFoo.Create(2);
+function Make: var TFoo; vao s := TFoo.Create(1); begin  Result := s; end;
 begin end.

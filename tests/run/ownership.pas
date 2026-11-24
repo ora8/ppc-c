@@ -9,8 +9,8 @@ type
   TList = class
     Head: optional TItem;
     Count: Integer;
-    procedure Push(owned Item: TItem);   { uebernimmt den Besitz }
-    function Find(V: Integer): borrowed optional TItem;
+    procedure Push(vao Item: TItem);   { uebernimmt den Besitz }
+    function Find(V: Integer): var optional TItem;
     function PopFront: optional TItem;    { gibt Besitz an Aufrufer }
     destructor Destroy; override;
   end;
@@ -24,15 +24,15 @@ begin
   inherited Destroy;
 end;
 
-procedure TList.Push(owned Item: TItem);
+procedure TList.Push(vao Item: TItem);
 begin
   Item.Next := Take(Head);       { Head -> none, Besitz wandert zu Item.Next }
   Head := Item;                  { Move des Parameters ins Feld }
   Inc(Count);
 end;
 
-function TList.Find(V: Integer): borrowed optional TItem;
-val cur: borrowed optional TItem;
+function TList.Find(V: Integer): var optional TItem;
+var cur: optional TItem := none;
 begin
   Result := none;
   cur := Head;
@@ -58,7 +58,7 @@ begin
 end;
 
 procedure PrintList(L: TList);   { Wertparameter = Ausleihe }
-val it: borrowed optional TItem;
+var it: optional TItem := none;
 begin
   it := L.Head;
   while it is some x do begin Write(x.Value, ' '); it := x.Next; end;
@@ -66,7 +66,7 @@ begin
 end;
 
 type
-  TVec = class                  { wird unten als Stackobjekt benutzt }
+  TVec = class                  
     X, Y: Real;
     constructor Create(AX, AY: Real);
     function Len: Real;
@@ -77,19 +77,22 @@ function TVec.Len: Real; begin Result := Sqrt(X * X + Y * Y); end;
 procedure Scale(V: TVec; F: Real);   { Ausleihe genuegt, um die Felder zu aendern }
 begin V.X := V.X * F; V.Y := V.Y * F; end;
 
+vao
+  list: TList := TList.Create;                   { Besitzer }
+  item: TItem := TItem.Create(99);
+  popped: optional TItem := none;
 var
-  list: TList;                   { Heapobjekte: Besitzer, von Hand freigeben }
-  item: TItem;
-  popped: optional TItem;
+  found: optional TItem := none;
 val
-  found: borrowed optional TItem;
-  i: Integer;
-  pv: borrowed TVec;
-  v: TVec;                       { Stackobjekt }
+  i: Integer := default;
+vao
+  v := TVec.Create(3, 4);
+var
+  pv: TVec := v;
 begin
-  list := TList.Create;
+  
   for i := 1 to 5 do list.Push(TItem.Create(i * 10));
-  item := TItem.Create(99);
+  
   list.Push(item);               { item ist danach verschoben }
   item := TItem.Create(7);       { neu belegen ist erlaubt }
   list.Push(item);
@@ -102,8 +105,8 @@ begin
   PrintList(list);
   list.Free;
 
-  v.Create(3, 4);
-  pv := v;                       { Ausleihe eines Stackobjekts }
+  
+                         { Ausleihe von v }
   Scale(pv, 2);
   WriteLn('Laenge: ', pv.Len:0:1);
 end.

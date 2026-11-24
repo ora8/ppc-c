@@ -1,40 +1,40 @@
 program BorrowOk;
 { Ownership-Regeln von ppc an einem kleinen Adressbuch.
-  Besitzer:  Variablen im Abschnitt 'var', Felder vom Klassentyp
-  Ausleihe:  'borrowed' Variablen, Wert-/const-Parameter
-  Move:      Zuweisung Besitzer -> Besitzer, 'owned'-Parameter, Take()
+  Besitzer:  'vao'-Variablen, Felder vom Klassentyp
+  Ausleihe:  'var'-Variablen, Parameter (auch 'T const')
+  Move:      Zuweisung Besitzer -> Besitzer, 'vao'-Parameter, Take()
   optional:   nur solche Referenzen duerfen fehlen (none), z. B. das Listenende;
              benutzt werden sie nach dem Auspacken mit 'is some' }
 type
   TPerson = class
     Name: String;
     Next: optional TPerson;               { besitzt den Nachfolger, none am Ende }
-    constructor Create(const AName: String);
+    constructor Create(AName: String const);
     destructor Destroy; override;
   end;
 
   TBuch = class
     Erste: optional TPerson;              { besitzt die ganze Kette }
-    procedure Neu(owned P: TPerson);     { uebernimmt den Besitz von P }
-    function Suche(const N: String): borrowed optional TPerson;  { leiht nur aus }
+    procedure Neu(vao P: TPerson);     { uebernimmt den Besitz von P }
+    function Suche(N: String const): var optional TPerson;  { leiht nur aus }
     function Entnimm: optional TPerson;   { gibt Besitz an den Aufrufer }
     destructor Destroy; override;
   end;
 
-constructor TPerson.Create(const AName: String);
+constructor TPerson.Create(AName: String const);
 begin inherited Create; Name := AName; end;
 
 destructor TPerson.Destroy;
 begin Next.Free; inherited Destroy; end;
 
-procedure TBuch.Neu(owned P: TPerson);
+procedure TBuch.Neu(vao P: TPerson);
 begin
   P.Next := Take(Erste);                 { Erste wird none, Kette wandert zu P.Next }
   Erste := P;                            { Move: P ist danach verbraucht }
 end;
 
-function TBuch.Suche(const N: String): borrowed optional TPerson;
-val p: borrowed optional TPerson;
+function TBuch.Suche(N: String const): var optional TPerson;
+var p: optional TPerson := none;
 begin
   Result := none;
   p := Erste;
@@ -54,23 +54,23 @@ destructor TBuch.Destroy;
 begin Erste.Free; inherited Destroy; end;
 
 procedure Zeige(B: TBuch);               { Wertparameter = Ausleihe, darf nicht freigeben }
-val p: borrowed optional TPerson;
+var p: optional TPerson := none;
 begin
   p := B.Erste;
   while p is some x do begin Write(x.Name, ' '); p := x.Next; end;
   WriteLn;
 end;
 
+vao
+  buch := TBuch.Create;                  { Besitzer }
+  anna: TPerson := TPerson.Create('Anna');
+  weg: optional TPerson := none;
 var
-  buch: TBuch;                           { Heapobjekte: Besitzer }
-  anna: TPerson;
-  weg: optional TPerson;
-val
-  treffer: borrowed optional TPerson;     { Ausleihe }
+  treffer: optional TPerson := none;     { Ausleihe }
 begin
-  buch := TBuch.Create;
+  
   buch.Neu(TPerson.Create('Bert'));      { Temporaeres Objekt direkt uebergeben }
-  anna := TPerson.Create('Anna');
+  
   buch.Neu(anna);                        { Move: anna besitzt nichts mehr }
   anna := TPerson.Create('Carla');       { neu belegen ist erlaubt }
   buch.Neu(anna);

@@ -7,23 +7,23 @@ Der Compiler ist selbst in C geschrieben (C11, keine Abhängigkeiten).
 Besonderheiten:
 
 * **Groß-/Kleinschreibung wird unterschieden** (anders als Standard-Pascal).
-* **Stack- und Heapobjekte derselben Klasse:** Eine Klassenvariable im Abschnitt `val` ist
-  ein **Stackobjekt** (automatisches `Destroy` am Blockende), im Abschnitt `var` ein
-  **Heapobjekt**. Beide werden automatisch freigegeben, wenn ihr Besitzer den
-  Gültigkeitsbereich verlässt (wie `Box<T>` in Rust).
-* **Borrow Checker** nach dem Vorbild von Rust: prüft Besitz (Ownership) und Ausleihen (Borrows)
-  zur Compile-Zeit.
+* **Drei Arten von Variablen:** `val` für Werte, `var` für Referenzen ohne Besitz und `vao`
+  für Besitzer. Ein `vao` gibt sein Objekt automatisch frei, wenn es den Gültigkeitsbereich
+  verlässt (wie `Box<T>` in Rust). Jede Variable wird bei der Deklaration initialisiert.
+* **Borrow Checker** nach dem Vorbild von Rust: prüft Besitz (Ownership), Ausleihen (Borrows)
+  und die Ausleihregeln (viele lesende *oder* eine änderbare Ausleihe) zur Compile-Zeit.
 * **Keine Zeiger und kein nil:** Es gibt kein `^`, `@`, `New`, `Dispose` und kein `nil`.
   Werte, die fehlen können, haben den Typ **`optional T`** (wie `Option<T>` in Rust bzw.
-  `std::optional<T>` in C++) und müssen vor der Benutzung ausgepackt werden. Nicht allozierte
-  Heapobjekte, nicht konstruierte Stackobjekte und Konstruktoren, die Felder vergessen,
-  werden beim Übersetzen erkannt.
+  `std::optional<T>` in C++) und müssen vor der Benutzung ausgepackt werden.
+* **`T const`** macht Variablen, Parameter und Objekt-Referenzen unveränderlich;
+  `; const;` kennzeichnet Methoden, die `Self` nicht ändern.
+* **Klassenmethoden** (`class function`), **Records mit Methoden**, Record- und Array-Literale.
 
 ## Bauen und benutzen
 
 ```bash
 make            # erzeugt ./ppc
-make test       # Testsuite (Ausgaben, Borrow-/Optional-/Stackobjekt-Fehler, Compile-Fehler)
+make test       # Testsuite (Ausgaben, Borrow-/Optional-/const-Fehler, Compile-Fehler)
 ```
 
 ```bash
@@ -38,7 +38,7 @@ make test       # Testsuite (Ausgaben, Borrow-/Optional-/Stackobjekt-Fehler, Com
 
 ## Groß-/Kleinschreibung
 
-* Schlüsselwörter werden **klein** geschrieben: `program begin end if then class val var …`
+* Schlüsselwörter werden **klein** geschrieben: `program begin end if then class val var vao …`
   (`Begin` ist ein Bezeichner, kein Schlüsselwort).
 * Bezeichner sind case-sensitiv: `Count` und `count` sind zwei verschiedene Namen.
 * Vordefinierte Namen in Delphi-Schreibweise: `Integer`, `Boolean`, `Char`, `Real`, `String`,
@@ -46,7 +46,7 @@ make test       # Testsuite (Ausgaben, Borrow-/Optional-/Stackobjekt-Fehler, Com
   `WriteLn`, `Write`, `ReadLn`, `Read`, `Length`, `Ord`, `Chr`, `Inc`, `Dec`,
   `TObject`, `Create`, `Destroy`, `Free`, `ClassName`, `Self`, `Result`, `Exit`, `Break`, `Continue` usw.
 * Direktiven/Modifizierer klein: `virtual`, `override`, `abstract`, `forward`, `private`,
-  `public`, `property … read … write …`, `borrowed`, `owned`, `optional`, `some`, `none`.
+  `public`, `property … read … write …`, `optional`, `some`, `none`, `default`.
 
 ## Klassen
 
@@ -54,144 +54,149 @@ Referenztypen, implizit von `TObject` abgeleitet:
 `constructor Create`, `destructor Destroy; override;`, `Free`, `ClassName`,
 `virtual`/`override`/`abstract`, `inherited`, Properties mit Feld- oder Methoden-Zugriff,
 `is`/`as`, `Self`, Sichtbarkeitsabschnitte (werden geparst, nicht erzwungen), Forward-Klassen
-(`TFoo = class;`).
+(`TFoo = class;`). Objekte liegen immer auf dem Heap und werden nur im Initialisierer
+erzeugt: `vao k := TKreis.Create(1, 2, 3.0)`.
 
-## Stack- und Heapobjekte
+### Klassenmethoden: `class function` / `class procedure`
 
-Es gibt **nur eine Art von Klasse**. Wo ein Objekt liegt, entscheidet der Abschnitt, in dem
-die Variable deklariert ist. Neben `const` und `type` gibt es zwei Variablenabschnitte:
-**`val`** für Werte und Stackobjekte und **`var`** für alles, was auf dem Heap liegt. `var` bei Parametern
-(`procedure P(var x: Integer)`) bedeutet weiterhin Übergabe per Referenz.
+Wie in Delphi gehören Klassenmethoden zur Klasse, nicht zu einem Objekt. Sie haben kein
+`Self` und werden über den Typnamen aufgerufen (auch bei Records):
+
+```pascal
+type
+  TKonto = class
+    Saldo: Integer;
+    class function Eroeffne(AName: String const): TKonto;
+  end;
+  TPunkt = record
+    X, Y: Integer;
+    class function Ursprung: TPunkt;
+  end;
+
+class function TKonto.Eroeffne(AName: String const): TKonto;
+begin Result := TKonto.Create(AName, 10); end;
+class function TPunkt.Ursprung: TPunkt; begin Result := (X: 0; Y: 0); end;
+…
+vao k := TKonto.Eroeffne('Anna');
+val p := TPunkt.Ursprung;
+```
+
+* Im Rumpf sind andere Klassenmethoden ohne Präfix aufrufbar; Felder, normale Methoden,
+  `Self` und `inherited` gibt es dort nicht.
+* Klassenmethoden können nicht `virtual`, `abstract`, `override` oder `; const;` sein;
+  Konstruktoren und Destruktoren sind keine Klassenmethoden.
+* Die Implementierung wiederholt `class` (`class function TKonto.Eroeffne …`).
+
+## Variablen: `val`, `var` und `vao`
+
+Neben `const` und `type` gibt es drei Variablenabschnitte. **Jede Variable wird bei der
+Deklaration mit `:=` initialisiert**; der Typ darf fehlen, dann kommt er aus dem Initialisierer.
 
 | Deklaration | Bedeutung |
 |---|---|
-| `val k: TKreis;` | **Stackobjekt**: das Objekt liegt im Stackframe (global: im Datensegment) |
-| `var h: TKreis;` | **Heapobjekt**: `h` besitzt ein Objekt auf dem Heap |
-| `var n: optional TKreis;` | Heapobjekt, das auch fehlen darf (`none`) |
-| `val r: borrowed TKreis;` | Ausleihe: Referenz ohne Besitz auf ein Stack- oder Heapobjekt |
-| `val i: Integer;` | gewöhnlicher Wert (Zahlen, Strings, Records, Arrays, `optional`-Werte) |
-| `var I: Integer;` | **Heapwert**: Integer (oder String, Record, Array …) auf dem Heap, siehe unten |
+| `val i := 5;` / `val i: Integer := 5;` | **Wert** (Zahlen, Strings, Records, Arrays, `optional`-Werte) |
+| `val v: TVektor := default;` | Nullwert des Typs (0, `''`, `False`, `none`, alle Felder 0) |
+| `vao k := TKreis.Create(1, 2, 3.0);` | **Besitzer**: `k` besitzt das Objekt und gibt es am Ende frei |
+| `vao n: optional TKreis := none;` | Besitzer, der (noch) nichts besitzen darf |
+| `vao I: Integer := 42;` | **Heapwert**: ein Wert auf dem Heap, siehe unten |
+| `var r: TKreis := k;` | **Referenz ohne Besitz** (Ausleihe) auf ein Objekt; gibt nichts frei |
+| `var x: Integer := i;` | **Referenz auf eine Variable**: `x` ist ein zweiter Name für `i` (wie `int&` in C++) |
 
 ```pascal
-procedure Zeige(F: TFigur);         { nimmt Stack- und Heapobjekte }
-
 procedure Demo;
-val
-  k: TKreis;                        { Stackobjekt }
+vao
+  k := TKreis.Create(4, 5, 1.0);      { besitzt das Objekt }
 var
-  h: TFigur;                        { Heapobjekt }
+  r: TFigur := k;                     { leiht es aus }
+val
+  n := 3;
 begin
-  k.Create(1, 2, 3.0);              { Stack: nur Konstruktor, kein malloc }
-  h := TKreis.Create(4, 5, 1.0);    { Heap: Speicher holen + Konstruktor }
-  Zeige(k);
-  Zeige(h);                         { gleicher Typ, virtuelle Methoden, Polymorphie }
-                                    { h wird am Ende freigegeben (h.Free ginge auch früher) }
-end;                                { Stack: k.Destroy wird automatisch aufgerufen }
+  Zeige(r);                           { gleicher Typ, virtuelle Methoden, Polymorphie }
+end;                                  { k wird hier freigegeben, r nicht }
 ```
 
-**Erzeugen direkt bei der Deklaration:** Statt eines Typs darf `Typ.Konstruktor(...)` stehen.
-Ein Heapobjekt wird dann sofort erzeugt, ein Stackobjekt sofort konstruiert – es ist also nie
-„leer“:
+* Klassenvariablen sind immer `vao` oder `var` – `val k: TKreis` ist ein Fehler.
+* Die Initialisierer dürfen beliebige Ausdrücke sein. Sie werden ausgewertet, wenn die
+  Deklaration ausgeführt wird: beim Eintritt in die Routine bzw. in den Block (siehe „Blöcke“).
+* **Besitzer (`vao`)** geben ihr Objekt **automatisch frei**, wenn sie den Gültigkeitsbereich
+  verlassen (Routine, Block, Programm) – außer der Besitz wurde vorher weitergegeben: als
+  Funktionsergebnis (`Result := h`), über einen `var`-Parameter, an einen `vao`-Parameter, in ein
+  Feld oder einen anderen Besitzer, per `Take`. Wird ein Besitzer überschrieben, wird sein altes
+  Objekt freigegeben; gibt ein Objekt frei, werden seine besitzenden Felder mit freigegeben;
+  temporäre Objekte, die niemand übernimmt, am Ende der Anweisung.
+* `h.Free` ist erlaubt, um **früher** freizugeben. Benutzung danach und doppeltes `Free` sind
+  Fehler.
+* **Referenzen (`var`)** besitzen nichts. Bei Objekten sind sie Ausleihen; bei Werten
+  verweisen sie auf eine andere Variable (oder ein Feld, Array-Element, einen Heapwert) –
+  Lesen und Schreiben über `x` wirkt direkt auf das Original. Der Initialisierer muss eine
+  Variable sein, kein berechneter Wert. Für beide gelten die Ausleihregeln (siehe
+  „Borrow Checker“).
+* `var` bei Parametern (`procedure P(var x: Integer)`) bedeutet wie immer Übergabe per Referenz.
+
+### Heapwerte: Werte in `vao`
+
+Auch Zahlen, Strings, Records und Arrays können einem Besitzer auf dem Heap gehören (wie
+`Box<T>` in Rust). Man benutzt sie wie einen normalen Wert; am Ende des Gültigkeitsbereichs
+werden sie freigegeben:
 
 ```pascal
-procedure P(n: Integer);
-val
-  s: TFoo.Create(n);          { Stackobjekt, sofort konstruiert }
-  t: TFoo.Leer;               { anderer Konstruktor, ohne Argumente }
-var
-  h: TFoo.Create(n * 10);     { Heapobjekt, sofort erzeugt (≙ var h: TFoo = TFoo.Create(n * 10)) }
-  I: Integer.Create(n + 1);   { Heapwert }
-```
-
-Die Argumente dürfen beliebige Ausdrücke mit Variablen sein. Sie werden **einmal** ausgewertet,
-wenn die Deklaration ausgeführt wird: beim Eintritt in die Routine bzw. in den Block (siehe
-„Blöcke“). Spätere Änderungen der Variablen ändern das Objekt nicht mehr; wer einen Wert aus
-dem Programmablauf braucht, deklariert das Objekt in einem Block an der passenden Stelle.
-
-* Klasse, Methoden, Vererbung und VMT sind identisch – nur der Speicherort unterscheidet sich.
-* **Stackobjekte** werden mit `k.Create(...)` konstruiert. Der Compiler verlangt das vor der
-  ersten Benutzung (auf jedem Pfad) und genau einmal. Am Blockende wird `Destroy`
-  automatisch aufgerufen (umgekehrte Deklarationsreihenfolge, globale Stackobjekte am
-  Programmende). `k.Free`, `k := …` und Referenzen auf `k`, die den Block verlassen
-  (globale Variable, Feld, Funktionsergebnis), sind Fehler.
-* **Heapobjekte** werden **automatisch freigegeben**, wenn ihr Besitzer den Gültigkeitsbereich
-  verlässt (Routine, Block, Programm) – außer der Besitz wurde vorher weitergegeben: als
-  Funktionsergebnis (`Result := h`), über einen `var`-Parameter, an einen `owned`-Parameter,
-  in ein Feld oder eine andere Besitzer-Variable, per `Take`. Wird ein Besitzer überschrieben,
-  wird sein altes Objekt freigegeben; gibt ein Objekt frei, werden seine besitzenden Felder
-  mit freigegeben; temporäre Objekte, die niemand übernimmt, am Ende der Anweisung.
-* `h.Free` ist weiterhin erlaubt, um **früher** freizugeben. Benutzung danach und doppeltes
-  `Free` sind Fehler.
-* Felder, Parameter und Funktionsergebnisse vom Klassentyp sind Referenzen (siehe unten).
-* Für Werte mit Kopiersemantik gibt es `record` (auch mit Methoden, siehe unten).
-
-### Heapwerte: Werte im Abschnitt `var`
-
-Auch Zahlen, Strings, Records und Arrays können auf dem Heap liegen (wie `Box<T>` in Rust).
-Sie werden im Abschnitt `var` deklariert, beim ersten Speichern eines Werts (oder mit
-`T.Create`) angelegt und am Ende des Gültigkeitsbereichs automatisch freigegeben; dazwischen
-benutzt man sie wie einen normalen Wert:
-
-```pascal
-var
-  I: Integer;
-  V: TVektor;                  { Record }
+vao
+  I: Integer := 20;            { legt die Heap-Zelle an }
+  V: TVektor := default;       { Record auf dem Heap }
 begin
-  I := 20;                     { erster Wert: legt die Heap-Zelle an }
   I := I + 1;
   Verdopple(I);                { var-Parameter: Referenz auf den Heapwert }
-  V := TVektor.Create;         { oder mit Anfangswert: T.Create(wert) }
   V.Skaliere(2);
 end;                           { I und V werden hier freigegeben }
 ```
 
-* Die erste Speicherung legt die Zelle an (`I := 20`, auch nach `Free` wieder);
-  `I := T.Create` / `T.Create(wert)` tut das ausdrücklich. Jede weitere Zuweisung speichert
-  einen neuen **Wert** in der Zelle; `J := I` zwischen zwei Heapwerten kopiert also den Wert.
-* Lesen, bevor ein Wert gespeichert wurde, ist ein Fehler. `I.Free` gibt früher frei; Benutzung
-  danach und doppeltes `Free` sind Fehler.
-* Für einzelne Zahlen lohnt sich das selten; nützlich ist es für große Records oder Arrays,
-  die nicht im Stackframe liegen sollen.
+* Jede Zuweisung speichert einen neuen **Wert** in der Zelle; `J := I` zwischen zwei Heapwerten
+  kopiert also den Wert. Nach `I.Free` legt die nächste Zuweisung die Zelle neu an.
+* Nützlich vor allem für große Records oder Arrays, die nicht im Stackframe liegen sollen.
 
-## Typ aus der Zuweisung und Blöcke
-
-**Variablen ohne Typangabe** bekommen ihren Typ vom Initialisierer oder von der ersten
-Zuweisung im Code. Danach ist der Typ fest:
+### Literale und `default`
 
 ```pascal
 val
-  N;                     { Typ kommt aus der ersten Zuweisung }
-  S = 'Hallo';           { String, aus dem Initialisierer }
-var
-  I;                     { Heapwert, Typ aus der ersten Zuweisung }
+  p: TPunkt := (X: 1; Y: 2);                     { Record-Literal }
+  a: array[1..3] of Integer := (10, 20, 30);    { Array-Literal }
+  z: TGross := default;                          { alles 0 / '' / none }
+```
+
+Literale passen sich dem erwarteten Typ an (Initialisierer, Zuweisung, Argument, `Result`).
+
+## Typ aus dem Initialisierer und Blöcke
+
+Ohne Typangabe bestimmt der Initialisierer den Typ; danach ist er fest:
+
+```pascal
+val
+  N := 3.5;              { Real }
+  S := 'Hallo';          { String }
+vao
+  I := 5;                { Integer auf dem Heap }
 begin
-  N := 3.5;              { N ist jetzt Real }
-  I := 5;                { I ist jetzt ein Integer auf dem Heap }
   N := 'x';              { Fehler: N ist Real }
 end;
 ```
 
-* Wird die Variable vor der ersten Zuweisung gelesen oder nie zugewiesen, ist das ein Fehler.
-* Aus `none` lässt sich kein Typ ableiten (`val x: optional T` schreiben).
-* `val k = andererObjekt` ergibt eine Ausleihe; ein Stackobjekt braucht einen Typ
-  (`val k: TFoo;` und `k.Create(...)`), ein Heapobjekt geht mit `var k = TFoo.Create(...)`.
+* Aus `none` und `default` lässt sich kein Typ ableiten (`val x: optional T := none` schreiben).
+* `for val i := 1 to n do …` deklariert die Schleifenvariable direkt in der Schleife.
 
 **Blöcke mit eigenen Variablen:** Vor einem verschachtelten `begin … end` dürfen `val`-,
-`var`- und `const`-Abschnitte stehen. Sie bilden einen eigenen Gültigkeitsbereich – auch als
-Schleifenrumpf, dann mit frischen Variablen in jedem Durchlauf:
+`var`-, `vao`- und `const`-Abschnitte stehen. Sie bilden einen eigenen Gültigkeitsbereich – auch
+als Schleifenrumpf, dann mit frischen Variablen in jedem Durchlauf:
 
 ```pascal
 begin
-  val
-    j = 10;
-    s: TFoo;             { Stackobjekt nur in diesem Block }
+  val j := 10;
+  vao s := TFoo.Create(1);   { gehört nur diesem Block }
   begin
-    s.Create(1);
     WriteLn(j, ' ', s.V);
-  end;                   { s.Destroy wird hier aufgerufen, j ist hier nicht mehr sichtbar }
+  end;                       { s wird hier freigegeben, j ist nicht mehr sichtbar }
 
   while i < 3 do
-    val q = i * 100;
+    val q := i * 100;
     begin
       WriteLn(q);
       Inc(i);
@@ -199,58 +204,64 @@ begin
 end;
 ```
 
-* Stack- und Heapobjekte des Blocks werden am Blockende abgebaut bzw. freigegeben; Ausleihen
-  auf sie sind danach ungültig (der Borrow Checker meldet ihre Benutzung).
+* Besitzer des Blocks geben am Blockende frei; Ausleihen auf ihre Objekte sind danach
+  ungültig (der Borrow Checker meldet ihre Benutzung).
 * Routinen, Typen und typisierte Konstanten sind in Blöcken nicht erlaubt.
 
-## Konstanten und `constref`
+## Unveränderlich: `const` und `T const`
 
-**`const`** deklariert Werte, die sich nicht mehr ändern lassen:
+**`const`** deklariert nur noch Konstanten, die beim Übersetzen feststehen (auch für
+Array-Grenzen nutzbar), sowie typisierte Konstanten:
+
+```pascal
+const
+  Max = 100;
+  Name = 'ppc';
+  Limit: Integer = 5;          { schreibgeschützt }
+```
+
+Für unveränderliche Werte, die erst zur Laufzeit feststehen, gibt es den Typmodifizierer
+**`T const`** – hinter dem Typ, analog zu `; const;` bei Methoden:
 
 ```pascal
 procedure P(n: Integer);
-const
-  Max = 100;                   { Konstante zur Übersetzungszeit (wie bisher) }
-  Hoch = n * n;                { unveränderlich, Wert zur Laufzeit }
-  Text = 'n=' + IntToStr(n);
-  w = v;                       { unveränderliche Kopie eines Records }
+val
+  Hoch: Integer const := n * n;          { unveränderlich, Wert zur Laufzeit }
+  w: TVektor const := v;                 { unveränderliche Kopie eines Records }
+var
+  leser: TPerson const := anna;          { nur lesbare Ausleihe eines Objekts }
 begin
-  Hoch := 1;                   { Fehler }
-  w.X := 1;                    { Fehler: Teil einer Konstanten }
-  w.Skaliere(2);               { Fehler: Skaliere ist keine const-Methode }
-  WriteLn(w.Laenge);           { erlaubt: const-Methode }
+  Hoch := 1;                             { Fehler }
+  w.X := 1;                              { Fehler: Teil einer Konstanten }
+  w.Skaliere(2);                         { Fehler: Skaliere ist keine const-Methode }
+  WriteLn(w.Laenge);                     { erlaubt: const-Methode }
 ```
 
-* Lässt sich der Wert beim Übersetzen ausrechnen, ist es eine echte Konstante (auch für
-  Array-Grenzen nutzbar); sonst eine unveränderliche Variable, belegt beim Eintritt in die
-  Routine bzw. den Block (`const x = …; begin … end;`).
-* Unveränderlich ist auch alles, was im Wert steckt: Record-Felder und Array-Elemente. Auf
-  konstanten Records (und `const`/`constref`-Parametern) dürfen nur **const-Methoden**
-  aufgerufen werden (siehe unten).
-* Bei Objekten ist auch das **Objekt** nur lesbar: `const k = obj` ist eine nur lesbare
-  Ausleihe (siehe unten).
-* Typisierte Konstanten (`const Limit: Integer = 5;`) sind ebenfalls schreibgeschützt.
+* Unveränderlich ist alles, was im Wert steckt: Record-Felder und Array-Elemente. Auf
+  konstanten Records dürfen nur **const-Methoden** aufgerufen werden (siehe unten).
+* `var x: Integer const := y` ist eine nur lesende Referenz auf `y`.
+* Felder können nicht `const` sein.
 
-**`constref`-Parameter** werden per Referenz übergeben (keine Kopie) und sind nur lesbar –
-wie `const T&` in C++ bzw. `&T` in Rust. Sinnvoll für Strings, Records und Arrays:
+**`T const` bei Parametern:** Der Parameter wird **per Referenz** übergeben (keine Kopie) und
+ist nur lesbar – wie `const T&` in C++ bzw. `&T` in Rust. Sinnvoll für Strings, Records und
+Arrays; Ausdrücke als Argument werden in eine temporäre Kopie gelegt:
 
 ```pascal
-function Summe(constref A: TGross): Integer;    { keine Kopie des Arrays }
-procedure Zeige(constref S: String; constref V: TVektor);
+function Summe(A: TGross const): Integer;           { keine Kopie des Arrays }
+procedure Zeige(S: String const; V: TVektor const);
 …
-Zeige('Text', v);
-WriteLn(Doppelt(Hoch + 1));                     { auch Ausdrücke: temporäre Kopie }
+WriteLn(Doppelt(Hoch + 1));
 ```
 
 | Parameter | Übergabe | Ändern erlaubt |
 |---|---|---|
-| (Wert) | Kopie | ja, nur die Kopie |
-| `const` | Kopie | nein |
-| `constref` | Referenz | nein |
-| `var` / `out` | Referenz | ja, beim Aufrufer |
+| `x: T` | Kopie (Objekte: Ausleihe) | ja, nur die Kopie (Objekte: ja) |
+| `x: T const` | Referenz | nein |
+| `var x: T` / `out x: T` | Referenz | ja, beim Aufrufer |
+| `vao x: TFoo` | Objekt wird übergeben | ja, der Parameter besitzt es |
 
-Der Borrow Checker behandelt `constref` als lesende Ausleihe: `Q(x, x)` mit einem `var`- und
-einem `constref`-Parameter ist ein Fehler.
+Der Borrow Checker behandelt `T const`-Parameter als lesende Ausleihe: `Q(x, x)` mit einem
+`var`- und einem `T const`-Parameter ist ein Fehler.
 
 ### Konstante Methoden und Routinen: `; const;`
 
@@ -263,13 +274,10 @@ type
     X, Y: Real;
     procedure Skaliere(F: Real);          { darf Self ändern }
     function Laenge: Real; const;          { ändert Self nicht }
-    procedure Zeige; const;
   end;
   TKonto = class
     function Beschreibung: String; const; virtual;
   end;
-
-function TVektor.Laenge: Real; const; begin Result := Sqrt(X * X + Y * Y); end;
 
 function Quadrat(N: Integer): Integer; const;   { freie Routine ohne Seiteneffekte }
 begin Result := N * N; end;
@@ -277,48 +285,38 @@ begin Result := N * N; end;
 
 * **In einer const-Methode** ist `Self` nur lesbar: keine Zuweisung an Felder (auch bei
   Klassen), und auf `Self` dürfen nur weitere const-Methoden aufgerufen werden.
-* **Auf konstanten Werten** – `const`-Variablen, `const`- und `constref`-Parameter, `Self` in
-  const-Methoden – sind nur const-Methoden aufrufbar.
-* **Eine freie Routine mit `; const;`** hat keine Seiteneffekte auf den
-  Programmzustand: Sie ändert keine globalen oder äußeren Variablen, ruft nur andere
-  const-Routinen auf und ruft auf nicht-lokalen Objekten nur const-Methoden auf. Parameter,
-  lokale Variablen und neu erzeugte Objekte darf sie frei benutzen; Ausgaben mit `WriteLn`
-  sind erlaubt.
+* **Auf konstanten Werten** – `T const`-Variablen und -Parameter, `Self` in const-Methoden – sind
+  nur const-Methoden aufrufbar.
+* **Eine freie Routine mit `; const;`** hat keine Seiteneffekte auf den Programmzustand: Sie
+  ändert keine globalen oder äußeren Variablen, ruft nur andere const-Routinen auf und ruft auf
+  nicht-lokalen Objekten nur const-Methoden auf. Parameter, lokale Variablen und neu erzeugte
+  Objekte darf sie frei benutzen; Ausgaben mit `WriteLn` sind erlaubt.
 * Deklaration und Implementierung müssen beide `const` sein; ein `override` muss die
-  const-Eigenschaft der überschriebenen Methode übernehmen. Konstruktoren und Destruktoren
-  können nicht `const` sein. `ClassName` ist eine const-Methode.
+  const-Eigenschaft der überschriebenen Methode übernehmen. `ClassName` ist eine const-Methode.
 
-### Nur lesbare Objekt-Ausleihen: `const T`
+### Nur lesbare Objekt-Referenzen: `TFoo const`
 
-`const TFoo` ist eine Referenz, über die ein Objekt **nur gelesen** werden kann – wie `&T`
-gegenüber `&mut T` in Rust oder `const T&` in C++:
+`TFoo const` ist eine Referenz, über die ein Objekt **nur gelesen** werden kann – wie `&T`
+gegenüber `&mut T` in Rust:
 
 ```pascal
-procedure Zeige(const P: TPerson);              { const/constref-Parameter: nur lesbar }
-function Aelter(constref A, B: TPerson): borrowed const TPerson;
-function BesterFreund: borrowed optional const TPerson; const;
-val
-  leser: borrowed const TPerson;                { nur lesbare Ausleihe }
+procedure Zeige(P: TPerson const);
+function Aelter(A, B: TPerson const): var TPerson const;
+function BesterFreund: var optional TPerson const; const;
+var
+  leser: TPerson const := anna;                 { änderbar -> nur lesbar: erlaubt }
 begin
-  leser := anna;                                 { änderbar -> nur lesbar: erlaubt }
-  WriteLn(leser.Info);                           { const-Methode: erlaubt }
-  leser.Geburtstag;                              { Fehler: keine const-Methode }
-  leser.Alter := 1;                              { Fehler: Objekt ist nur lesbar }
+  WriteLn(leser.Info);                          { const-Methode: erlaubt }
+  leser.Geburtstag;                             { Fehler: keine const-Methode }
+  leser.Alter := 1;                             { Fehler: Objekt ist nur lesbar }
 ```
 
-* Über eine `const T`-Referenz dürfen keine Felder geändert und nur const-Methoden
-  aufgerufen werden.
 * **Nur lesbar ist alles, was man darüber erreicht:** Felder vom Klassentyp
-  (`P.Freund is some f` → `f` ist `const TPerson`), Array-Elemente, Ergebnisse von `as`.
+  (`P.Freund is some f` → `f` ist `TPerson const`), Array-Elemente, Ergebnisse von `as`.
 * Eine nur lesbare Referenz lässt sich **nicht** in eine änderbare umwandeln – weder durch
   Zuweisung noch als Argument, `var`-Parameter oder Funktionsergebnis.
-* Automatisch nur lesbar sind: `const`- und `constref`-Parameter vom Klassentyp,
-  `const k = obj` und `Self` in const-Methoden (darum kann eine const-Methode nur
-  `borrowed const`-Referenzen auf ihre Felder herausgeben).
-* `x.Free` auf einem nur lesbaren *Besitzer* (`const h = TFoo.Create`) bleibt erlaubt.
-
-Wie in Rust gelten dabei die **Ausleihregeln** (siehe „Borrow Checker“): Solange eine
-lesende Ausleihe noch benutzt wird, darf das Objekt nicht geändert werden.
+* `Self` ist in const-Methoden nur lesbar; darum kann eine const-Methode nur
+  `var … const`-Referenzen auf ihre Felder herausgeben.
 
 ## Records mit Methoden
 
@@ -334,18 +332,18 @@ type
     procedure Setze(AX, AY: Real);
     procedure Skaliere(F: Real);                { ändert den Record selbst }
     function Laenge: Real;
-    function Plus(const B: TVektor): TVektor;   { liefert einen neuen Wert }
+    function Plus(B: TVektor const): TVektor;   { liefert einen neuen Wert }
     property Breite: Real read X write X;
   end;
 
 procedure TVektor.Skaliere(F: Real); begin X := X * F; Y := Y * F; end;
-function TVektor.Plus(const B: TVektor): TVektor; begin Result.Setze(X + B.X, Y + B.Y); end;
+function TVektor.Plus(B: TVektor const): TVektor; begin Result.Setze(X + B.X, Y + B.Y); end;
 …
 val
-  a, b: TVektor;
-  punkte: array[1..100] of TVektor;     { 100 Werte hintereinander, keine Allokation }
+  a: TVektor := (X: 3; Y: 4);
+  b: TVektor := default;
+  punkte: array[1..100] of TVektor := default;  { 100 Werte hintereinander, keine Allokation }
 begin
-  a.Setze(3, 4);
   b := a;                               { Kopie }
   b.Skaliere(2);                        { a bleibt (3, 4) }
   WriteLn(a.Plus(b).Laenge:0:1);        { Methoden auch auf Ergebniswerten }
@@ -354,8 +352,8 @@ end.
 
 * In Record-Methoden ist `Self` der Record des Aufrufers: Methoden können ihn ändern.
 * Records haben **keine** Vererbung, keine virtuellen Methoden und keine Konstruktoren oder
-  Destruktoren; als „Konstruktor“ dient eine Prozedur (`Setze`, `Init`) oder eine Funktion,
-  die den Record zurückgibt.
+  Destruktoren; als „Konstruktor“ dient ein Literal, eine Prozedur (`Setze`) oder eine
+  Klassenmethode, die den Record zurückgibt (`class function TVektor.Null: TVektor`).
 * Records mit Methoden müssen als benannter Typ deklariert werden.
 
 Faustregel: **`record`** für kleine Werte, die kopiert werden (Punkt, Vektor, Datum, Farbe),
@@ -363,20 +361,21 @@ Faustregel: **`record`** für kleine Werte, die kopiert werden (Punkt, Vektor, D
 
 ## Borrow Checker
 
-Für Werte von **Klassentypen** gilt:
+Für Objekte und Referenzen gilt:
 
 | Konstrukt                      | Bedeutung                                         |
 |--------------------------------|---------------------------------------------------|
-| `var a: TFoo;`                 | `a` **besitzt** ein Heapobjekt (Owner)            |
-| `val r: borrowed TFoo;`        | `r` ist eine **Ausleihe** (besitzt nichts)        |
-| `val s: TFoo;`                 | Stackobjekt (gehört dem Block)                    |
-| `Next: optional TItem;` (Feld)  | Feld besitzt das Objekt (darf fehlen)             |
-| `Parent: borrowed TItem;`      | Feld ist eine Ausleihe                            |
-| `procedure P(x: TFoo)`         | Wert-/`const`-Parameter = Ausleihe                |
-| `procedure P(owned x: TFoo)`   | Parameter übernimmt den Besitz                    |
+| `vao a := TFoo.Create;`        | `a` **besitzt** das Objekt (Owner)                |
+| `var r: TFoo := a;`            | `r` ist eine **Ausleihe** (besitzt nichts)        |
+| `var r: TFoo const := a;`      | lesende Ausleihe                                  |
+| `var x: Integer := i;`         | Ausleihe der Variablen `i`                        |
+| `Next: optional TItem;` (Feld) | Feld besitzt das Objekt (darf fehlen)             |
+| `Parent: var TItem;` (Feld)    | Feld ist eine Ausleihe                            |
+| `procedure P(x: TFoo)`         | Parameter = Ausleihe (`TFoo const`: lesend)       |
+| `procedure P(vao x: TFoo)`     | Parameter übernimmt den Besitz                    |
 | `procedure P(var x: TFoo)`     | veränderliche Ausleihe des Besitzer-Platzes       |
 | `function F: TFoo`             | Ergebnis wird an den Aufrufer übergeben           |
-| `function F: borrowed TFoo`    | Ergebnis ist eine Ausleihe (z. B. `Find`)         |
+| `function F: var TFoo`         | Ergebnis ist eine Ausleihe (z. B. `Find`)         |
 | `Take(x.Next)`                 | holt den Wert heraus, der Platz wird `none`       |
 
 Regeln (Verstöße sind **Fehler**, die Übersetzung bricht ab):
@@ -386,17 +385,16 @@ Regeln (Verstöße sind **Fehler**, die Übersetzung bricht ab):
 * Kein Zugriff nach `Free`/`Destroy` (`use after free`), kein doppeltes Freigeben.
 * Ausleihen auf Objekte lokaler Besitzer dürfen nicht in globale Variablen, Felder oder
   Funktionsergebnisse gelangen – der Besitzer gibt das Objekt am Ende seines Bereichs frei.
-* Ein `borrowed`-Ergebnis darf nicht von einem temporären Objekt stammen (`F(TFoo.Create)`).
+* Ein `var`-Ergebnis darf nicht von einem temporären Objekt stammen (`F(TFoo.Create)`).
 * Ausleihen dürfen nicht freigegeben und nicht in Besitzer gespeichert werden.
 * Eine Ausleihe merkt sich, woher sie stammt. Wird die Quelle freigegeben, verschoben oder
   neu zugewiesen, ist die Ausleihe **hängend**; ihre Benutzung ist ein Fehler.
-* Referenzen auf Stackobjekte (`val s: TFoo`) dürfen nicht in globale
-  Variablen, Felder oder Funktionsergebnisse entkommen; Funktionen dürfen keine Referenz auf
-  Lokales zurückgeben.
+* Funktionen dürfen keine Referenz auf Objekte lokaler Besitzer zurückgeben.
 * Dieselbe Variable darf in einem Aufruf nicht zweimal übergeben werden, wenn einer der
   Parameter `var`/`out` ist (`Swap(x, x)`).
 * **Ausleihregeln wie in Rust:** Zu jedem Zeitpunkt gibt es entweder **beliebig viele lesende**
-  (`borrowed const`) **oder genau eine änderbare** (`borrowed`) Ausleihe eines Objekts:
+  (`var r: T const`) **oder genau eine änderbare** (`var r: T`) Ausleihe eines Objekts oder
+  einer Variablen:
   - Solange eine lesende Ausleihe noch benutzt wird, darf das Objekt nicht geändert werden –
     weder über den Besitzer (Feldzuweisung, nicht-const Methode, `var`-Argument) noch über
     eine andere Ausleihe.
@@ -423,7 +421,7 @@ Beispiel: [tests/run/ownership.pas](tests/run/ownership.pas), Fehlerbeispiele in
 
 Grenzen der Analyse: Sie arbeitet pro Routine. Felder und Dereferenzierungen werden nicht
 einzeln verfolgt (nur ihre Pfade, um Ausleihen ungültig zu machen); die Lebensdauer von
-`borrowed`-Feldern wird nicht geprüft; globale Besitzer werden nur im Hauptprogramm verfolgt;
+`var`-Feldern wird nicht geprüft; globale Besitzer werden nur im Hauptprogramm verfolgt;
 das Kopieren von Records, die Besitzer enthalten, wird nicht als Move behandelt.
 
 ## Optionale Werte: `optional T`
@@ -446,12 +444,12 @@ begin
 end;
 
 val
-  alter: optional Integer;               { std::optional<int> }
-  p: borrowed optional TKnoten;          { Option<&Knoten> }
+  alter: optional Integer := 42;         { std::optional<int> }
+vao
+  kopf: optional TKnoten := none;        { Option<Box<Knoten>> }
 var
-  kopf: optional TKnoten;
+  p: optional TKnoten := none;           { Option<&Knoten> }
 begin
-  alter := 42;
   if alter is some a then WriteLn(a);              { if let Some(a) = alter }
   p := kopf;
   while p is some k do begin                       { while let Some(k) = p }
@@ -486,9 +484,8 @@ Regeln:
 Für **nicht-optionale** Objekte garantiert der Compiler, dass sie zur Laufzeit immer ein
 Objekt haben:
 
-* **Nicht allozierte Heapobjekte:** `var a: TFoo; … a.V := 1;` ohne vorheriges `TFoo.Create`
-  ist ein Fehler – auch wenn die Allokation nur auf einem Teil der Pfade passiert.
-  Dasselbe gilt für Stackobjekte ohne `x.Create(...)`.
+* **Besitzer ohne Objekt** gibt es nicht: ein nicht-optionaler `vao` muss mit einem Objekt
+  initialisiert werden, und nach einem Move oder `Free` ist seine Benutzung ein Fehler.
 * **Konstruktoren** müssen allen eigenen nicht-optionalen Feldern auf jedem Pfad einen Wert
   geben, bevor `Self` benutzt wird (Methodenaufruf, Übergabe, Speichern). Erbt eine Klasse
   solche Felder, muss der Konstruktor einen geerbten Konstruktor aufrufen. Eine Klasse mit
@@ -515,13 +512,13 @@ Ein fehlgeschlagener Speicherwunsch (`Create`) endet mit `Runtime error 203: hea
 ## Unterstützte Sprache
 
 * `program`, `uses` (ignoriert), `const` (auch typisierte Konstanten und Array-Initialisierer),
-  `type`, `val` (Werte und Stackobjekte, auch `val x: Integer = 5;`), `var` (Heapobjekte und Heapwerte)
+  `type`, `val` (Werte), `var` (Referenzen), `vao` (Besitzer), Blöcke mit eigenen Abschnitten
 * Typen: `Integer`/`LongInt` (32 Bit), `ShortInt`, `SmallInt`, `Byte`, `Word`, `Cardinal`,
   `Int64`, `Boolean`, `Char`, `Real`/`Double`, `String` (ShortString, max. 255 Zeichen),
   Aufzählungen, Teilbereiche, statische (auch mehrdimensionale) Arrays, Records (mit Methoden),
-  `class` (Stack- oder Heapobjekte)
+  `class` (mit Klassenmethoden)
 * Prozeduren/Funktionen, beliebig verschachtelt (Zugriff auf äußere Variablen über
-  Static Links), `var`/`const`/`out`-Parameter, `forward`, Rekursion, `Result`/Funktionsname,
+  Static Links), `var`-, `out`-, `vao`- und `T const`-Parameter, `forward`, Rekursion, `Result`/Funktionsname,
   `Exit(Wert)`
 * Anweisungen: `:=`, `if`, `case` (auch mit Strings und Bereichen), `while`, `repeat`, `for … to/downto`,
   `with`, `Break`, `Continue`, `Exit`
@@ -535,8 +532,8 @@ Ein fehlgeschlagener Speicherwunsch (`Create`) endet mit `Runtime error 203: hea
   bei `optional`: `HasValue`, `ValueOr`
 
 Nicht unterstützt: `nil` (ersetzt durch `optional`/`none`), Zeiger (`^`, `@`, `New`, `Dispose`,
-`Pointer` – ersetzt durch Heapobjekte von Klassen und `var`-Parameter), `object`-Typen (ersetzt durch Stackobjekte von Klassen), Units, Mengentypen (außer Mengen-Literalen bei `in`), dynamische/offene
-Arrays, Exceptions (`try`/`raise`), Interfaces, Überladen, Klassenmethoden, Prozedurtypen,
+`Pointer` – ersetzt durch Objekte, `var`-Referenzen und `var`-Parameter), `object`-Typen (ersetzt durch `class`), Units, Mengentypen (außer Mengen-Literalen bei `in`), dynamische/offene
+Arrays, Exceptions (`try`/`raise`), Interfaces, Überladen, Prozedurtypen,
 varianten Records, `goto`, Datei-I/O.
 
 ## Aufbau
@@ -553,6 +550,7 @@ varianten Records, `goto`, Datei-I/O.
 
 Klassen werden als C-Structs mit `__vmt`-Zeiger am Anfang abgebildet. Geerbte Felder liegen
 als Präfix vorne, daher sind Zeiger auf Nachfahren mit Zeigern auf Vorfahren layoutkompatibel.
-Ein Heapobjekt ist ein mit `calloc` angelegtes Struct; ein Stackobjekt ist dasselbe Struct
-als lokale C-Variable, die Pascal-Variable zeigt darauf. Am Funktionsende ruft der erzeugte
-Code für jedes konstruierte Stackobjekt den virtuellen Destruktor ohne Freigabe auf.
+Ein Objekt ist ein mit `calloc` angelegtes Struct. Am Ende eines Bereichs gibt der erzeugte
+Code alles frei, was `vao`-Variablen noch besitzen (in umgekehrter Reihenfolge). Eine
+`var`-Referenz auf einen Wert ist in C ein Zeiger auf die Original-Variable; Klassenmethoden
+sind C-Funktionen ohne `self`-Parameter.

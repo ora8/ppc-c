@@ -2,8 +2,8 @@
  *
  * Model (inspired by Rust, adapted to Object Pascal):
  *   - Variables, fields and function results of class or typed-pointer type
- *     OWN the object they refer to, unless declared 'borrowed'.
- *   - Value and const parameters of such types are borrows; 'owned'
+ *     OWN the object they refer to, unless declared with 'var'.
+ *   - Parameters of such types are borrows ('T const': read-only); 'vao'
  *     parameters take ownership; var/out parameters are mutable borrows
  *     of the caller's owning slot.
  *   - Assigning an owner to another owner MOVES the value; the source
@@ -12,7 +12,7 @@
  *   - A borrowed variable remembers which places it was borrowed from
  *     ("origins"). Freeing, moving or reassigning such a place makes the
  *     borrow dangling; using a dangling borrow is an error.
- *   - References to stack variables and stack objects must not escape into globals,
+ *   - References to local variables and local owners must not escape into globals,
  *     fields or function results.
  *   - The same place must not be passed twice to a call if one of the
  *     parameters is var/out (no aliasing of mutable borrows).
@@ -768,6 +768,9 @@ static void use_expr(Expr *e, State *s) {
         return;
     }
     case E_FMT: use_expr(e->a, s); use_expr(e->b, s); use_expr(e->c, s); return;
+    case E_LIST: case E_RECLIT:
+        for (int i = 0; i < e->args.len; i++) use_expr(e->args.items[i], s);
+        return;
     default: return;
     }
 }
@@ -904,14 +907,14 @@ static void assign_src(Expr *lhs, Src *src, State *s, Pos p, unsigned nbits) {
             break;
         case SRC_BORROW:
             berror(p, "cannot store borrowed reference '%s' in owning %s '%s'%s", src->desc, tvar ? "variable" : "location",
-                   ldesc, tvar ? sfmt("; declare '%s' as 'borrowed' or transfer ownership", ldesc) : "");
+                   ldesc, tvar ? sfmt("; declare '%s' with 'var' (reference) or transfer ownership", ldesc) : "");
             break;
         case SRC_PLACE:
             if (src->borrowed_place)
                 berror(p, "cannot store borrowed reference '%s' in owning %s '%s'", src->desc, tvar ? "variable" : "location", ldesc);
             else
                 berror(p, "cannot move out of '%s' (it is owned by its container); use Take(%s)%s", src->desc, src->desc,
-                       tvar ? sfmt(" or declare '%s' as 'borrowed'", ldesc) : "");
+                       tvar ? sfmt(" or declare '%s' with 'var' (reference)", ldesc) : "");
             break;
         default: break;
         }
@@ -949,6 +952,31 @@ static void assign_src(Expr *lhs, Src *src, State *s, Pos p, unsigned nbits) {
         escape_check(&o, p, sfmt("'%s'", ldesc));
 }
 
+/* var x: T := y: x borrows y (read-only with 'T const') until its last use */
+static void do_bind(Var *v, Expr *rhs, State *s, Pos p) {
+    in_base++;
+    use_expr(rhs, s);
+    in_base--;
+    int i = slot(v);
+    if (i < 0) return;
+    Var *root = NULL;
+    char *path = path_of(rhs, &root);
+    Origins o = {0};
+    if (path && root) {
+        int j = slot(root);
+        if (j >= 0 && tv.items[j].kind == TV_BORROW && root != v) { /* through another borrow: re-borrow */
+            check_var_use(root, p, s);
+            for (int k = 0; k < s->org[j].len; k++) vpush(o, s->org[j].items[k]);
+        } else
+            origin_add(&o, path, desc_of(rhs), root, !root->is_global);
+    }
+    int kind = v->type->readonly ? ACC_BORROW_CONST : ACC_BORROW_MUT;
+    for (int k = 0; k < o.len; k++) access_path(s, o.items[k].path, v, root, kind, p, o.items[k].desc);
+    s->bor[i] = B_VALID;
+    s->why[i] = NULL;
+    s->org[i] = o;
+}
+
 static void do_assign(Expr *lhs, Expr *rhs, State *s, Pos p) {
     if (lhs->kind == E_DEREF && lhs->a->kind == E_VAR && lhs->a->var->is_box) {
         /* storing into a heap value: allocates the cell if it has none yet */
@@ -964,6 +992,7 @@ static void do_assign(Expr *lhs, Expr *rhs, State *s, Pos p) {
     if (!is_owning_type(lhs->type)) {
         use_expr(rhs, s);
         use_lvalue(lhs, s);
+        if (lhs->kind == E_VAR && lhs->var->is_alias) check_var_use(lhs->var, lhs->pos, s); /* writing through a reference */
         access_expr(lhs, s, 1, NULL);
         return;
     }
@@ -1401,7 +1430,10 @@ static void an_stmt(Stmt *st, State *s) {
     if (!s->reach) return;
     switch (st->kind) {
     case S_EMPTY: return;
-    case S_ASSIGN: do_assign(st->a, st->b, s, st->pos); return;
+    case S_ASSIGN:
+        if (st->bind) do_bind(st->a->var, st->b, s, st->pos);
+        else do_assign(st->a, st->b, s, st->pos);
+        return;
     case S_CALL: {
         Expr *e = st->a;
         if (e->kind == E_RCALL) {
@@ -1721,6 +1753,10 @@ static void untrack_all(void) {
 }
 
 static void track_var(Var *v) {
+    if (v->is_alias) { /* var x: Integer := y: a borrow of y */
+        track(v, TV_BORROW, 0);
+        return;
+    }
     if (!is_owning_type(v->type)) return;
     track(v, v->borrowed ? TV_BORROW : TV_OWNER, 0);
 }

@@ -1,0 +1,12 @@
+--- vao: Besitzer
+  lokal: 10
+  frei: lokal
+  Anna: 75
+  Bert: 10
+--- var: Referenz ohne Besitz
+  zahl = 44, anna = 80
+--- const
+  p = (100, 0), limit = 100
+--- Programmende
+  frei: Bert
+  frei: Anna

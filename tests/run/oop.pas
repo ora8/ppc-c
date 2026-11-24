@@ -1,6 +1,6 @@
 program OOP;
 type
-  { ---- eine Klassenhierarchie, als Stack- und als Heapinstanz nutzbar ---- }
+  { ---- eine Klassenhierarchie, Objekte gehoeren einer vao-Variablen ---- }
   TShape = class
     X, Y: Integer;
     constructor Create(AX, AY: Integer);
@@ -28,7 +28,7 @@ type
     FLegs: Integer;
     procedure SetLegs(V: Integer);
   public
-    constructor Create(const AName: String);
+    constructor Create(AName: String const);
     destructor Destroy; override;
     function Sound: String; virtual; abstract;
     procedure Speak;
@@ -40,7 +40,7 @@ type
   end;
   TCat = class(TAnimal)
     Lives: Integer;
-    constructor Create(const AName: String);
+    constructor Create(AName: String const);
     function Sound: String; override;
   end;
 
@@ -64,43 +64,46 @@ begin inherited Create(AX, AY); W := AW; H := AH; end;
 function TRect.Area: Real; begin Result := W * H; end;
 function TRect.Name: String; begin Result := 'Rechteck(' + inherited Name + ')'; end;
 
-constructor TAnimal.Create(const AName: String);
+constructor TAnimal.Create(AName: String const);
 begin inherited Create; FName := AName; FLegs := 4; end;
 destructor TAnimal.Destroy;
 begin WriteLn('  ', FName, ' wird freigegeben'); inherited Destroy; end;
 procedure TAnimal.SetLegs(V: Integer); begin if V >= 0 then FLegs := V; end;
 procedure TAnimal.Speak; begin WriteLn(FName, ' (', ClassName, ', ', Legs, ' Beine) sagt ', Sound); end;
 function TDog.Sound: String; begin Result := 'Wuff'; end;
-constructor TCat.Create(const AName: String);
+constructor TCat.Create(AName: String const);
 begin inherited Create(AName); Lives := 7; end;
 function TCat.Sound: String; begin Result := 'Miau'; end;
 
-procedure ShowShape(S: TShape);       { nimmt Stack- und Heapobjekte }
+procedure ShowShape(S: TShape);       { leiht das Objekt nur aus }
 begin S.Describe; end;
 
 procedure Verschiebe(S: TShape; DX: Integer);
 begin S.X := S.X + DX; end;
 
 procedure LokaleFiguren;
-val
-  r: TRect;                          { Stackobjekt: lebt nur in dieser Prozedur }
+vao
+  r := TRect.Create(0, 0, 3, 4);                          { besitzt r: wird am Prozedurende freigegeben }
 begin
-  r.Create(0, 0, 3, 4);
+  
   ShowShape(r);
-end;                                 { hier wird r.Destroy automatisch gerufen }
+end;                                 { hier wird r automatisch freigegeben }
 
+vao
+  c := TCircle.Create(1, 2, 1.5);                        { globaler Besitzer }
 val
-  c: TCircle;                        { globales Stackobjekt }
-  pets: array[1..2] of optional TAnimal;
-  a: borrowed optional TAnimal;
-  i: Integer;
+  pets: array[1..2] of optional TAnimal := default;
 var
-  h: TShape;                         { Heapobjekte }
-  dog: TDog;
-  cat: TCat;
+  a: optional TAnimal := none;
+val
+  i: Integer := default;
+vao
+  h: TShape := TRect.Create(5, 5, 2, 2);                         { Besitzer }
+  dog: TDog := TDog.Create('Bello');
+  cat: TCat := TCat.Create('Minka');
 begin
-  WriteLn('--- Stackobjekte ---');
-  c.Create(1, 2, 1.5);
+  WriteLn('--- Objekte ---');
+  
   c.Describe;
   ShowShape(c);
   Verschiebe(c, 10);                 { Wertparameter = Referenz: Original wird geaendert }
@@ -108,15 +111,15 @@ begin
   LokaleFiguren;
   WriteLn('c is TShape: ', c is TShape, ', c is TRect: ', c is TRect, ', Klasse: ', c.ClassName);
 
-  WriteLn('--- Heapobjekt derselben Klassen ---');
-  h := TRect.Create(5, 5, 2, 2);
+  WriteLn('--- frueh freigegeben ---');
+  
   h.Describe;
   ShowShape(h);
   h.Free;
 
   WriteLn('--- Klassen ---');
-  dog := TDog.Create('Bello');
-  cat := TCat.Create('Minka');
+  
+  
   dog.Speak;
   cat.Legs := 3;
   cat.Speak;

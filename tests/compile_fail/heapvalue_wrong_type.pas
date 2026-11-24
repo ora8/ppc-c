@@ -1,4 +1,4 @@
 { EXPECT: incompatible types: got "heap Byte" expected "heap Integer" }
 program T;
-var I: Integer;
+vao I: Integer := default;
 begin I := Byte.Create; I.Free; end.

@@ -6,8 +6,8 @@ type
     Saldo: Integer;
   end;
 
-val
-  Global: borrowed optional TKonto;
+var
+  Global: optional TKonto := none;
 
 procedure Schliesse(K: TKonto);          { K ist nur ausgeliehen }
 begin
@@ -15,27 +15,24 @@ begin
 end;
 
 procedure Merke;
-val konto: TKonto;                       { Stackobjekt }
+vao konto := TKonto.Create;              { wird am Ende von Merke freigegeben }
 begin
-  konto.Create;
-  Global := konto;                       { FEHLER 2: Referenz auf Stackobjekt entkommt }
+  Global := konto;                       { FEHLER 2: Referenz auf lokalen Besitzer entkommt }
 end;
 
 procedure Tausche(var A, B: Integer);
-val t: Integer;
+val t: Integer := default;
 begin t := A; A := B; B := t; end;
 
-var
-  a, b: TKonto;
-val
-  blick: borrowed TKonto;
-  x: Integer;
-begin
+vao
   a := TKonto.Create;
-  b := a;                                { Move: a -> b }
+  b: TKonto := a;                        { Move: a -> b }
+var
+  blick: TKonto := b;                    { Ausleihe von b (besitzt nicht) }
+val
+  x: Integer := default;
+begin
   a.Saldo := 100;                        { FEHLER 3: a wurde verschoben }
-
-  blick := b;                            { Ausleihe von b }
   b.Free;
   WriteLn(blick.Saldo);                  { FEHLER 4: Besitzer schon freigegeben }
 

@@ -14,8 +14,8 @@ procedure Verdopple(var N: Integer); begin N := N * 2; end;
 function Quadrat(N: Integer): Integer; begin Result := N * N; end;
 
 procedure Lokal;
-var
-  Zaehler: Integer;               { Heapwert in einer Prozedur }
+vao
+  Zaehler: Integer := default;               { Heapwert in einer Prozedur }
 begin
   Zaehler := Integer.Create(100);
   Inc(Zaehler);
@@ -23,13 +23,13 @@ begin
   Zaehler.Free;
 end;
 
-var
-  I: Integer;
-  S: String;
-  V: TVektor;
-  F: TFeld;
+vao
+  I: Integer := default;
+  S: String := default;
+  V: TVektor := default;
+  F: TFeld := default;
 val
-  k: Integer;
+  k: Integer := default;
 begin
   I := Integer.Create;            { Heap-Zelle anlegen (mit 0 belegt) }
   I := 20;                        { Wert speichern }

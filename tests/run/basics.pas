@@ -9,14 +9,14 @@ type
     X, Y: Integer;
   end;
 val
-  i, sum: Integer;
-  r: Real;
-  s: String;
-  c: Char;
-  col: TColor;
-  p: TPoint;
-  a: array[0..N - 1] of Integer;
-  m: array[1..3, 1..3] of Integer;
+  i, sum: Integer := default;
+  r: Real := default;
+  s: String := default;
+  c: Char := default;
+  col: TColor := default;
+  p: TPoint := default;
+  a: array[0..N - 1] of Integer := default;
+  m: array[1..3, 1..3] of Integer := default;
 
 function Fact(n: Integer): Int64;
 begin
@@ -24,18 +24,18 @@ begin
 end;
 
 procedure Swap(var a, b: Integer);
-val t: Integer;
+val t: Integer := default;
 begin
   t := a; a := b; b := t;
 end;
 
 function SumTo(n: Integer): Integer;
-val acc: Integer;
+val acc: Integer := default;
   procedure Add(k: Integer);
   begin
     acc := acc + k;
   end;
-val k: Integer;
+val k: Integer := default;
 begin
   acc := 0;
   for k := 1 to n do Add(k);

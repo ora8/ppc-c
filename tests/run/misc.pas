@@ -24,7 +24,7 @@ procedure TAccount.Apply(n: Integer);
   begin
     Balance := Balance + k;
   end;
-val i: Integer;
+val i: Integer := default;
 begin
   for i := 1 to n do Step(i);
 end;
@@ -46,8 +46,8 @@ begin
   IsWeekend := d >= Sat;
 end;
 
-function FirstNeg(const a: TArr5): Integer;
-val i: Integer;
+function FirstNeg(a: TArr5 const): Integer;
+val i: Integer := default;
 begin
   for i := 1 to 5 do
     if a[i] < 0 then Exit(i);
@@ -55,7 +55,7 @@ begin
 end;
 
 function Outer(x: Integer): Integer;
-val depth: Integer;
+val depth: Integer := default;
   function Mid(y: Integer): Integer;
     function Inner(z: Integer): Integer;
     begin
@@ -70,16 +70,16 @@ begin
   Result := Mid(x) * 10 + depth;
 end;
 
-var
-  acc: TAccount;
-  p: TRec;
+vao
+  acc: TAccount := TAccount.Create;
+  p: TRec := TRec.Create;
 val
-  d: TDay;
-  arr: TArr5;
-  s, t: String;
-  i: Integer;
+  d: TDay := default;
+  arr: TArr5 := default;
+  s, t: String := default;
+  i: Integer := default;
 begin
-  acc := TAccount.Create;
+  
   acc.Balance := 100;
   acc.Apply(3);
   WriteLn('Kontostand: ', acc.Balance, ' Log: ', acc.FLog);
@@ -88,7 +88,7 @@ begin
   for d := Mon to Sun do WriteLn(d, ': ', Describe(d), ' ord=', Ord(d));
   WriteLn('Succ(Mon)=', Succ(Mon), ' High=', High(TDay));
 
-  p := TRec.Create;
+  
   with p do begin A := 1; B := 2; Name := 'rec'; end;
   WriteLn(p.Name, ' ', p.A + p.B, ' ', p.B);
   p.Free;

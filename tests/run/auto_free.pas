@@ -1,5 +1,5 @@
 program AutoFree;
-{ Heapobjekte und Heapwerte werden automatisch freigegeben, wenn ihr Besitzer
+{ Objekte und Heapwerte in vao-Variablen werden automatisch freigegeben, wenn ihr Besitzer
   den Gueltigkeitsbereich verlaesst – ausser der Besitz wurde weitergegeben. }
 type
   TKnoten = class
@@ -18,14 +18,14 @@ constructor TKnoten.Create(W: Integer); begin inherited Create; Wert := W; end;
 destructor TKnoten.Destroy; begin WriteLn('  frei: ', Wert); inherited Destroy; end;
 
 procedure TListe.Vorne(W: Integer);
-var k: TKnoten.Create(W);
+vao k := TKnoten.Create(W);
 begin
   k.Next := Take(Kopf);
   Kopf := k;                           { Besitz wandert in die Liste: k wird nicht freigegeben }
 end;
 
 procedure TListe.Zeige;
-val p: borrowed optional TKnoten;
+var p: optional TKnoten := none;
 begin
   p := Kopf;
   while p is some k do begin Write(k.Wert, ' '); p := k.Next; end;
@@ -33,35 +33,34 @@ begin
 end;
 
 function Baue(n: Integer): TListe;     { Ergebnis: Besitz geht an den Aufrufer }
-var l: TListe.Create;
-val i;                                 { Typ aus der Schleife: Integer }
+vao l := TListe.Create;
 begin
-  for i := 1 to n do l.Vorne(i);
+  for val i := 1 to n do l.Vorne(i);
   Result := l;
 end;
 
 procedure Fuelle(var Ziel: TKnoten);   { Rueckgabe ueber var-Parameter }
-var neu: TKnoten.Create(77);
+vao neu := TKnoten.Create(77);
 begin
   Ziel := neu;                          { altes Ziel wird freigegeben, neu wandert hinaus }
 end;
 
 procedure Lokal;
-var
-  a: TKnoten.Create(1);
-  I;
-begin
+vao
+  a := TKnoten.Create(1);
   I := 42;                              { Heapwert }
+begin
   WriteLn('Lokal: a = ', a.Wert, ', I = ', I);
 end;                                    { a und I werden hier freigegeben }
 
-var
-  liste: TListe;
-  z: TKnoten.Create(5);
+vao
+  liste: TListe := Baue(3);
+  z := TKnoten.Create(5);
+
 begin
   Lokal;
   WriteLn('-- Liste aus einer Funktion');
-  liste := Baue(3);
+  
   liste.Zeige;
   WriteLn('-- Ueberschreiben gibt das alte Objekt frei');
   liste := Baue(1);

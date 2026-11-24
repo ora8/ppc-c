@@ -6,7 +6,7 @@ type
     procedure Setze(AX, AY: Real);
     procedure Skaliere(F: Real);                 { aendert den Record selbst }
     function Laenge: Real;
-    function Plus(const B: TVektor): TVektor;    { liefert einen neuen Wert }
+    function Plus(B: TVektor const): TVektor;    { liefert einen neuen Wert }
     function AlsText: String;
     property Breite: Real read X write X;
   end;
@@ -14,23 +14,23 @@ type
   TRechteck = record
     Ecke, Groesse: TVektor;                       { Records in Records }
     function Flaeche: Real;
-    function Enthaelt(const P: TVektor): Boolean;
+    function Enthaelt(P: TVektor const): Boolean;
   end;
 
 procedure TVektor.Setze(AX, AY: Real); begin X := AX; Y := AY; end;
 procedure TVektor.Skaliere(F: Real); begin X := X * F; Y := Y * F; end;
 function TVektor.Laenge: Real; begin Result := Sqrt(Sqr(X) + Sqr(Y)); end;
-function TVektor.Plus(const B: TVektor): TVektor;
+function TVektor.Plus(B: TVektor const): TVektor;
 begin Result.Setze(X + B.X, Y + B.Y); end;
 function TVektor.AlsText: String;
-val sx, sy: String;
+val sx, sy: String := default;
 begin
   Str(X:0:1, sx); Str(Y:0:1, sy);
   Result := '(' + sx + ', ' + sy + ')';
 end;
 
 function TRechteck.Flaeche: Real; begin Result := Groesse.X * Groesse.Y; end;
-function TRechteck.Enthaelt(const P: TVektor): Boolean;
+function TRechteck.Enthaelt(P: TVektor const): Boolean;
 begin
   Result := (P.X >= Ecke.X) and (P.X <= Ecke.X + Groesse.X) and
             (P.Y >= Ecke.Y) and (P.Y <= Ecke.Y + Groesse.Y);
@@ -40,10 +40,10 @@ function Vektor(AX, AY: Real): TVektor;          { "Konstruktor" als Funktion }
 begin Result.Setze(AX, AY); end;
 
 val
-  a, b, c: TVektor;
-  r: TRechteck;
-  punkte: array[1..3] of TVektor;
-  i: Integer;
+  a, b, c: TVektor := default;
+  r: TRechteck := default;
+  punkte: array[1..3] of TVektor := default;
+  i: Integer := default;
 begin
   a.Setze(3, 4);
   WriteLn('a = ', a.AlsText, ', Laenge ', a.Laenge:0:1);

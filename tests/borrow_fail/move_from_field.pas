@@ -1,4 +1,4 @@
 { EXPECT: cannot move out of 'h.Next' (it is owned by its container); use Take(h.Next) }
 program T; type TN = class Next: TN; end;
-var h, n: TN;
-begin h := TN.Create; h.Next := TN.Create; n := h.Next; n.Free; h.Free; end.
+vao h: TN := TN.Create; n: TN := h.Next;
+begin  h.Next := TN.Create;  n.Free; h.Free; end.

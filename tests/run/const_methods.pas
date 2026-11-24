@@ -26,7 +26,7 @@ type
 procedure TVektor.Skaliere(F: Real); begin X := X * F; Y := Y * F; end;
 function TVektor.Laenge: Real; const; begin Result := Sqrt(X * X + Y * Y); end;
 function TVektor.Normiert: TVektor; const;
-val l = Laenge;                                 { const Methode ruft const Methode }
+val l := Laenge;                                 { const Methode ruft const Methode }
 begin
   Result.X := X / l;
   Result.Y := Y / l;
@@ -42,22 +42,21 @@ function TSparkonto.Beschreibung: String; const; begin Result := 'Spar: ' + inhe
 { freie const Funktion: nur Parameter und lokale Variablen, keine Seiteneffekte }
 function Quadrat(N: Integer): Integer; const; begin Result := N * N; end;
 function SummeQuadrate(N: Integer): Integer; const;
-val i;
 begin
   Result := 0;
-  for i := 1 to N do Result := Result + Quadrat(i);   { ruft nur const Routinen }
+  for val i := 1 to N do Result := Result + Quadrat(i);   { ruft nur const Routinen }
 end;
 
-procedure Ausgabe(constref V: TVektor);         { constref: nur const Methoden }
+procedure Ausgabe(V: TVektor const);         { T const: nur const Methoden }
 begin
   V.Zeige;
   V.Normiert.Zeige;
 end;
 
 val
-  v: TVektor;
-var
-  k: TSparkonto.Create(100);
+  v: TVektor := default;
+vao
+  k := TSparkonto.Create(100);
 begin
   v.X := 3; v.Y := 4;
   Ausgabe(v);

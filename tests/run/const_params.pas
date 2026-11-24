@@ -1,4 +1,5 @@
-program ConstRef;
+program ConstParams;
+{ 'T const': unveraenderlich; als Parameter per Referenz, ohne Kopie }
 type
   TVektor = record
     X, Y: Real;
@@ -9,44 +10,42 @@ type
 procedure TVektor.Skaliere(F: Real); begin X := X * F; Y := Y * F; end;
 function TVektor.Laenge: Real; const; begin Result := Sqrt(X * X + Y * Y); end;
 
-function Summe(constref A: TGross): Integer;     { keine Kopie von 4000 Bytes }
-val i;
+function Summe(A: TGross const): Integer;     { keine Kopie von 4000 Bytes }
 begin
   Result := 0;
-  for i := 1 to 1000 do Result := Result + A[i];
+  for val i := 1 to 1000 do Result := Result + A[i];
 end;
 
-procedure Zeige(constref S: String; constref V: TVektor);
+procedure Zeige(S: String const; V: TVektor const);
 begin
   WriteLn(S, ': ', V.Laenge:0:1);                { Funktionen sind erlaubt }
 end;
 
-function Doppelt(constref N: Integer): Integer; begin Result := N * 2; end;
+function Doppelt(N: Integer const): Integer; begin Result := N * 2; end;
 
 procedure P(n: Integer);
 const
   Max = 100;                    { Konstante zur Uebersetzungszeit }
-  Hoch = n * n;                 { unveraenderlich, Wert zur Laufzeit }
-  Text = 'n=' + IntToStr(n);
 val
-  v: TVektor;
+  Hoch: Integer const := n * n; { unveraenderlich, Wert zur Laufzeit }
+  Text: String const := 'n=' + IntToStr(n);
+  v: TVektor := default;
 begin
   v.X := 3; v.Y := 4;
   WriteLn(Max, ' ', Hoch, ' ', Text);
   Zeige('v', v);
   Zeige('temporaer', v);
-  WriteLn('Doppelt(Hoch + 1) = ', Doppelt(Hoch + 1));   { Ausdruck als constref-Argument }
-  const w = v;                  { unveraenderliche Kopie im Block }
+  WriteLn('Doppelt(Hoch + 1) = ', Doppelt(Hoch + 1));   { Ausdruck als const-Argument }
+  val w: TVektor const := v;    { unveraenderliche Kopie im Block }
   begin
     WriteLn('w.Laenge = ', w.Laenge:0:1);
   end;
 end;
 
 val
-  g: TGross;
-  i;
+  g: TGross := default;
 begin
-  for i := 1 to 1000 do g[i] := i;
+  for val i := 1 to 1000 do g[i] := i;
   WriteLn('Summe = ', Summe(g));
   P(7);
 end.

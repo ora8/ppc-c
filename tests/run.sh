@@ -13,7 +13,7 @@ for f in run/*.pas; do
   if ! out=$($PPC -o "$TMP/$n" "$f" 2>&1); then bad "$f" "$out"; continue; fi
   if diff -u "run/$n.expected" <("$TMP/$n" < /dev/null) > "$TMP/diff"; then ok "$f"; else bad "$f" "$(cat "$TMP/diff")"; fi
 done
-for d in borrow_fail optional_fail stack_fail const_fail compile_fail; do
+for d in borrow_fail optional_fail const_fail compile_fail; do
   for f in $d/*.pas; do
     exp=$(sed -n '1s/^{ EXPECT: \(.*\) }$/\1/p' "$f")
     out=$($PPC -S -o "$TMP/x" "$f" 2>&1); rc=$?

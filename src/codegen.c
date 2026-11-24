@@ -100,6 +100,7 @@ static char *ctype(Type *t) {
     case T_STR: return "PStr";
     case T_ENUM: return "int32_t";
     case T_NIL: return "void*";
+    case T_LIT: return "void";
     case T_OPT: { /* value optional: struct { has; value } (like std::optional) */
         char *elem = ctype(t->base);
         char *key = sfmt("opt|%s", elem);
@@ -589,6 +590,29 @@ static char *gx(Expr *e) {
     }
     case E_IS: return sfmt("__is((void*)(%s), &VMTI%d)", gx(e->a), e->ctype->st->id);
     case E_AS: return sfmt("((struct S%d*)__as((void*)(%s), &VMTI%d))", e->ctype->st->id, gx(e->a), e->ctype->st->id);
+    case E_DEFAULT: /* zero value of the target type */
+        if (e->type->kind == T_CLASS) return "((void*)0)";
+        return sfmt("((%s){0})", ctype(e->type));
+    case E_LIST: { /* array literal */
+        Buf b = {0};
+        buf_printf(&b, "((%s){ { ", ctype(e->type));
+        for (int i = 0; i < e->args.len; i++) buf_printf(&b, "%s%s", i ? ", " : "", gx(e->args.items[i]));
+        buf_put(&b, " } })");
+        return b.d;
+    }
+    case E_RECLIT: { /* record literal: missing fields are zero */
+        Buf b = {0};
+        buf_printf(&b, "((%s){ ", ctype(e->type));
+        for (int i = 0; i < e->fnames.len; i++) {
+            const char *fc = NULL;
+            for (int k = 0; k < e->type->st->fields.len; k++)
+                if (STREQ(e->type->st->fields.items[k]->name, e->fnames.items[i].name)) fc = e->type->st->fields.items[k]->cname;
+            buf_printf(&b, "%s.%s = %s", i ? ", " : "", fc, gx(e->args.items[i]));
+        }
+        if (!e->fnames.len) buf_put(&b, "0");
+        buf_put(&b, " })");
+        return b.d;
+    }
     case E_ISSOME: {
         Var *k = e->var;
         if (e->a->type->kind == T_OPT) {
@@ -674,6 +698,10 @@ static void gs(Stmt *s) {
     switch (s->kind) {
     case S_EMPTY: return;
     case S_ASSIGN:
+        if (s->bind) { /* var x := y: x refers to y */
+            line("%s = &%s;", var_raw(s->a->var), gx(s->b));
+            return;
+        }
         if (s->a->kind == E_DEREF && s->a->a->kind == E_VAR && s->a->a->var->is_box) {
             /* storing into a heap value allocates its cell on first use */
             Var *v = s->a->a->var;
@@ -857,7 +885,7 @@ static char *sig(Routine *r, int names) {
     int n = 0;
 #define SEP() (n++ ? ", " : "")
     if (r->level > 1) buf_printf(&b, "%sstruct F%d *%s", SEP(), r->parent->id, names ? "__up" : "");
-    if (r->owner) buf_printf(&b, "%sstruct S%d *%s", SEP(), r->owner->id, names ? "self" : "");
+    if (r->owner && !r->is_classm) buf_printf(&b, "%sstruct S%d *%s", SEP(), r->owner->id, names ? "self" : "");
     if (r->kind == RK_CTOR) buf_printf(&b, "%svoid *%s", SEP(), names ? "__vmt" : "");
     if (r->kind == RK_DTOR) buf_printf(&b, "%sint %s", SEP(), names ? "__free" : "");
     for (int i = 0; i < r->params.len; i++) {
@@ -906,7 +934,7 @@ static void gen_routine(Routine *r) {
         if (r->result) buf_printf(&f, "  %s Result;\n", ctype(r->result->type));
         for (int i = 0; i < r->locals.len; i++) {
             Var *v = r->locals.items[i];
-            buf_printf(&f, "  %s %s;\n", ctype(v->type), v->cname);
+            buf_printf(&f, "  %s%s %s;\n", ctype(v->type), v->is_ref ? "*" : "", v->cname);
             if (v->is_stack) buf_printf(&f, "  struct S%d %s__st;\n  int %s__live;\n", v->type->st->id, v->cname, v->cname);
         }
         buf_put(&f, "  char __dummy;\n};\n");
@@ -925,7 +953,7 @@ static void gen_routine(Routine *r) {
         if (r->result) line("%s Result; memset(&Result, 0, sizeof Result);", ctype(r->result->type));
         for (int i = 0; i < r->locals.len; i++) {
             Var *v = r->locals.items[i];
-            line("%s %s; memset(&%s, 0, sizeof %s);", ctype(v->type), v->cname, v->cname, v->cname);
+            line("%s%s %s; memset(&%s, 0, sizeof %s);", ctype(v->type), v->is_ref ? "*" : "", v->cname, v->cname, v->cname);
             if (v->is_stack)
                 line("struct S%d %s__st; memset(&%s__st, 0, sizeof %s__st); int %s__live = 0;", v->type->st->id, v->cname,
                      v->cname, v->cname, v->cname);
@@ -1004,7 +1032,7 @@ void codegen(Program *p, FILE *f) {
     /* globals */
     for (int i = 0; i < p->globals.len; i++) {
         Var *v = p->globals.items[i];
-        buf_printf(&b_globals, "static %s %s;\n", ctype(v->type), v->cname);
+        buf_printf(&b_globals, "static %s%s %s;\n", ctype(v->type), v->is_ref ? "*" : "", v->cname);
         if (v->is_stack) buf_printf(&b_globals, "static struct S%d %s__st;\nstatic int %s__live;\n", v->type->st->id, v->cname, v->cname);
     }
     /* prototypes and bodies */
