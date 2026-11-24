@@ -659,6 +659,9 @@ if r.IsError then …;                           { is_err; auch r.IsOk }
 * Intern ist ein `result` ein kleines Struct aus Fehler-Flag, Wert und Fehler – ohne Kosten,
   solange kein Fehler auftritt.
 
+Ein vollständiges Beispiel (Bank-Überweisung mit Fehler-Aufzählung, `try`-Kette und allen
+Arten des Auspackens): [examples/ueberweisung.pas](examples/ueberweisung.pas).
+
 ## Endlosschleife: `loop`
 
 `loop <Anweisung>` wiederholt die Anweisung ohne Bedingung (wie `loop` in Rust); verlassen wird
