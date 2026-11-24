@@ -227,8 +227,8 @@ begin
 * Unveränderlich ist auch alles, was im Wert steckt: Record-Felder und Array-Elemente. Auf
   konstanten Records (und `const`/`constref`-Parametern) dürfen nur **const-Methoden**
   aufgerufen werden (siehe unten).
-* Bei Objekten ist die **Referenz** konstant; das Objekt selbst kann über seine Methoden
-  verändert werden (wie `final` in Java).
+* Bei Objekten ist auch das **Objekt** nur lesbar: `const k = obj` ist eine nur lesbare
+  Ausleihe (siehe unten).
 * Typisierte Konstanten (`const Limit: Integer = 5;`) sind ebenfalls schreibgeschützt.
 
 **`constref`-Parameter** werden per Referenz übergeben (keine Kopie) und sind nur lesbar –
@@ -287,6 +287,39 @@ begin Result := N * N; end;
 * Deklaration und Implementierung müssen beide `const` sein; ein `override` muss die
   const-Eigenschaft der überschriebenen Methode übernehmen. Konstruktoren und Destruktoren
   können nicht `const` sein. `ClassName` ist eine const-Methode.
+
+### Nur lesbare Objekt-Ausleihen: `const T`
+
+`const TFoo` ist eine Referenz, über die ein Objekt **nur gelesen** werden kann – wie `&T`
+gegenüber `&mut T` in Rust oder `const T&` in C++:
+
+```pascal
+procedure Zeige(const P: TPerson);              { const/constref-Parameter: nur lesbar }
+function Aelter(constref A, B: TPerson): borrowed const TPerson;
+function BesterFreund: borrowed optional const TPerson; const;
+val
+  leser: borrowed const TPerson;                { nur lesbare Ausleihe }
+begin
+  leser := anna;                                 { änderbar -> nur lesbar: erlaubt }
+  WriteLn(leser.Info);                           { const-Methode: erlaubt }
+  leser.Geburtstag;                              { Fehler: keine const-Methode }
+  leser.Alter := 1;                              { Fehler: Objekt ist nur lesbar }
+```
+
+* Über eine `const T`-Referenz dürfen keine Felder geändert und nur const-Methoden
+  aufgerufen werden.
+* **Nur lesbar ist alles, was man darüber erreicht:** Felder vom Klassentyp
+  (`P.Freund is some f` → `f` ist `const TPerson`), Array-Elemente, Ergebnisse von `as`.
+* Eine nur lesbare Referenz lässt sich **nicht** in eine änderbare umwandeln – weder durch
+  Zuweisung noch als Argument, `var`-Parameter oder Funktionsergebnis.
+* Automatisch nur lesbar sind: `const`- und `constref`-Parameter vom Klassentyp,
+  `const k = obj` und `Self` in const-Methoden (darum kann eine const-Methode nur
+  `borrowed const`-Referenzen auf ihre Felder herausgeben).
+* `x.Free` auf einem nur lesbaren *Besitzer* (`const h = TFoo.Create`) bleibt erlaubt.
+
+Grenze: Wie bei Rust gibt es viele lesende Ausleihen gleichzeitig; anders als Rust verbietet
+ppc aber nicht, das Objekt über den Besitzer oder eine änderbare Ausleihe zu ändern, solange
+eine lesende Ausleihe existiert.
 
 ## Records mit Methoden
 

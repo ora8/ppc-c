@@ -495,6 +495,11 @@ static TypeExpr *parse_type(void) {
         t->nilable = 1;
         return t;
     }
+    if (accept_kw("const")) { /* const TFoo: read-only object reference */
+        TypeExpr *t = parse_type();
+        t->readonly = 1;
+        return t;
+    }
     if (is_sym("^"))
         error_at(p, "pointer types are not supported: use a class (objects declared in a 'var' section live on the heap)");
     accept_kw("packed");

@@ -142,9 +142,19 @@ static int same_type(Type *a, Type *b) {
 static int is_optional(Type *t) { return t->kind == T_OPT || (t->kind == T_CLASS && t->nilable); }
 
 /* the type inside an optional */
+/* 'const T': the same class type, but the object can only be read through it */
+static Type *readonly_of(Type *t) {
+    if (t->kind != T_CLASS || t->readonly) return t;
+    Type *r = NEW(Type);
+    *r = *t;
+    r->readonly = 1;
+    r->name = sfmt("const %s", type_name(t));
+    return r;
+}
+
 static Type *unwrapped(Type *t) {
     if (t->kind == T_OPT) return t->base;
-    return t->st->type; /* class: the canonical non-optional class type */
+    return t->readonly ? readonly_of(t->st->type) : t->st->type; /* class: the non-optional class type */
 }
 
 static Type *arith_int(Type *a, Type *b) {
@@ -157,6 +167,7 @@ static Type *arith_int(Type *a, Type *b) {
 /* 0 = incompatible, 1 = compatible as is, 2 = needs conversion node */
 static int assign_compat(Type *to, Type *from) {
     if (to->kind == T_CLASS && from->kind == T_CLASS && from->nilable && !to->nilable) return 0;
+    if (to->kind == T_CLASS && from->kind == T_CLASS && from->readonly && !to->readonly) return 0;
     if (to->kind == T_OPT) {
         if (from->kind == T_OPT) return same_type(to, from);
         if (from->kind == T_NIL) return 2;
@@ -191,6 +202,10 @@ static Expr *coerce(Expr *e, Type *to, const char *ctx) {
     if (!c && e->type->kind == T_NIL)
         error_at(e->pos, "none can only be stored in an optional type, not in \"%s\" (declare it 'optional %s')",
                  type_name(to), type_name(to));
+    if (!c && e->type->kind == T_CLASS && to->kind == T_CLASS && e->type->readonly && !to->readonly &&
+        !(e->type->nilable && !to->nilable))
+        error_at(e->pos, "read-only reference (\"%s\") cannot be used as a changeable \"%s\" in %s", type_name(e->type),
+                 type_name(to), ctx);
     if (!c && is_optional(e->type) && !is_optional(to))
         error_at(e->pos, "optional value of type \"%s\" cannot be used as \"%s\" in %s; unpack it first: 'if x is some v then ...'",
                  type_name(e->type), type_name(to), ctx);
@@ -329,8 +344,8 @@ static int rooted_const(Expr *e) {
     switch (e->kind) {
     case E_VAR: return e->var->is_const && e->var->type->kind != T_CLASS;
     case E_FIELD:
-        if (e->a->type->kind == T_CLASS) /* object fields: only Self in a const method is read-only */
-            return e->a->kind == E_VAR && e->a->var->vkind == VK_SELF && e->a->var->is_const;
+        if (e->a->type->kind == T_CLASS) /* object fields: read-only behind a 'const T' reference */
+            return e->a->type->readonly || (e->a->kind == E_VAR && e->a->var->vkind == VK_SELF && e->a->var->is_const);
         return rooted_const(e->a);
     case E_INDEX: case E_CAST: case E_CONV: return rooted_const(e->a);
     default: return 0;
@@ -338,8 +353,8 @@ static int rooted_const(Expr *e) {
 }
 
 static const char *const_root_name(Expr *e) {
-    while (e->kind != E_VAR) e = e->a;
-    return e->var->name;
+    while (e && e->kind != E_VAR) e = e->a;
+    return e ? e->var->name : "expression";
 }
 
 /* the variable an lvalue/receiver expression is rooted in */
@@ -657,6 +672,10 @@ static long long range_of(TypeExpr *te, long long *lo, Type **idx) {
 static Type *resolve_type_inner(TypeExpr *te);
 static Type *resolve_type(TypeExpr *te) {
     Type *t = resolve_type_inner(te);
+    if (te->readonly) {
+        if (t->kind != T_CLASS) error_at(te->pos, "'const' as a type modifier needs a class type, not \"%s\"", type_name(t));
+        t = readonly_of(t);
+    }
     if (!te->nilable) return t;
     if (is_optional(t)) error_at(te->pos, "optional of optional is not allowed");
     if (t->kind == T_CLASS) { /* optional class: a reference that may be none (NULL) */
@@ -741,6 +760,7 @@ static void build_params(Routine *rt, ParamGroupVec *pg) {
     for (int i = 0; i < pg->len; i++) {
         ParamGroup *g = &pg->items[i];
         Type *t = resolve_type(g->ty);
+        if ((g->mode == PM_CONST || g->mode == PM_CONSTREF) && t->kind == T_CLASS) t = readonly_of(t); /* read-only object */
         if (g->mode == PM_OWNED && !is_owning_type(t))
             error_at(g->ty->pos, "'owned' parameters require a class or typed pointer type");
         for (int k = 0; k < g->names.len; k++) {
@@ -874,6 +894,7 @@ static Routine *enclosing_method(void) {
 }
 
 static int var_compat(Type *formal, Type *actual) {
+    if (formal->kind == T_CLASS && actual->kind == T_CLASS && actual->readonly && !formal->readonly) return 0;
     if (same_type(formal, actual)) return 1;
     if (formal->kind == T_CLASS && formal->kind == actual->kind &&
         struct_descends(actual->st, formal->st))
@@ -912,8 +933,9 @@ static Expr *make_call(Routine *rt, Expr *base, ExprVec *args, int mode, Type *n
     }
     if (rt->owner && !base && mode != CM_NEWCLASS)
         error_at(p, "method \"%s\" needs an instance", rt->name);
-    if (rt->owner && base && !rt->is_constm && mode != CM_NEWCLASS &&
-        (rooted_const(base) || (base->kind == E_VAR && base->var->vkind == VK_SELF && base->var->is_const)))
+    if (rt->owner && base && !rt->is_constm && mode != CM_NEWCLASS && !(rt->prelude && STREQ(rt->name, "Free")) &&
+        (rooted_const(base) || (base->type->kind == T_CLASS && base->type->readonly) ||
+         (base->kind == E_VAR && base->var->vkind == VK_SELF && base->var->is_const)))
         error_at(p, "cannot call '%s' on constant '%s': only const methods (declared with '; const;') are allowed",
                  rt->name, const_root_name(base));
     Routine *pr = pure_ctx();
@@ -956,6 +978,8 @@ static Expr *member_ref(Expr *base, Look *L, ExprVec *args, Pos p, const char *n
         e->a = base;
         e->field = L->f;
         e->type = L->f->type;
+        if (e->type->kind == T_CLASS && ((base->type->kind == T_CLASS && base->type->readonly) || rooted_const(base)))
+            e->type = readonly_of(e->type);
         return e;
     }
     if (L->m) return make_call(L->m, base, args, -1, NULL, p);
@@ -1164,6 +1188,7 @@ static Expr *ex(Expr *e) {
                     error_at(idx->pos, "incompatible index type: got \"%s\" expected \"%s\"", type_name(idx->type),
                              type_name(it));
                 n->type = a->type->base;
+                if (rooted_const(a)) n->type = readonly_of(n->type);
             } else if (a->type->kind == T_STR) {
                 if (!is_int(idx->type)) error_at(idx->pos, "integer index expected");
                 n->type = t_char;
@@ -1285,7 +1310,7 @@ static Expr *ex(Expr *e) {
         if (L.kind != LK_SYM || L.sym->kind != SY_TYPE || L.sym->type->kind != T_CLASS)
             error_at(e->pos, "class type expected after 'is'/'as'");
         e->ctype = L.sym->type;
-        e->type = e->kind == E_IS ? t_bool : e->ctype;
+        e->type = e->kind == E_IS ? t_bool : e->a->type->readonly ? readonly_of(e->ctype) : e->ctype;
         return e;
     }
     case E_FMT: error_at(e->pos, "format specifiers are only allowed in Write/WriteLn/Str");
@@ -2175,6 +2200,7 @@ static void routine_body(Routine *rt, RoutineDecl *d) {
         self->is_ref = rt->owner->kind == SK_RECORD; /* record methods work on the caller's record */
         self->borrowed = 1;
         self->is_const = rt->is_constm; /* const method: Self is read-only */
+        if (rt->is_constm && rt->owner->kind == SK_CLASS) self->type = readonly_of(self->type);
         self->in_frame = has_frame;
         rt->self = self;
         push_scope()->with = self;
@@ -2234,6 +2260,7 @@ static void decls(Block *b, int has_frame) {
                     if (!c->ty && !r) error_at(c->name.pos, "an initializer list needs a declared array type");
                     /* immutable variable: initialized when the declaration is executed */
                     Type *t = c->ty ? resolve_type(c->ty) : infer_type(r, c->value->pos, c->name.name);
+                    t = readonly_of(t); /* a constant object reference: the object is read-only too */
                     Var *v = new_var(c->name.name, t, cur ? VK_LOCAL : VK_GLOBAL, c->name.pos);
                     v->cname = sfmt("K%d_%s", v->id, c->name.name);
                     v->in_frame = has_frame;

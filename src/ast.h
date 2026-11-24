@@ -86,6 +86,7 @@ struct TypeExpr {
     FieldDeclVec fields;      /* TE_RECORD */
     StructDecl *sd;           /* TE_STRUCT */
     int nilable;              /* 'optional' modifier */
+    int readonly;             /* 'const T': read-only object reference */
 };
 
 typedef struct {
@@ -226,6 +227,7 @@ struct Type {
     EnumInfo *en;
     char *name;
     int nilable; /* optional class type: may be none (represented as NULL) */
+    int readonly; /* class type 'const T': the object can only be read through this reference */
 };
 
 struct Field {
