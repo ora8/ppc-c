@@ -1,7 +1,8 @@
 program StackVsHeap;
 { Eine Klasse, zwei Speicherorte:
     val  z: TZaehler;   -> Stackobjekt: x.Create(...), Destroy automatisch am Blockende
-    var  h: TZaehler;   -> Heapobjekt:  h := TZaehler.Create(...), h.Free von Hand }
+    var  h: TZaehler;   -> Heapobjekt:  h := TZaehler.Create(...), automatisch freigegeben
+                           am Ende des Gueltigkeitsbereichs (h.Free gibt frueher frei) }
 type
   TZaehler = class
     Name: String;
@@ -36,7 +37,7 @@ begin
   ZweimalErhoehen(s);
   ZweimalErhoehen(h);
   WriteLn('  s=', s.Wert, ' h=', h.Wert);
-  h.Free;                         { Heapobjekt: von Hand freigeben }
+  h.Free;                         { Heapobjekt: hier frueh freigeben }
   WriteLn('Block endet');
 end;                              { Stackobjekt s wird hier automatisch abgebaut }
 
@@ -52,5 +53,5 @@ begin
   b := r;                         { zweite Referenz (Ausleihe) auf dasselbe Objekt }
   b.Erhoehe;
   WriteLn('  r.Wert=', r.Wert, ' (ueber b erhoeht: gleiche Instanz)');
-  r.Free;                         { ohne Free: Warnung "memory leak" }
+                                  { r wird am Programmende automatisch freigegeben }
 end.

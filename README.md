@@ -9,7 +9,8 @@ Besonderheiten:
 * **Groß-/Kleinschreibung wird unterschieden** (anders als Standard-Pascal).
 * **Stack- und Heapobjekte derselben Klasse:** Eine Klassenvariable im Abschnitt `val` ist
   ein **Stackobjekt** (automatisches `Destroy` am Blockende), im Abschnitt `var` ein
-  **Heapobjekt** (`Create`/`Free` von Hand).
+  **Heapobjekt**. Beide werden automatisch freigegeben, wenn ihr Besitzer den
+  Gültigkeitsbereich verlässt (wie `Box<T>` in Rust).
 * **Borrow Checker** nach dem Vorbild von Rust: prüft Besitz (Ownership) und Ausleihen (Borrows)
   zur Compile-Zeit.
 * **Keine Zeiger und kein nil:** Es gibt kein `^`, `@`, `New`, `Dispose` und kein `nil`.
@@ -84,7 +85,7 @@ begin
   h := TKreis.Create(4, 5, 1.0);    { Heap: Speicher holen + Konstruktor }
   Zeige(k);
   Zeige(h);                         { gleicher Typ, virtuelle Methoden, Polymorphie }
-  h.Free;                           { Heap: von Hand freigeben }
+                                    { h wird am Ende freigegeben (h.Free ginge auch früher) }
 end;                                { Stack: k.Destroy wird automatisch aufgerufen }
 ```
 
@@ -113,8 +114,14 @@ dem Programmablauf braucht, deklariert das Objekt in einem Block an der passende
   automatisch aufgerufen (umgekehrte Deklarationsreihenfolge, globale Stackobjekte am
   Programmende). `k.Free`, `k := …` und Referenzen auf `k`, die den Block verlassen
   (globale Variable, Feld, Funktionsergebnis), sind Fehler.
-* **Heapobjekte** werden **nicht automatisch** freigegeben. Der Borrow Checker verfolgt den
-  Besitz und warnt bei Speicherlecks; Benutzung nach `Free`, doppeltes `Free` usw. sind Fehler.
+* **Heapobjekte** werden **automatisch freigegeben**, wenn ihr Besitzer den Gültigkeitsbereich
+  verlässt (Routine, Block, Programm) – außer der Besitz wurde vorher weitergegeben: als
+  Funktionsergebnis (`Result := h`), über einen `var`-Parameter, an einen `owned`-Parameter,
+  in ein Feld oder eine andere Besitzer-Variable, per `Take`. Wird ein Besitzer überschrieben,
+  wird sein altes Objekt freigegeben; gibt ein Objekt frei, werden seine besitzenden Felder
+  mit freigegeben; temporäre Objekte, die niemand übernimmt, am Ende der Anweisung.
+* `h.Free` ist weiterhin erlaubt, um **früher** freizugeben. Benutzung danach und doppeltes
+  `Free` sind Fehler.
 * Felder, Parameter und Funktionsergebnisse vom Klassentyp sind Referenzen (siehe unten).
 * Für Werte mit Kopiersemantik gibt es `record` (auch mit Methoden, siehe unten).
 
@@ -122,8 +129,8 @@ dem Programmablauf braucht, deklariert das Objekt in einem Block an der passende
 
 Auch Zahlen, Strings, Records und Arrays können auf dem Heap liegen (wie `Box<T>` in Rust).
 Sie werden im Abschnitt `var` deklariert, beim ersten Speichern eines Werts (oder mit
-`T.Create`) angelegt und mit `.Free` freigegeben; dazwischen benutzt man sie wie einen
-normalen Wert:
+`T.Create`) angelegt und am Ende des Gültigkeitsbereichs automatisch freigegeben; dazwischen
+benutzt man sie wie einen normalen Wert:
 
 ```pascal
 var
@@ -135,16 +142,14 @@ begin
   Verdopple(I);                { var-Parameter: Referenz auf den Heapwert }
   V := TVektor.Create;         { oder mit Anfangswert: T.Create(wert) }
   V.Skaliere(2);
-  I.Free;
-  V.Free;
-end;
+end;                           { I und V werden hier freigegeben }
 ```
 
 * Die erste Speicherung legt die Zelle an (`I := 20`, auch nach `Free` wieder);
   `I := T.Create` / `T.Create(wert)` tut das ausdrücklich. Jede weitere Zuweisung speichert
   einen neuen **Wert** in der Zelle; `J := I` zwischen zwei Heapwerten kopiert also den Wert.
-* Lesen, bevor ein Wert gespeichert wurde, Benutzung nach `Free` und doppeltes `Free` sind
-  Fehler; ein fehlendes `Free` gibt eine Leck-Warnung.
+* Lesen, bevor ein Wert gespeichert wurde, ist ein Fehler. `I.Free` gibt früher frei; Benutzung
+  danach und doppeltes `Free` sind Fehler.
 * Für einzelne Zahlen lohnt sich das selten; nützlich ist es für große Records oder Arrays,
   die nicht im Stackframe liegen sollen.
 
@@ -163,7 +168,6 @@ begin
   N := 3.5;              { N ist jetzt Real }
   I := 5;                { I ist jetzt ein Integer auf dem Heap }
   N := 'x';              { Fehler: N ist Real }
-  I.Free;
 end;
 ```
 
@@ -195,9 +199,8 @@ begin
 end;
 ```
 
-* Stackobjekte werden am Blockende abgebaut; Ausleihen auf sie sind danach ungültig
-  (der Borrow Checker meldet ihre Benutzung). Heapobjekte, die am Blockende noch besessen
-  werden, ergeben eine Leck-Warnung.
+* Stack- und Heapobjekte des Blocks werden am Blockende abgebaut bzw. freigegeben; Ausleihen
+  auf sie sind danach ungültig (der Borrow Checker meldet ihre Benutzung).
 * Routinen, Typen und typisierte Konstanten sind in Blöcken nicht erlaubt.
 
 ## Records mit Methoden
@@ -264,6 +267,9 @@ Regeln (Verstöße sind **Fehler**, die Übersetzung bricht ab):
 * `b := a` zwischen zwei Besitzern ist ein **Move**; `a` ist danach unbenutzbar
   (`use of moved value 'a'`), bis es neu zugewiesen wird.
 * Kein Zugriff nach `Free`/`Destroy` (`use after free`), kein doppeltes Freigeben.
+* Ausleihen auf Objekte lokaler Besitzer dürfen nicht in globale Variablen, Felder oder
+  Funktionsergebnisse gelangen – der Besitzer gibt das Objekt am Ende seines Bereichs frei.
+* Ein `borrowed`-Ergebnis darf nicht von einem temporären Objekt stammen (`F(TFoo.Create)`).
 * Ausleihen dürfen nicht freigegeben und nicht in Besitzer gespeichert werden.
 * Eine Ausleihe merkt sich, woher sie stammt. Wird die Quelle freigegeben, verschoben oder
   neu zugewiesen, ist die Ausleihe **hängend**; ihre Benutzung ist ein Fehler.
@@ -275,9 +281,8 @@ Regeln (Verstöße sind **Fehler**, die Übersetzung bricht ab):
 * Aus einem Feld kann man nicht einfach herausverschieben (`n := h.Next`) – dafür gibt es `Take`.
 * `var`-Parameter dürfen beim Verlassen der Routine nicht freigegeben/verschoben zurückbleiben.
 
-**Warnungen** (Übersetzung läuft weiter): Speicherlecks, z. B. ein Besitzer, der am Ende
-seines Gültigkeitsbereichs noch ein Objekt besitzt, ein überschriebener Besitzer oder ein
-verworfenes `TFoo.Create`.
+Speicherlecks gibt es nicht mehr: Was am Ende eines Bereichs noch besessen wird, gibt der
+erzeugte Code frei.
 
 Die Analyse ist flusssensitiv (if/case/Schleifen mit Fixpunkt-Iteration, `Break`/`Continue`/
 `Exit`), erkennt `is some`, `x <> none`, `HasValue` und berücksichtigt, welche nicht-lokalen

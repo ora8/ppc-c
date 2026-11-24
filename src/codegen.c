@@ -5,7 +5,7 @@
 extern const char *PPC_RUNTIME;
 
 static Program *prog;
-static Buf b_fwd, b_types, b_vmtt, b_globals, b_protos, b_vmti, b_frames, b_funcs;
+static Buf b_fwd, b_types, b_vmtt, b_globals, b_protos, b_vmti, b_frames, b_funcs, b_drops;
 static Buf *out;
 static Routine *cur;
 static int level;
@@ -171,6 +171,41 @@ static char *var_aux(Var *v, const char *suffix) {
     return var_raw(&t);
 }
 
+/* ---- automatic freeing (like dropping a Box in Rust) ---- */
+
+/* code that frees an owned reference */
+static char *drop_code(Type *t, const char *x) {
+    if (t->kind == T_CLASS) return sfmt("%s((struct S%d*)(%s))", tobject_free->cname, tobject_free->owner->id, x);
+    return sfmt("__ppc_free(%s)", x);
+}
+
+/* variable that owns what it refers to (and frees it at the end of its scope) */
+static int owner_var(Var *v) {
+    if (!is_ref_type(v->type) || v->borrowed || v->is_stack) return 0;
+    if (v->vkind == VK_LOCAL || v->vkind == VK_GLOBAL || v->vkind == VK_RESULT) return 1;
+    return v->vkind == VK_PARAM && (v->mode == PM_OWNED || v->mode == PM_VAR || v->mode == PM_OUT);
+}
+
+/* assignment target that owns what is stored in it */
+static int owning_place(Expr *e) {
+    if (!is_ref_type(e->type)) return 0;
+    if (e->kind == E_VAR) return owner_var(e->var);
+    if (e->kind == E_FIELD) return !e->field->borrowed;
+    return e->kind == E_INDEX || e->kind == E_DEREF;
+}
+
+/* owner variable whose value moves away when it is used as a source */
+static Var *move_source(Expr *e) {
+    while (e->kind == E_CONV || e->kind == E_CAST || e->kind == E_AS) e = e->a;
+    if (e->kind == E_VAR && owner_var(e->var) && e->var->vkind != VK_RESULT) return e->var;
+    return NULL;
+}
+
+static int droppable_lvalue(Expr *e) {
+    if (e->kind == E_VAR) return e->var->vkind != VK_SELF && e->var->vkind != VK_WITH && !e->var->is_stack;
+    return e->kind == E_FIELD || e->kind == E_INDEX || e->kind == E_DEREF;
+}
+
 
 static char *int_lit(long long v) {
     if (v == LLONG_MIN) return "(-9223372036854775807LL-1)";
@@ -208,26 +243,57 @@ static int cg_lvalue(Expr *e) {
     }
 }
 
+static char *ret_ctype(Routine *r);
+
 static char *gcall(Expr *e) {
     Routine *r = e->rt;
     char *selfp = NULL;
     Struct *sst = NULL;
+    Buf pre = {0}, post = {0};
     if (e->a) {
         Type *bt = e->a->type;
-        char *bv = gx(e->a);
-        if (bt->kind == T_CLASS && r != tobject_free && !(e->a->kind == E_VAR && e->a->var->is_stack))
-            bv = nilchk(e->a, bv, e->pos);
+        char *bv;
+        if (bt->kind == T_CLASS && is_owning_temp(e->a)) { /* temporary receiver: freed after the call */
+            int id = ++tmpc;
+            buf_printf(&pre, "%s __rv%d = %s; ", ctype(bt), id, gx(e->a));
+            bv = sfmt("__rv%d", id);
+            buf_printf(&post, "%s; ", drop_code(bt, bv));
+        } else {
+            bv = gx(e->a);
+            if (bt->kind == T_CLASS && r != tobject_free && !(e->a->kind == E_VAR && e->a->var->is_stack))
+                bv = nilchk(e->a, bv, e->pos);
+        }
         selfp = bt->kind == T_CLASS ? bv : sfmt("(&%s)", bv);
         sst = bt->st;
+        /* explicit Free/Destroy: the place owns nothing afterwards */
+        int is_free = bt->kind == T_CLASS && (r == tobject_free || (r->kind == RK_DTOR && e->cmode != CM_INHERITED));
+        if (is_free && droppable_lvalue(e->a)) buf_printf(&post, "%s = 0; ", gx(e->a));
     }
     Buf args = {0};
     for (int i = 0; i < e->args.len; i++) {
         Param *pm = &r->params.items[i];
+        Expr *a = e->args.items[i];
         buf_put(&args, ", ");
-        if (pm->mode == PM_VAR || pm->mode == PM_OUT)
-            buf_printf(&args, "((%s*)&%s)", ctype(pm->type), gx(e->args.items[i]));
-        else
-            buf_put(&args, gx(e->args.items[i]));
+        if (pm->mode == PM_VAR || pm->mode == PM_OUT) {
+            buf_printf(&args, "((%s*)&%s)", ctype(pm->type), gx(a));
+        } else if (is_ref_type(pm->type) && pm->mode != PM_OWNED && is_owning_temp(a)) {
+            /* owned temporary passed to a borrowing parameter: freed after the call */
+            int id = ++tmpc;
+            buf_printf(&pre, "%s __ta%d = %s; ", ctype(pm->type), id, gx(a));
+            buf_printf(&args, "__ta%d", id);
+            buf_printf(&post, "%s; ", drop_code(pm->type, sfmt("__ta%d", id)));
+        } else {
+            buf_put(&args, gx(a));
+            Var *mv = pm->mode == PM_OWNED ? move_source(a) : NULL;
+            if (mv) buf_printf(&post, "%s = 0; ", var_ref(mv)); /* ownership moved into the callee */
+        }
+    }
+    if (pre.len || post.len) {
+        char *call = gcall_core(e, selfp, sst, buf_str(&args));
+        int id = ++tmpc;
+        int is_void = e->cmode != CM_NEWCLASS && STREQ(ret_ctype(r), "void");
+        if (is_void) return sfmt("({ %s%s; %s})", buf_str(&pre), call, buf_str(&post));
+        return sfmt("({ %s__typeof__(%s) __cr%d = %s; %s__cr%d; })", buf_str(&pre), call, id, call, buf_str(&post), id);
     }
     if (e->a && e->a->type->kind == T_RECORD && !cg_lvalue(e->a)) {
         /* method call on a temporary record value: give it an address first */
@@ -452,6 +518,11 @@ static char *gx(Expr *e) {
     case E_NIL: return "((void*)0)";
     case E_VAR: return var_ref(e->var);
     case E_FIELD:
+        if (e->a->type->kind == T_CLASS && is_owning_temp(e->a)) { /* field of a temporary object: read, then free it */
+            int id = ++tmpc;
+            return sfmt("({ %s __ft%d = %s; %s __fv%d = __ft%d->%s; %s; __fv%d; })", ctype(e->a->type), id, gx(e->a),
+                        ctype(e->type), id, id, e->field->cname, drop_code(e->a->type, sfmt("__ft%d", id)), id);
+        }
         if (e->a->type->kind == T_CLASS) return sfmt("(%s)->%s", nilchk(e->a, gx(e->a), e->pos), e->field->cname);
         return sfmt("(%s).%s", gx(e->a), e->field->cname);
     case E_INDEX: {
@@ -521,6 +592,8 @@ static char *gx(Expr *e) {
             return sfmt("({ %s __s%d = %s; __s%d.has ? (%s = __s%d.v, 1) : 0; })", ctype(e->a->type), id, gx(e->a), id,
                         var_ref(k), id);
         }
+        if (owner_var(k)) /* owning binding (from Take/a fresh object): free what it held before */
+            return sfmt("({ if (%s) %s; (%s = %s) != 0; })", var_ref(k), drop_code(k->type, var_ref(k)), var_ref(k), gx(e->a));
         return sfmt("((%s = %s) != 0)", var_ref(k), gx(e->a));
     }
     case E_CONV: {
@@ -560,10 +633,33 @@ static void stack_init(Var *v) {
 static void stack_destroy(Var **vars, int n) {
     for (int i = n - 1; i >= 0; i--) {
         Var *v = vars[i];
-        if (!v->is_stack) continue;
-        line("if (%s) { ((struct VMT%d*)(%s->__vmt))->v%d(%s, 0); %s = 0; }", var_aux(v, "__live"), v->type->st->id,
-             var_raw(v), tobject_destroy->slot, var_raw(v), var_aux(v, "__live"));
+        if (v->is_stack) {
+            char *x = var_raw(v);
+            line("if (%s) { ((struct VMT%d*)(%s->__vmt))->v%d(%s, 0); ((struct __VMTHdr*)%s->__vmt)->drop(%s); %s = 0; }",
+                 var_aux(v, "__live"), v->type->st->id, x, tobject_destroy->slot, x, x, x, var_aux(v, "__live"));
+        } else if (owner_var(v) && v->vkind != VK_RESULT && !v->is_ref) {
+            char *x = var_ref(v);
+            line("if (%s) { %s; %s = 0; }", x, drop_code(v->type, x), x);
+        }
     }
+}
+
+/* assignment; owning places free their old value, a moved-from owner variable becomes empty */
+static void gassign(Expr *lhs, Expr *rhs) {
+    char *l = gx(lhs), *r = gx(rhs);
+    if (!owning_place(lhs)) {
+        line("%s = %s;", l, r);
+        return;
+    }
+    Var *mv = move_source(rhs);
+    if (mv && lhs->kind == E_VAR && lhs->var == mv) return; /* x := x */
+    int id = ++tmpc;
+    char *ct = ctype(lhs->type);
+    Buf b = {0};
+    buf_printf(&b, "{ %s __n%d = %s; %s __o%d = %s; %s = __n%d; ", ct, id, r, ct, id, l, l, id);
+    if (mv) buf_printf(&b, "%s = 0; ", var_ref(mv));
+    buf_printf(&b, "if (__o%d && (void*)__o%d != (void*)__n%d) %s; }", id, id, id, drop_code(lhs->type, sfmt("__o%d", id)));
+    line("%s", buf_str(&b));
 }
 
 static void gstmts(StmtVec *v) {
@@ -582,7 +678,7 @@ static void gs(Stmt *s) {
             line("*%s = %s;", x, gx(s->b));
             return;
         }
-        line("%s = %s;", gx(s->a), gx(s->b));
+        gassign(s->a, s->b);
         return;
     case S_BLOCK:
         line("{");
@@ -601,7 +697,14 @@ static void gs(Stmt *s) {
         indent--;
         line("}");
         return;
-    case S_CALL: line("%s;", gx(s->a)); return;
+    case S_CALL:
+        if (is_owning_temp(s->a)) { /* an owned result nobody takes is freed right away */
+            int id = ++tmpc;
+            line("{ %s __d%d = %s; if (__d%d) %s; }", ctype(s->a->type), id, gx(s->a), id,
+                 drop_code(s->a->type, sfmt("__d%d", id)));
+        } else
+            line("%s;", gx(s->a));
+        return;
     case S_COMPOUND:
         line("{");
         indent++;
@@ -725,7 +828,12 @@ static void gs(Stmt *s) {
         else line("continue;");
         return;
     case S_EXIT:
-        if (s->a) line("%s = %s;", var_ref(cur->result), gx(s->a));
+        if (s->a) {
+            Expr *rv = new_expr(E_VAR, s->pos);
+            rv->var = cur->result;
+            rv->type = cur->result->type;
+            gassign(rv, s->a);
+        }
         line("goto __exit;");
         return;
     }
@@ -826,8 +934,10 @@ static void gen_routine(Routine *r) {
     line("__exit:;");
     indent = 1;
     stack_destroy(r->locals.items, r->locals.len);
+    for (int i = r->params.len - 1; i >= 0; i--)
+        if (r->params.items[i].mode == PM_OWNED) stack_destroy(&r->params.items[i].var, 1);
     if (r->kind == RK_DTOR && r->owner->kind == SK_CLASS)
-        line("if (__free) __ppc_free(self);");
+        line("if (__free) { ((struct __VMTHdr*)self->__vmt)->drop(self); __ppc_free(self); }");
     if (r->result) line("return %s;", var_ref(r->result));
     else if (r->kind == RK_CTOR && r->owner->kind == SK_CLASS) line("return self;");
     indent = 0;
@@ -860,8 +970,18 @@ void codegen(Program *p, FILE *f) {
         for (int k = 0; k < s->slots.len; k++) buf_printf(&b_vmtt, "  %s;\n", slot_type(s->slots.items[k].intro, sfmt("v%d", k)));
         buf_put(&b_vmtt, "};\n");
         buf_printf(&b_globals, "extern struct VMT%d VMTI%d;\n", s->id, s->id);
-        buf_printf(&b_vmti, "struct VMT%d VMTI%d = {\n  { %s, \"%s\", sizeof(struct S%d) },\n", s->id, s->id,
-                   s->parent && s->parent->has_vmt ? sfmt("&VMTI%d", s->parent->id) : "NULL", s->name, s->id);
+        buf_printf(&b_vmti, "struct VMT%d VMTI%d = {\n  { %s, \"%s\", sizeof(struct S%d), D%d },\n", s->id, s->id,
+                   s->parent && s->parent->has_vmt ? sfmt("&VMTI%d", s->parent->id) : "NULL", s->name, s->id, s->id);
+        /* drop function: frees the fields that own an object (runs after Destroy) */
+        buf_printf(&b_protos, "static void D%d(void *o);\n", s->id);
+        buf_printf(&b_drops, "static void D%d(void *o) {\n  struct S%d *s = (struct S%d*)o; (void)s;\n", s->id, s->id, s->id);
+        for (int k = 0; k < s->fields.len; k++) {
+            Field *f = s->fields.items[k];
+            if (!is_ref_type(f->type) || f->borrowed) continue;
+            char *x = sfmt("s->%s", f->cname);
+            buf_printf(&b_drops, "  if (%s) { %s; %s = 0; }\n", x, drop_code(f->type, x), x);
+        }
+        buf_put(&b_drops, "}\n");
         for (int k = 0; k < s->slots.len; k++) {
             Slot *sl = &s->slots.items[k];
             char *cast = slot_type(sl->intro, NULL);
@@ -935,6 +1055,7 @@ void codegen(Program *p, FILE *f) {
     fputs("\n/* ---- frames for nested routines ---- */\n", f);
     fputs(buf_str(&b_frames), f);
     fputs("\n/* ---- routines ---- */\n", f);
+    fputs(buf_str(&b_drops), f);
     fputs(buf_str(&b_funcs), f);
     fputs(buf_str(&mb), f);
 }

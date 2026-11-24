@@ -1774,6 +1774,12 @@ static void stmt(Stmt *s) {
         if (L.kind != LK_SYM || L.sym->kind != SY_VAR)
             error_at(s->var.pos, "loop variable \"%s\" must be a simple variable", s->var.name);
         Var *v = L.sym->var;
+        if (v->pending) { /* for i := 1 to n: the start value decides the type of i */
+            if (v->decl_heap) error_at(s->var.pos, "loop variable \"%s\" must be declared in 'val', not in 'var'", v->name);
+            s->a = value(s->a);
+            settle_var(v, infer_type(s->a, s->a->pos, v->name), s->a, s->var.pos);
+        }
+        if (v->is_box) error_at(s->var.pos, "loop variable \"%s\" must be declared in 'val', not in 'var'", v->name);
         if (!is_ordinal(v->type)) error_at(s->var.pos, "loop variable must be of an ordinal type");
         if (v->level != level || v->is_ref) error_at(s->var.pos, "loop variable must be a local variable");
         if (v->is_const) error_at(s->var.pos, "loop variable \"%s\" is already in use", v->name);

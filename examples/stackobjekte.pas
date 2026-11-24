@@ -107,7 +107,7 @@ begin
   WriteLn('--- Heapobjekt ---');
   h := TQuadrat.Create(7, 7, 2);
   Bewege(h, 1, 0);
-  h.Free;                           { Heap: selbst freigeben }
+  h.Free;                           { Heap: hier frueh freigeben (sonst am Programmende automatisch) }
 
   WriteLn('--- Programmende: k und q werden automatisch abgebaut ---');
 end.

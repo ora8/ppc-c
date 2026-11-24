@@ -8,7 +8,7 @@
 #include <time.h>
 
 typedef struct { unsigned char s[256]; } PStr; /* ShortString: s[0] = length */
-struct __VMTHdr { void *parent; const char *name; size_t size; };
+struct __VMTHdr { void *parent; const char *name; size_t size; void (*drop)(void *); }; /* drop: frees the owning fields */
 
 static void __rt_error(int code, const char *msg) {
     fflush(stdout);

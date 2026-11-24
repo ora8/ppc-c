@@ -45,6 +45,6 @@ begin
   Tausche(x, x);                         { FEHLER 6: zwei var-Ausleihen von x }
 
   a := TKonto.Create;
-  a := TKonto.Create;                    { WARNUNG: erstes Objekt geht verloren }
+  a := TKonto.Create;                    { kein Fehler: das erste Objekt wird automatisch freigegeben }
   a.Free;
 end.

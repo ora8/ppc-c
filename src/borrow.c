@@ -116,7 +116,7 @@ static void nerror(Pos p, const char *fmt, ...) {
     nerrors++;
 }
 
-static void bwarn(Pos p, const char *fmt, ...) {
+__attribute__((unused)) static void bwarn(Pos p, const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
     char msg[1024];
@@ -458,6 +458,7 @@ typedef struct {
     char *desc;
     Var *root;
     int borrowed_place;
+    int temp_base; /* place inside a temporary object */
 } Src;
 
 static void use_expr(Expr *e, State *s);
@@ -762,6 +763,9 @@ static Src eval_src(Expr *e, State *s) {
         r.kind = SRC_PLACE;
         r.path = path_of(e, &r.root);
         r.borrowed_place = e->kind == E_FIELD && e->field->borrowed;
+        Expr *b = e;
+        while (b->kind == E_FIELD || b->kind == E_INDEX || b->kind == E_DEREF || b->kind == E_CONV || b->kind == E_CAST) b = b->a;
+        r.temp_base = is_owning_temp(b);
         return r;
     }
     case E_ADDR: {
@@ -788,6 +792,10 @@ static void escape_check(Origins *o, Pos p, const char *target) {
         if (x->stack)
             berror(p, "reference to local variable '%s' escapes into %s (it would dangle after the routine returns)",
                    x->desc, target);
+        else if (x->root && !x->root->is_global && slot(x->root) >= 0 && tv.items[slot(x->root)].kind == TV_OWNER &&
+                 !tv.items[slot(x->root)].varparam && x->root->vkind != VK_RESULT)
+            berror(p, "reference to '%s' escapes into %s, but '%s' frees its object at the end of %s", x->desc, target,
+                   x->root->name, unit_name);
     }
 }
 
@@ -832,10 +840,6 @@ static void assign_src(Expr *lhs, Src *src, State *s, Pos p, unsigned nbits) {
         }
         if (tvar && tracked_owner(tvar)) {
             int i = slot(tvar);
-            unsigned st = s->own[i];
-            if (s->reach && (st & O_OWNED) && !(st & O_UNK))
-                bwarn(p, "the object %sowned by '%s' is overwritten without being freed (memory leak)",
-                      (st & ~O_OWNED) ? "possibly " : "", tvar->name);
             s->own[i] = src->kind == SRC_NIL ? O_NULL : O_OWNED;
         }
         if (lpath) invalidate(s, lpath, sfmt("'%s' was reassigned at line %d", ldesc, p.line));
@@ -843,6 +847,9 @@ static void assign_src(Expr *lhs, Src *src, State *s, Pos p, unsigned nbits) {
     }
     /* target is a borrow */
     Origins o = {0};
+    if (src->kind == SRC_PLACE && src->temp_base)
+        berror(p, "'%s' would refer into a temporary object, which is freed at the end of the statement; store the object in a variable first",
+               ldesc);
     switch (src->kind) {
     case SRC_TEMP:
         berror(p, "an owned temporary (%s) cannot be stored in borrowed '%s'; it would never be freed", src->desc, ldesc);
@@ -1017,6 +1024,9 @@ static void call_effects(Expr *e, State *s, Origins *out) {
             Src rs = {0};
             if (e->a->type->kind == T_CLASS) rs = eval_src(e->a, s);
             else use_lvalue(e->a, s);
+            if (r->ret_borrowed && rs.kind == SRC_TEMP)
+                berror(e->pos, "the result of '%s' would borrow from a temporary object, which is freed at the end of the statement; store it in a variable first",
+                       r->name);
             if (r->ret_borrowed) src_origins(&rs, out);
             if (e->a->type->kind != T_CLASS) {
                 Var *root;
@@ -1059,9 +1069,9 @@ static void call_effects(Expr *e, State *s, Origins *out) {
                 default: break;
                 }
             } else {
-                if (src.kind == SRC_TEMP && !r->prelude)
-                    bwarn(a->pos, "owned temporary passed to borrowing parameter '%s' of '%s' is never freed (memory leak); declare the parameter 'owned'",
-                          pm->name, r->name);
+                if (r->ret_borrowed && src.kind == SRC_TEMP)
+                    berror(a->pos, "the result of '%s' would borrow from a temporary object, which is freed at the end of the statement; store '%s' in a variable first",
+                           r->name, src.desc);
                 if (r->ret_borrowed) src_origins(&src, out);
                 char *p = path_of(a, &root);
                 if (p) {
@@ -1243,9 +1253,6 @@ static void exit_checks(State *s, Pos p) {
                            (st & O_FREED) ? "freed" : "moved", where);
                 continue;
             }
-            if ((st & O_OWNED) && !(st & O_UNK))
-                bwarn(p, "'%s' %s an object at the end of %s (memory leak; free it or transfer ownership)", v->name,
-                      (st & ~O_OWNED) ? "may still own" : "still owns", where);
         } else if (v->vkind == VK_RESULT) {
             for (int k = 0; k < s->org[i].len; k++) {
                 Origin *o = &s->org[i].items[k];
@@ -1309,13 +1316,9 @@ static void an_stmt(Stmt *st, State *s) {
     case S_CALL: {
         Expr *e = st->a;
         if (e->kind == E_RCALL) {
-            Src r = eval_src(e, s);
-            if (r.kind == SRC_TEMP && !e->rt->prelude)
-                bwarn(st->pos, "owned result of '%s' is discarded and never freed (memory leak)", e->rt->name);
+            eval_src(e, s); /* an owned result nobody takes is freed by the generated code */
         } else if (e->kind == E_BUILTIN) {
             builtin_effects(e, s);
-            if ((e->bi == BI_TAKE) || (e->bi == BI_NEW && is_owning_type(e->type)))
-                bwarn(st->pos, "owned result is discarded and never freed (memory leak)");
         } else
             use_expr(e, s);
         return;
@@ -1405,9 +1408,8 @@ static void an_stmt(Stmt *st, State *s) {
             Var *v = st->wvars.items[k];
             int i = slot(v);
             if (i < 0 || !s->reach) continue;
-            if (tv.items[i].kind == TV_OWNER && (s->own[i] & O_OWNED) && !(s->own[i] & O_UNK))
-                bwarn(endp, "'%s' %s an object at the end of its block (memory leak; free it or transfer ownership)", v->name,
-                      (s->own[i] & ~O_OWNED) ? "may still own" : "still owns");
+            if (tv.items[i].kind == TV_OWNER && (s->own[i] & (O_OWNED | O_UNK)))
+                invalidate(s, sfmt("#%d", v->id), sfmt("'%s' freed its object at the end of its block (line %d)", v->name, endp.line));
             if (v->is_stack) invalidate(s, sfmt("#%d", v->id), sfmt("'%s' went out of scope at the end of its block (line %d)", v->name, endp.line));
             s->own[i] = O_NULL;
             s->nn[i] = N_UNINIT;
