@@ -152,6 +152,7 @@ typedef struct {
 struct Block {
     VEC(Decl *) decls;
     StmtVec body;
+    IdentVec uses; /* program: 'uses ppc_std;' */
 };
 
 /* ------------------------------------------------------------ expressions */
@@ -399,7 +400,7 @@ Expr *new_expr(ExprKind k, Pos p);
 Stmt *new_stmt(StmtKind k, Pos p);
 
 /* sema.c */
-Program *sema_program(Block *prelude, Block *prog, const char *name);
+Program *sema_program(Block *prelude, Block **libs, int nlibs, Block *prog, const char *name);
 int is_owning_type(Type *t);
 int struct_descends(Struct *d, Struct *b);
 const char *type_name(Type *t);

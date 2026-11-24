@@ -1282,11 +1282,13 @@ Block *parse_program(const char *src, char **name, Pos *end_pos) {
         }
         expect_sym(";");
     }
+    IdentVec uses = {0};
     if (accept_kw("uses")) {
-        ident_list();
+        uses = ident_list();
         expect_sym(";");
     }
     Block *b = NEW(Block);
+    b->uses = uses;
     parse_decls(b);
     expect_kw("begin");
     b->body = parse_stmt_list("end");

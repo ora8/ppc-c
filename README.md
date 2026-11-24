@@ -665,6 +665,41 @@ als Einschränkung (`T: TTier`) stehen alle Felder und Methoden von `TTier` zur 
   für ein Objekt-`T` gelten die üblichen Regeln für Besitz und Ausleihen.
 * `ClassName` liefert den Namen der Instanz, z. B. `'TListe<TKunde>'`.
 
+## Standardbibliothek: `uses ppc_std`
+
+Die Standardbibliothek ist selbst in Perfect Pascal geschrieben ([lib/ppc_std.pas](lib/ppc_std.pas))
+und wird in den Compiler eingebettet. Sie besteht aus generischen Containern und Algorithmen:
+
+```pascal
+program Beispiel;
+uses ppc_std;
+val zahlen: array of Integer := (5, 3, 9, 1, 7);
+vao kunden := TListe<TKunde>.Create;
+vao alter := TMap<String, Integer>.Create;
+begin
+  Sortiere(zahlen);                                  { 1 3 5 7 9 }
+  if Suche(zahlen, 7) is some p then WriteLn(p);     { 3 }
+  kunden.Add(TKunde.Create('Anna'));
+  if kunden.Hole(0) is some k then WriteLn(k.Name);
+  alter.Setze('Anna', 30);
+  if alter.Hole('Anna') is some a then WriteLn(a);
+end.                                                 { alle Container geben ihre Objekte frei }
+```
+
+| Name | Inhalt |
+|---|---|
+| `TListe<T>` | `Add(vao x)`, `Count`, `Hole(i)` (ausgeliehen), `Nimm(i)` (herausnehmen), `Leeren`; Index ab 0 |
+| `TStapel<T>` | `Push(vao x)`, `Pop` (herausnehmen), `Top` (ansehen), `Count`, `IstLeer` |
+| `TMap<K: Comparable; V>` | `Setze(k, vao v)` (einfügen/ersetzen), `Hole(k)`, `Enthaelt(k)`, `Entferne(k)`, `Count`; nach Schlüssel sortiert, binäre Suche |
+| `Sortiere<T: Comparable>(var a: array of T)` | sortiert aufsteigend (Quicksort) |
+| `Suche<T: Equatable>(a: array of T; x: T): optional Integer` | erste Position von `x` oder `none` |
+
+* Die Container besitzen ihre Elemente; `Nimm`, `Pop` und `Entferne` geben den Besitz an den
+  Aufrufer weiter (`optional T`), `Hole` und `Top` leihen nur aus.
+* Eigene Namen im Programm verdecken die der Bibliothek; die Bibliothek selbst benutzt weiter ihre
+  eigenen.
+* Andere Units gibt es noch nicht: `uses SysUtils` ergibt `unknown unit 'SysUtils' (available: ppc_std)`.
+
 ## Records mit Methoden
 
 Records sind **Werte**: `b := a` kopiert, Wertparameter und Funktionsergebnisse sind Kopien,
@@ -950,7 +985,7 @@ Objekte sofort frei (in jeder Schleifenart); Ausleihen auf sie sind danach ungü
 
 ## Unterstützte Sprache
 
-* `program`, `uses` (ignoriert), `const` (auch typisierte Konstanten und Array-Initialisierer),
+* `program`, `uses ppc_std` (Standardbibliothek), `const` (auch typisierte Konstanten und Array-Initialisierer),
   `type`, `val` (Werte), `var` (Referenzen), `vao` (Besitzer), Blöcke mit eigenen Abschnitten
 * Typen: `Integer`/`LongInt` (32 Bit), `ShortInt`, `SmallInt`, `Byte`, `Word`, `Cardinal`,
   `Int64`, `Boolean`, `Char`, `Real`/`Double`, `String` (ShortString, max. 255 Zeichen),
@@ -985,6 +1020,7 @@ varianten Records, `goto`, Datei-I/O.
 | `src/codegen.c`   | C-Codeerzeugung (Structs, VMTs, Static Links, Runtime-Aufrufe) |
 | `src/ppc_rt.h`    | C-Laufzeitbibliothek, wird in jedes Programm eingebettet   |
 | `src/main.c`      | Treiber, Prelude (`TObject`), Aufruf des C-Compilers       |
+| `lib/ppc_std.pas` | Standardbibliothek in Perfect Pascal, wird eingebettet     |
 | `tests/`          | Testprogramme und `run.sh`                                 |
 
 Klassen werden als C-Structs mit `__vmt`-Zeiger am Anfang abgebildet. Geerbte Felder liegen

@@ -20,6 +20,7 @@ typedef struct {
     Pos pos;
     VEC(char *) keys;
     VEC(Instance) insts;
+    struct Scope *scope;      /* where the generic is declared: instances are made there */
     VEC(RoutineDecl *) impls; /* method implementations, parsed again per instance */
     ConsVec cons;             /* constraints per type parameter */
     int is_routine;           /* generic function/procedure: Max<T> */
@@ -920,7 +921,7 @@ static Scope *enter_generic(Generic *g, Type **args, Scope **saved_scope, Routin
     *saved_scope = scope;
     *saved_cur = cur;
     *saved_level = level;
-    scope = gscope;
+    scope = g->scope ? g->scope : gscope;
     cur = NULL;
     level = 0;
     generic_depth++;
@@ -1105,7 +1106,7 @@ static void unify(Generic *g, TypeExpr *te, Type *at, Type **b, Pos p) {
                 for (int j = 0; j < te->targs.len && j < tg->params.len; j++) unify(g, te->targs.items[j], tg->insts.items[i].args[j], b, p);
         return;
     }
-    if (te->kind == TE_ARRAY && at->kind == T_ARRAY) unify(g, te->elem, at->base, b, p);
+    if (te->kind == TE_ARRAY && (te->dyn ? at->kind == T_DYN : at->kind == T_ARRAY)) unify(g, te->elem, at->base, b, p);
     if (te->kind == TE_RESULT && at->kind == T_RES) {
         if (te->elem && at->base) unify(g, te->elem, at->base, b, p);
         if (te->errt) unify(g, te->errt, at->err, b, p);
@@ -3005,6 +3006,7 @@ static void routine_decl(RoutineDecl *d) {
         g->is_routine = 1;
         g->rdecl = d;
         g->cons = d->tcons;
+        g->scope = scope;
         validate_constraints(g);
         vpush(all_generics, g);
         add_sym(SY_GENERIC, d->name.name, d->name.pos)->gen = g;
@@ -3231,6 +3233,7 @@ static void decl1(Decl *d, int has_frame) {
                 g->tok = td->tok_start;
                 g->pos = td->name.pos;
                 g->cons = td->tcons;
+                g->scope = scope;
                 vpush(all_generics, g);
                 add_sym(SY_GENERIC, td->name.name, td->name.pos)->gen = g;
             }
@@ -3503,7 +3506,7 @@ static void check_generic_alone(Generic *g) {
 
 static void add_type(const char *name, Type *t) { add_sym(SY_TYPE, name, (Pos){0, 0})->type = t; }
 
-Program *sema_program(Block *prelude, Block *pb, const char *name) {
+Program *sema_program(Block *prelude, Block **libs, int nlibs, Block *pb, const char *name) {
     prog = NEW(Program);
     prog->name = xstrdup(name);
     t_void = new_type(T_VOID, "untyped");
@@ -3550,6 +3553,8 @@ Program *sema_program(Block *prelude, Block *pb, const char *name) {
     decls(prelude, 0);
     in_prelude = 0;
 
+    push_scope(); /* units ('uses ppc_std'): the program may shadow their names */
+    for (int i = 0; i < nlibs; i++) decls(libs[i], 0);
     gscope = push_scope();
     decls(pb, 0);
     for (int i = 0; i < all_generics.len; i++) check_generic_alone(all_generics.items[i]);

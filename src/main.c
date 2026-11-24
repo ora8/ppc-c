@@ -3,6 +3,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+extern const char *PPC_STD;
 static const char *PRELUDE =
     "type\n"
     "  TObject = class\n"
@@ -91,7 +92,17 @@ int main(int argc, char **argv) {
         fprintf(stderr, "%s: %d syntax error(s), compilation aborted\n", input, g_errors);
         return 1;
     }
-    Program *prog = sema_program(prelude, prog_block, pname);
+    /* units: the standard library is built in */
+    Block **libs = (Block **)xcalloc(prog_block->uses.len + 1, sizeof(Block *));
+    int nlibs = 0;
+    for (int i = 0; i < prog_block->uses.len; i++) {
+        Ident *u = &prog_block->uses.items[i];
+        if (!STREQ(u->name, "ppc_std")) error_at(u->pos, "unknown unit '%s' (available: ppc_std)", u->name);
+        g_filename = "ppc_std.pas";
+        libs[nlibs++] = parse_decls_only(PPC_STD);
+        g_filename = input;
+    }
+    Program *prog = sema_program(prelude, libs, nlibs, prog_block, pname);
     if (g_errors) {
         fprintf(stderr, "%s: %d error(s), compilation aborted\n", input, g_errors);
         return 1;

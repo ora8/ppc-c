@@ -2,7 +2,7 @@ CC      ?= gcc
 CFLAGS  ?= -std=gnu11 -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare
 BUILD   := build
 SRCS    := src/util.c src/parser.c src/sema.c src/borrow.c src/codegen.c src/main.c
-OBJS    := $(SRCS:src/%.c=$(BUILD)/%.o) $(BUILD)/runtime.o
+OBJS    := $(SRCS:src/%.c=$(BUILD)/%.o) $(BUILD)/runtime.o $(BUILD)/stdlib.o
 
 all: ppc
 
@@ -19,6 +19,15 @@ $(BUILD)/runtime.c: src/ppc_rt.h | $(BUILD)
 	@echo ';' >> $@
 
 $(BUILD)/runtime.o: $(BUILD)/runtime.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# embed the standard library (Perfect Pascal source) for 'uses ppc_std'
+$(BUILD)/stdlib.c: lib/ppc_std.pas | $(BUILD)
+	@echo 'const char *PPC_STD =' > $@
+	@sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/"/' -e 's/$$/\\n"/' $< >> $@
+	@echo ';' >> $@
+
+$(BUILD)/stdlib.o: $(BUILD)/stdlib.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD):
