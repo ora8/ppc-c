@@ -554,6 +554,7 @@ static void src_origins(Src *src, Origins *o) {
 static Var *stack_src(Src *src) {
     if (src->kind != SRC_BORROW || src->org.len != 1) return NULL;
     Var *v = src->org.items[0].root;
+    if (src->via && src->via != v) return NULL; /* through another borrow, not the stack object itself */
     return v && v->is_stack && STREQ(src->org.items[0].path, sfmt("#%d", v->id)) ? v : NULL;
 }
 
@@ -927,10 +928,10 @@ static void assign_src(Expr *lhs, Src *src, State *s, Pos p, unsigned nbits) {
             move_out(src, s, p, sfmt("'%s'", ldesc));
             break;
         case SRC_BORROW:
-            if (stack_src(src))
-                berror(p, "'%s' is a stack object and stays in its block: it cannot be moved into '%s' (borrow it with 'var', or store a copy: '%s.Clone')",
-                       src->desc, ldesc, src->desc);
-            else
+            if (stack_src(src)) { /* the stack object moves to the heap; it is dead afterwards */
+                Var *k = stack_src(src);
+                invalidate(s, sfmt("#%d", k->id), sfmt("'%s' was moved to the heap ('%s') at line %d", k->name, ldesc, p.line));
+            } else
                 berror(p, "cannot store borrowed reference '%s' in owning %s '%s'%s", src->desc, tvar ? "variable" : "location",
                        ldesc, tvar ? sfmt("; declare '%s' with 'var' (reference) or transfer ownership", ldesc) : "");
             break;
@@ -1217,10 +1218,12 @@ static void call_effects(Expr *e, State *s, Origins *out) {
                     if (src.kind == SRC_PLACE && !src.borrowed_place)
                         berror(a->pos, "cannot move out of '%s' into owned parameter '%s'; use Take(%s)", src.desc, pm->name,
                                src.desc);
-                    else if (stack_src(&src))
-                        berror(a->pos, "'%s' is a stack object and stays in its block: it cannot be given to the 'vao' parameter '%s' of '%s' (pass a copy: '%s.Clone')",
-                               src.desc, pm->name, r->name, src.desc);
-                    else
+                    else if (stack_src(&src)) { /* moves to the heap, owned by the parameter */
+                        Var *k = stack_src(&src);
+                        invalidate(s, sfmt("#%d", k->id),
+                                   sfmt("'%s' was moved to the heap (parameter '%s' of '%s') at line %d", k->name, pm->name,
+                                        r->name, a->pos.line));
+                    } else
                         berror(a->pos, "cannot pass borrowed reference '%s' to owned parameter '%s' of '%s'", src.desc,
                                pm->name, r->name);
                     break;

@@ -166,9 +166,22 @@ end;                                        { k.Destroy läuft hier, k.Name wird
   Ausleihen von `k` sind Fehler (`use of moved stack object 'k'`), und am Blockende wird nur `b`
   abgebaut. Geschieht der Move nur auf einem Pfad, merkt sich das Programm, ob `k` noch abgebaut
   werden muss.
-* Sonst **bleibt ein Stackobjekt, wo es ist**: Es kann nicht neu zugewiesen, nicht freigegeben
-  und nicht in einen `vao` oder an einen `vao`-Parameter gegeben werden. Für eine Kopie auf dem
-  Heap: `vao t := k.Clone`.
+* **Auf den Heap verschieben** (wie `Box::new` in Rust): Bekommt ein Besitzer das Stackobjekt –
+  `vao h := k`, `Result := k`, `obj.Feld := k`, ein `vao`-Parameter –, holt das Programm einmal
+  Heap-Speicher und kopiert das Objekt byteweise hinein (besitzende Felder wandern mit, nichts
+  wird geklont). `k` ist danach tot wie bei jedem Move. So lässt sich ein Objekt schnell auf dem
+  Stack aufbauen und erst auf den Heap geben, wenn es den Block überleben soll:
+
+  ```pascal
+  function Baue(n: Integer): TK;
+  val k := TK.Create(n);
+  begin
+    k.Teil := TK.Create(n + 100);
+    Result := k;                    { Objekt samt Teil wandert auf den Heap }
+  end;
+  ```
+* Ein Stackobjekt kann nicht neu zugewiesen und nicht freigegeben werden. Eine Kopie, die das
+  Original behält: `vao t := k.Clone`.
 * Ausleihen (`var r: TFigur := k`, Parameter) sind erlaubt, dürfen aber den Block nicht
   überleben: Speichern in globalen Variablen, Feldern oder Funktionsergebnissen meldet der
   Borrow Checker.

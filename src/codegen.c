@@ -360,6 +360,18 @@ static void gen_auto_clone(Routine *r) {
     buf_put(&b_funcs, buf_str(&b));
 }
 
+/* a stack object given to an owner: it moves to the heap (like Box::new in Rust) */
+static Var *stack_var_of(Expr *e) {
+    while (e->kind == E_CONV || e->kind == E_CAST) e = e->a;
+    return e->kind == E_VAR && e->var->is_stack ? e->var : NULL;
+}
+static char *box_move(Var *k, Type *to) {
+    int id = ++tmpc;
+    int sid = k->type->st->id;
+    return sfmt("((%s)({ void *__m%d = __ppc_alloc(sizeof(struct S%d)); memcpy(__m%d, %s, sizeof(struct S%d)); %s = 0; __m%d; }))",
+                ctype(to), id, sid, id, var_raw(k), sid, var_aux(k, "__live"), id);
+}
+
 /* value variable that owns the objects inside it */
 static int agg_owner_var(Var *v) {
     return has_owned(v->type) && !v->is_ref && !v->no_drop && (v->vkind == VK_LOCAL || v->vkind == VK_GLOBAL);
@@ -472,6 +484,8 @@ static char *gcall(Expr *e) {
             /* read-only by reference: the variable itself, or a temporary copy of a computed value */
             if (cg_lvalue(a)) buf_printf(&args, "((%s*)&%s)", ctype(pm->type), gx(a));
             else buf_printf(&args, "(&((%s[1]){%s})[0])", ctype(pm->type), gx(a));
+        } else if (pm->mode == PM_OWNED && stack_var_of(a)) {
+            buf_put(&args, box_move(stack_var_of(a), pm->type));
         } else {
             buf_put(&args, gx(a));
             Var *mv = pm->mode == PM_OWNED ? move_source(a) : NULL;
@@ -924,6 +938,7 @@ static void gassign(Expr *lhs, Expr *rhs) {
         line("%s = %s;", l, r);
         return;
     }
+    if (stack_var_of(rhs)) r = box_move(stack_var_of(rhs), lhs->type);
     Var *mv = move_source(rhs);
     if (mv && lhs->kind == E_VAR && lhs->var == mv) return; /* x := x */
     int id = ++tmpc;

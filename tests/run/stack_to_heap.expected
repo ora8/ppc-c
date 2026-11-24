@@ -1,0 +1,12 @@
+h = 1
+P Ende
+  Destroy 2
+h = 1
+  Destroy 1
+P Ende
+  Destroy 2
+Baue: 5 / 105
+  Destroy 5
+  Destroy 105
+global: 1
+  Destroy 1
