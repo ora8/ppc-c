@@ -27,7 +27,7 @@ enum { B_VALID = 1, B_DANGLING = 2, B_CONFLICT = 4 }; /* B_CONFLICT: aliasing ru
 enum { TV_OWNER, TV_BORROW };
 enum { N_UNINIT = 1, N_NIL = 2, N_NN = 4 }; /* nil analysis: never allocated / nil / non-nil */
 
-int g_borrow_check = 1, g_nil_check = 1;
+int g_borrow_check = 1, g_nil_check = 1, g_range_check = 1;
 
 typedef struct {
     char *path;

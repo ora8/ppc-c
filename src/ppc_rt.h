@@ -37,6 +37,15 @@ static void *__as(void *o, void *vmt) {
     return o;
 }
 static const char *__ppc_srcfile;
+static int64_t __rangechk(int64_t i, int64_t lo, int64_t hi, int line, int col) {
+    if (i < lo || i > hi) {
+        fflush(stdout);
+        fprintf(stderr, "Runtime error 201: range check error at %s(%d,%d): index %lld is outside %lld..%lld\n",
+                __ppc_srcfile, line, col, (long long)i, (long long)lo, (long long)hi);
+        exit(201);
+    }
+    return i;
+}
 static void *__nilchk(void *p, int line, int col) {
     if (!p) {
         fflush(stdout);

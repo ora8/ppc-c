@@ -279,8 +279,8 @@ static const char *clone_what;
 static char *clone_call(Type *t, const char *x, const char *field) {
     Routine *m = find_clone(t->st);
     if (!m)
-        error_at(clone_pos, "%s cannot be cloned: its field '%s' owns a \"%s\", which has no Clone (declare 'function Clone: %s; const; auto;' there)",
-                 clone_what, field, t->st->name, t->st->name);
+        error_at(clone_pos, "%s cannot be cloned: %s owns a \"%s\", which has no Clone (declare 'function Clone: %s; const; auto;' there)",
+                 clone_what, STREQ(field, "[]") ? "each element" : sfmt("its field '%s'", field), t->st->name, t->st->name);
     char *call = m->slot >= 0 ? sfmt("((struct VMT%d*)((%s)->__vmt))->v%d(%s)", t->st->id, x, m->slot, x)
                               : sfmt("%s((struct S%d*)(%s))", m->cname, m->owner->id, x);
     if (m->ret->st != t->st) call = sfmt("((struct S%d*)__as((void*)(%s), &VMTI%d))", t->st->id, call, t->st->id);
@@ -638,6 +638,13 @@ static char *gbuiltin(Expr *e) {
         return sfmt("((%s*)__ppc_alloc(sizeof(%s)))", ct, ct);
     }
     case BI_BOXFREE: return sfmt("(__ppc_free(%s), %s = 0)", G(0), G(0));
+    case BI_ARRCLONE: { /* copy of the array; owned objects are cloned */
+        if (!has_owned(e->type)) return G(0);
+        int id = ++tmpc;
+        clone_pos = e->pos;
+        clone_what = sfmt("\"%s\"", type_name(e->type));
+        return sfmt("({ %s __c%d = %s; %s; __c%d; })", ctype(e->type), id, G(0), agg_clone(e->type, sfmt("__c%d", id)), id);
+    }
     case BI_ISOK: return sfmt("(!(%s).err)", G(0));
     case BI_ISERROR: return sfmt("((%s).err != 0)", G(0));
     case BI_VALUEOR: {
@@ -722,6 +729,13 @@ static char *gx(Expr *e) {
     case E_INDEX: {
         Expr *a = e->a;
         char *idx = gx(e->args.items[0]);
+        if (g_range_check && !e->in_range) { /* index checked at run time (Runtime error 201) */
+            Pos p = e->args.items[0]->pos;
+            if (a->type->kind == T_STR) idx = sfmt("__rangechk((int64_t)(%s), 0, 255, %d, %d)", idx, p.line, p.col);
+            else
+                idx = sfmt("__rangechk((int64_t)(%s), %s, %s, %d, %d)", idx, int_lit(a->type->lo), int_lit(a->type->hi), p.line,
+                           p.col);
+        }
         if (a->type->kind == T_STR) return sfmt("(%s).s[%s]", gx(a), idx);
         if (a->type->lo == 0) return sfmt("(%s).a[%s]", gx(a), idx);
         return sfmt("(%s).a[(%s) - (%s)]", gx(a), idx, int_lit(a->type->lo));
@@ -848,12 +862,15 @@ static char *gx(Expr *e) {
         if (t->kind == T_RECORD) return sfmt("(*(%s*)&%s)", ctype(t), gx(e->a));
         return sfmt("((%s)(%s))", ctype(t), gx(e->a));
     }
+    case E_BUILTIN:
+        if (e->bi == BI_ARRCLONE && has_owned(e->type) && !is_taken(e))
+            error_at(e->pos, "the clone owns objects and would never be freed here: store it in a variable first ('val c := a.Clone')");
+        return gbuiltin(e);
     case E_RCALL:
         if (has_owned(e->type) && !is_taken(e))
             error_at(e->pos, "the result of '%s' owns objects and would never be freed here: store it in a variable first ('val r := %s(...)')",
                      e->rt->name, e->rt->name);
         return gcall(e);
-    case E_BUILTIN: return gbuiltin(e);
     default: error_at(e->pos, "internal error: unresolved expression (kind %d)", e->kind);
     }
 }

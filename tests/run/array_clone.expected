@@ -1,0 +1,22 @@
+1. Zuweisung = Move
+a: - - - 
+b: Leo Mia - 
+2. Kopie mit Clone, Element fuer Element
+b: Leo Mia - 
+c: Leo2 Mia - 
+3. Kopie des ganzen Arrays mit a.Clone
+b: Leo Mia - 
+d: Leo Mia2 - 
+  frei Leo
+  frei Mia2
+4. Kopie des ganzen Records mit Clone
+g: Rex - - 
+h: Rex - - 
+Zahlen: 1 9
+Programmende
+  frei Rex
+  frei Rex
+  frei Leo2
+  frei Mia
+  frei Leo
+  frei Mia

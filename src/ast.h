@@ -178,6 +178,7 @@ struct Expr {
     int slen;
     Ident id;
     int has_id;
+    int in_range; /* E_INDEX: constant index, checked at compile time */
     Expr *a, *b, *c;
     ExprVec args;
     ExprVec args2; /* set literal: upper bounds (NULL entries for single values) */
@@ -369,7 +370,7 @@ enum {
     BI_INSERT, BI_INTTOSTR, BI_STRTOINT, BI_FLOATTOSTR, BI_STR, BI_UPCASE, BI_UPPERCASE,
     BI_LOWERCASE, BI_CONCAT, BI_HALT, BI_RANDOM, BI_RANDOMIZE, BI_ASSIGNED, BI_NEW, BI_DISPOSE,
     BI_FREEANDNIL, BI_TAKE, BI_SETLENGTH, BI_CLASSNAME, BI_PI, BI_EXIT, BI_BREAK, BI_CONTINUE,
-    BI_HASVALUE, BI_VALUEOR, BI_BOXNEW, BI_BOXFREE, BI_ISOK, BI_ISERROR
+    BI_HASVALUE, BI_VALUEOR, BI_BOXNEW, BI_BOXFREE, BI_ISOK, BI_ISERROR, BI_ARRCLONE
 };
 
 /* parser.c */
@@ -386,7 +387,7 @@ const char *type_name(Type *t);
 
 /* borrow.c */
 int borrow_check(Program *p);
-extern int g_borrow_check, g_nil_check;
+extern int g_borrow_check, g_nil_check, g_range_check;
 int is_ref_type(Type *t);
 int has_owned(Type *t);
 int is_owning_temp(Expr *e);

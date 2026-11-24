@@ -1313,6 +1313,21 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
                          type_name(bt), what, name);
             }
         }
+        if (bt->kind == T_ARRAY && STREQ(name, "Clone")) { /* a.Clone: copy, cloning the objects it owns */
+            if (args && args->len) error_at(p, "Clone takes no arguments");
+            Expr *c = new_expr(E_BUILTIN, p);
+            c->bi = BI_ARRCLONE;
+            vpush(c->args, base);
+            Type *t = bt;
+            if (t->readonly) { /* the copy can be changed */
+                t = NEW(Type);
+                *t = *bt;
+                t->readonly = 0;
+                t->name = NULL;
+            }
+            c->type = t;
+            return c;
+        }
         if (bt->kind != T_RECORD && bt->kind != T_CLASS)
             error_at(p, "illegal qualifier: \"%s\" has no members", type_name(bt));
         Look L = {0};
@@ -1389,8 +1404,21 @@ static Expr *ex(Expr *e) {
                              type_name(it));
                 n->type = a->type->base;
                 if (rooted_const(a)) n->type = readonly_of(n->type);
+                long long cv;
+                Expr *c = fold(idx);
+                if (c && lit_ord(c, &cv)) {
+                    if (cv < a->type->lo || cv > a->type->hi)
+                        error_at(idx->pos, "index %lld is outside the array bounds %lld..%lld", cv, a->type->lo, a->type->hi);
+                    n->in_range = 1; /* checked: no runtime range check needed */
+                }
             } else if (a->type->kind == T_STR) {
                 if (!is_int(idx->type)) error_at(idx->pos, "integer index expected");
+                long long cv;
+                Expr *c = fold(idx);
+                if (c && lit_ord(c, &cv)) {
+                    if (cv < 0 || cv > 255) error_at(idx->pos, "string index %lld is outside 0..255", cv);
+                    n->in_range = 1;
+                }
                 n->type = t_char;
             } else
                 error_at(e->pos, "illegal qualifier: \"%s\" cannot be indexed", type_name(a->type));

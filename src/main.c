@@ -44,6 +44,7 @@ static void usage(void) {
             "  -k                 keep the generated C file next to the executable\n"
             "  --no-borrow-check  disable the borrow checker\n"
             "  --no-nil-check     replace the compile-time nil analysis by runtime nil checks\n"
+            "  --no-range-check   no runtime check of array and string indexes\n"
             "  --cc <compiler>    C compiler to use (default: $CC or gcc)\n"
             "  -O0 .. -O3         optimization level passed to the C compiler (default -O2)\n");
     exit(2);
@@ -60,6 +61,7 @@ int main(int argc, char **argv) {
         else if (STREQ(a, "-k")) keep = 1;
         else if (STREQ(a, "--no-borrow-check")) borrow = 0;
         else if (STREQ(a, "--no-nil-check")) g_nil_check = 0;
+        else if (STREQ(a, "--no-range-check")) g_range_check = 0;
         else if (STREQ(a, "--cc") && i + 1 < argc) cc = argv[++i];
         else if (a[0] == '-' && a[1] == 'O') opt = a;
         else if (a[0] == '-') usage();

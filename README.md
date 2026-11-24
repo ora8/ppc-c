@@ -35,6 +35,7 @@ make test       # Testsuite (Ausgaben, Borrow-/Optional-/const-/result-Fehler, C
 ./ppc -k programm.pas         # C-Datei zusätzlich behalten
 ./ppc --no-borrow-check x.pas # Borrow Checker abschalten
 ./ppc --no-nil-check x.pas    # Allokationsanalyse aus, stattdessen Prüfung zur Laufzeit
+./ppc --no-range-check x.pas  # keine Prüfung der Array-/String-Indizes zur Laufzeit
 ./ppc --cc clang -O3 x.pas    # anderer C-Compiler / Optimierung
 ```
 
@@ -200,6 +201,9 @@ val q := paar.Clone;
 * Kein Konstruktor läuft; das Ergebnis ist ein neuer Besitz, den der Aufrufer übernimmt.
 * Form: `function Clone: T; const; auto;` (bei Klassen auch mit `virtual`; das Ergebnis darf eine
   Vorfahrklasse sein). Ein selbst geschriebener `Clone` ist eine gewöhnliche const-Methode.
+* **Arrays** haben `Clone` eingebaut: `val d := b.Clone;` kopiert das Array und klont jedes
+  enthaltene Objekt (die Elementklasse braucht einen `Clone`); ohne Objekte ist es eine einfache
+  Kopie. Wie jeder Wert, der Objekte besitzt, muss das Ergebnis gespeichert werden.
 
 ### Heapwerte: Werte in `vao`
 
@@ -589,6 +593,16 @@ Runtime error 210: nil pointer dereference at programm.pas(42,7)
 ```
 
 Ein fehlgeschlagener Speicherwunsch (`Create`) endet mit `Runtime error 203: heap overflow`.
+
+**Array-Grenzen** werden immer geprüft: Ein konstanter Index außerhalb der Grenzen ist ein
+Fehler beim Übersetzen (`index 7 is outside the array bounds 1..3`); ein berechneter Index wird
+zur Laufzeit geprüft (auch bei Strings, Bereich 0..255):
+
+```
+Runtime error 201: range check error at programm.pas(12,9): index 5 is outside 1..3
+```
+
+Mit `--no-range-check` entfällt die Prüfung zur Laufzeit (schneller, aber ohne Schutz).
 
 ## Fehlerbehandlung: `result T`
 
