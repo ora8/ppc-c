@@ -6,10 +6,14 @@
   Sort<T: Comparable>       sorts an 'array of T' in ascending order
   IndexOf<T: Equatable>     position of a value in an 'array of T', or none
 
+  SortRange is private to the implementation.
+
   All containers own their elements (objects are freed with the container).
   Taking elements out (Extract, Pop, Remove) passes the ownership to the caller. }
 
 module ppc_std;
+
+interface
 
 type
   TList<T> = class
@@ -41,6 +45,11 @@ type
     function Count: Integer; const;
   end;
 
+procedure Sort<T: Comparable>(var a: array of T);
+function IndexOf<T: Equatable>(a: array of T; x: T): optional Integer;
+
+implementation
+
 { ------------------------------------------------------------------- TList<T> }
 
 procedure TList<T>.Add(vao x: T);
@@ -53,7 +62,6 @@ function TList<T>.Count: Integer; const;
 begin
   Result := Length(Items);
 end;
-
 function TList<T>.Get(i: Integer): var optional T;
 begin
   Result := Items[i];

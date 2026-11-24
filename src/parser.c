@@ -648,6 +648,7 @@ static TypeExpr *parse_type_core(void) {
 
 static Expr *parse_init(void) { return parse_expr(); }
 
+static int in_interface; /* parsing a module's interface section: routine headers only */
 static RoutineDecl *parse_routine(void) {
     RoutineDecl *d = NEW(RoutineDecl);
     d->toks = cur_toks;
@@ -685,6 +686,15 @@ static RoutineDecl *parse_routine(void) {
     expect_sym(";");
     int virt = 0, abs = 0;
     parse_directives(&virt, &abs, &d->forward, &d->is_const, NULL);
+    if (in_interface) { /* module interface: only the header, the body is in the implementation */
+        if (d->has_cls)
+            error_at(d->pos, "method bodies belong to the implementation section; the interface only declares '%s' in its class", d->name.name);
+        if (d->forward) error_at(d->pos, "routines in the interface need no 'forward'");
+        if (is_kw("begin")) error_at(pos(), "the body of '%s' belongs to the implementation section", d->name.name);
+        d->forward = 1;
+        d->iface = 1;
+        return d;
+    }
     if (d->forward) return d;
     if (is_ident("external")) error_at(pos(), "external routines are not supported");
     d->body = parse_block();
@@ -1290,7 +1300,17 @@ Block *parse_module(const char *src, Ident *name) {
     expect_sym(";");
     Block *b = NEW(Block);
     b->uses = parse_imports();
-    parse_decls(b);
+    if (!is_kw("interface"))
+        error_at(pos(), "a module has an 'interface' section (the public declarations) and an 'implementation' section (their definitions)");
+    next();
+    in_interface = 1;
+    parse_decls(b); /* public: types, constants, variables, routine headers */
+    in_interface = 0;
+    if (!is_kw("implementation"))
+        error_at(pos(), "'implementation' expected after the interface section (found %s)", describe());
+    next();
+    b->impl = NEW(Block);
+    parse_decls(b->impl); /* definitions and private declarations */
     if (is_kw("begin")) error_at(pos(), "a module has no main block ('begin ... end'): it ends with 'end.'");
     expect_kw("end");
     expect_sym(".");

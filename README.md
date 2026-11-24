@@ -665,12 +665,20 @@ end;
 ## Modules: `module` and `import`
 
 A program includes modules with **`import`**. A module is a file of its own that starts with
-**`module Name;`**, contains declarations (constants, types, variables, routines, generics) and
-ends with `end.`:
+**`module Name;`** and has two sections, as Pascal units do:
+
+* **`interface`** – the public declarations: constants, types (classes and records with their
+  method headers), variables and the **headers** of routines;
+* **`implementation`** – the definitions: the bodies of the routines and methods, plus private
+  declarations (helper routines, types, variables) that importers do not see.
+
+The module ends with `end.`:
 
 ```pascal
 module Geometry;                        { file Geometry.pas }
-import ppc_std;                         { a module may import too }
+import ppc_std;                         { imports come right after the header }
+
+interface
 
 type
   TPoint = record
@@ -678,8 +686,18 @@ type
     function Distance(b: TPoint): Real; const;
   end;
 
+function TotalArea(l: TList<TFigure>): Real;   { header only }
+
+implementation
+
+function Square(x: Real): Real;         { private: not visible to importers }
+begin Result := x * x; end;
+
 function TPoint.Distance(b: TPoint): Real; const;
-begin Result := Sqrt(Sqr(X - b.X) + Sqr(Y - b.Y)); end;
+begin Result := Sqrt(Square(X - b.X) + Square(Y - b.Y)); end;
+
+function TotalArea(l: TList<TFigure>): Real;
+begin … end;
 
 end.
 ```
@@ -698,16 +716,20 @@ end.
 * `import Name` looks for `Name.pas` in the directory of the program; the name after `module`
   must match the file name. Every module is loaded only once, its own imports first; modules
   that import each other (cycles) are an error.
-* Everything a module declares is visible in the importing program. Names of the program hide
-  those of a module.
+* Everything in the interface is visible in the importing program; the implementation is
+  private (`identifier not found "Square"`). Names of the program hide those of a module.
+* Every routine declared in the interface must be defined in the implementation
+  (`'P' is declared in the interface but not implemented`); method bodies and routine bodies in
+  the interface are errors. Generic routines and generic types work the same way – their bodies in
+  the implementation may use the private helpers.
 * Errors in a module are reported with its file name: `Geometry.pas(12,5) Error: …`.
 * A module has no main block (`begin … end`); it ends with `end.`. The old `uses` gives
   `'uses' was replaced by 'import'`.
 
 ### Standard library: `import ppc_std`
 
-The standard library is itself a Perfect Pascal module ([lib/ppc_std.pas](lib/ppc_std.pas)) and
-is embedded into the compiler. It consists of generic containers and algorithms:
+The standard library is itself a Perfect Pascal module ([lib/ppc_std.pas](lib/ppc_std.pas)), with
+an interface and an implementation section, and is embedded into the compiler. It consists of generic containers and algorithms:
 
 ```pascal
 program Example;

@@ -136,6 +136,7 @@ typedef struct {
     IdentVec cls_tparams; /* method of a generic type: procedure TListe<T>.Add */
     IdentVec tparams;     /* generic routine: function Max<T>(a, b: T): T */
     ConsVec tcons;
+    int iface;            /* header in a module's interface section: defined in the implementation */
     void *toks;           /* tokens to parse the routine again for each instance */
     int tok_start;
 } RoutineDecl;
@@ -152,7 +153,8 @@ typedef struct {
 struct Block {
     VEC(Decl *) decls;
     StmtVec body;
-    IdentVec uses; /* program: 'uses ppc_std;' */
+    IdentVec uses; /* program/module: 'import ppc_std;' */
+    Block *impl;   /* module: the implementation section (interface: decls of this block) */
 };
 
 /* ------------------------------------------------------------ expressions */

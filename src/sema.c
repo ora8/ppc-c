@@ -32,8 +32,12 @@ typedef struct {
     RoutineDecl *arch_rd;     /* routine: its placeholder instance (body checked once) */
     Routine *arch_rt;
     int broken;               /* the generic itself has errors: its instances are not checked again */
+    int iface_only;           /* generic routine declared in a module interface, defined in its implementation */
 } Generic;
 static VEC(Generic *) all_generics;
+static Generic *self_check; /* the generic being checked on its own (stage 4) */
+static struct Scope *iface_scope; /* module implementation: the interface scope whose headers it defines */
+static int in_iface;              /* module interface: headers are defined later, no 'not resolved' check yet */
 
 typedef struct {
     SymKind kind;
@@ -102,6 +106,7 @@ static void decls(Block *b, int has_frame);
 static void stmts(StmtVec *v);
 static void decl1(Decl *d, int has_frame);
 static void decls_tail(Block *b);
+static void module_decls(Block *m);
 static Type *infer_type(Expr *r, Pos p, const char *name);
 static void settle_var(Var *v, Type *t, Expr *src, Pos p);
 static void check_settled(Var **vars, int n);
@@ -406,6 +411,11 @@ static Scope *push_scope(void) {
 }
 static void pop_scope(void) { scope = scope->up; }
 
+static Sym *find_in(Scope *sc, const char *name) {
+    for (int i = 0; i < sc->syms.len; i++)
+        if (STREQ(sc->syms.items[i]->name, name)) return sc->syms.items[i];
+    return NULL;
+}
 static Sym *find_local(const char *name) {
     for (int i = 0; i < scope->syms.len; i++)
         if (STREQ(scope->syms.items[i]->name, name)) return scope->syms.items[i];
@@ -1049,7 +1059,7 @@ static Routine *instantiate_routine(Generic *g, Type **args, int n, Pos p) {
         vpush(g->akeys, key);
         vpush(g->ainsts, in);
         vpush(g->arts, rt);
-        if (!g->arch_rd) { /* the generic's own placeholder instance: its body is checked once */
+        if (g == self_check) { /* the generic's own placeholder instance: its body is checked once */
             g->arch_rd = d;
             g->arch_rt = rt;
         }
@@ -2996,7 +3006,21 @@ static void routine_decl(RoutineDecl *d) {
     Routine *rt = NULL;
     if (d->tparams.len) { /* function Max<T>(...): kept, made for every type combination it is called with */
         if (cur) error_at(d->pos, "generic routines must be declared at program level");
-        if (d->forward) error_at(d->pos, "generic routines cannot be forward declared");
+        if (d->forward && !d->iface) error_at(d->pos, "generic routines cannot be forward declared");
+        if (iface_scope) { /* definition of a generic routine declared in the module interface */
+            Sym *is = find_in(iface_scope, d->name.name);
+            if (is && is->kind == SY_GENERIC && is->gen->iface_only) {
+                Generic *g = is->gen;
+                if (g->params.len != d->tparams.len)
+                    error_at(d->pos, "'%s' has %d type parameter(s) in the interface", d->name.name, g->params.len);
+                g->toks = d->toks; /* instances are made from the definition */
+                g->tok = d->tok_start;
+                g->rdecl = d;
+                g->scope = scope;  /* private helpers of the implementation are visible */
+                g->iface_only = 0;
+                return;
+            }
+        }
         Generic *g = NEW(Generic);
         g->name = d->name.name;
         g->params = d->tparams;
@@ -3004,6 +3028,7 @@ static void routine_decl(RoutineDecl *d) {
         g->tok = d->tok_start;
         g->pos = d->name.pos;
         g->is_routine = 1;
+        g->iface_only = d->iface;
         g->rdecl = d;
         g->cons = d->tcons;
         g->scope = scope;
@@ -3069,6 +3094,7 @@ static void routine_decl(RoutineDecl *d) {
     }
     if (d->is_classm) error_at(d->pos, "'class' is only allowed for methods ('class function TFoo.%s')", d->name.name);
     Sym *ex_sym = find_local(d->name.name);
+    if (!ex_sym && iface_scope) ex_sym = find_in(iface_scope, d->name.name); /* defines an interface header */
     if (ex_sym && ex_sym->kind == SY_ROUTINE && ex_sym->rt->forward && !ex_sym->rt->defined) {
         rt = ex_sym->rt;
         if (d->forward) error_at(d->pos, "duplicate forward declaration");
@@ -3425,6 +3451,7 @@ static void decl1(Decl *d, int has_frame) {
 
 static void decls_tail(Block *b) {
     (void)b;
+    if (in_iface) return; /* the implementation defines them */
     for (int i = 0; i < scope->syms.len; i++) {
         Sym *s = scope->syms.items[i];
         if (s->kind == SY_ROUTINE && s->rt->forward && !s->rt->defined)
@@ -3464,7 +3491,9 @@ static void check_generic_alone(Generic *g) {
     archetype_mode++;
     if (g->is_routine) {
         RECOVER_BEGIN
+        self_check = g;
         instantiate_routine(g, args, n, g->pos);
+        self_check = NULL;
         if (g->arch_rd) {
             Scope *ss;
             Routine *sc;
@@ -3477,6 +3506,7 @@ static void check_generic_alone(Generic *g) {
             leave_generic(ss, sc, sl);
         }
         RECOVER_END
+        self_check = NULL;
     } else {
         Type *volatile t = NULL;
         RECOVER_BEGIN
@@ -3500,6 +3530,31 @@ static void check_generic_alone(Generic *g) {
     }
     archetype_mode--;
     if (g_errors > before) g->broken = 1; /* reported once here, not again for every instance */
+}
+
+/* a module: the interface goes into the shared module scope, the implementation into a private
+ * scope below it (it sees the interface, importers do not see it) */
+static void module_decls(Block *m) {
+    Scope *pub = scope;
+    int first_gen = all_generics.len;
+    in_iface = 1;
+    decls(m, 0);
+    in_iface = 0;
+    if (!m->impl) return;
+    iface_scope = pub;
+    Scope *priv = push_scope();
+    decls(m->impl, 0);
+    for (int i = first_gen; i < all_generics.len; i++)
+        if (all_generics.items[i]->scope == pub) all_generics.items[i]->scope = priv; /* bodies may use private helpers */
+    scope = pub;
+    iface_scope = NULL;
+    for (int i = 0; i < pub->syms.len; i++) {
+        Sym *s = pub->syms.items[i];
+        if (s->kind == SY_ROUTINE && s->rt->forward && !s->rt->defined)
+            error_at(s->rt->pos, "'%s' is declared in the interface but not implemented", s->name);
+        if (s->kind == SY_GENERIC && s->gen->iface_only)
+            error_at(s->gen->pos, "'%s' is declared in the interface but not implemented", s->name);
+    }
 }
 
 /* ============================================================== program */
@@ -3554,7 +3609,7 @@ Program *sema_program(Block *prelude, Block **libs, int nlibs, Block *pb, const 
     in_prelude = 0;
 
     push_scope(); /* units ('uses ppc_std'): the program may shadow their names */
-    for (int i = 0; i < nlibs; i++) decls(libs[i], 0);
+    for (int i = 0; i < nlibs; i++) module_decls(libs[i]);
     gscope = push_scope();
     decls(pb, 0);
     for (int i = 0; i < all_generics.len; i++) check_generic_alone(all_generics.items[i]);
