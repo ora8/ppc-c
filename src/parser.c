@@ -20,8 +20,8 @@ static const char *KEYWORDS[] = {
     "do", "downto", "else", "end", "for", "function", "goto", "if", "implementation", "in",
     "inherited", "interface", "is", "label", "mod", "nil", "none", "some", "optional", "not", "object", "of", "or", "packed",
     "procedure", "program", "property", "record", "repeat", "set", "shl", "shr", "then", "to",
-    "type", "unit", "until", "uses", "var", "while", "with", "xor", "try", "except", "finally",
-    "raise", "val", "vao", "default", "result", "ok", "error", NULL};
+    "type", "unit", "until", "uses", "var", "while", "with", "xor", "try",
+    "loop", "val", "vao", "default", "result", "ok", "error", NULL};
 
 static const char *SYMS[] = {":=", "<=", ">=", "<>", "..", "+", "-", "*", "/", "=", "<", ">", "(",
                              ")", "[", "]", ",", ";", ":", ".", "^", "@", NULL};
@@ -730,6 +730,12 @@ static Stmt *parse_stmt(void) {
         s->s1 = parse_stmt();
         return s;
     }
+    if (accept_kw("loop")) { /* loop <statement>: endless loop, left with Break, Exit or try */
+        Stmt *s = new_stmt(S_WHILE, p);
+        s->a = NULL;
+        s->s1 = parse_stmt();
+        return s;
+    }
     if (accept_kw("repeat")) {
         Stmt *s = new_stmt(S_REPEAT, p);
         s->body = parse_stmt_list("until");
@@ -796,7 +802,6 @@ static Stmt *parse_stmt(void) {
         s->s1 = parse_stmt();
         return s;
     }
-    if (is_kw("raise")) error_at(p, "exceptions are not supported: return a 'result T' and pass errors on with 'try'");
     if (accept_kw("try")) { /* try P(x); : stop with the error of a failed result */
         Stmt *s = new_stmt(S_CALL, p);
         Expr *e = new_expr(E_TRY, p);

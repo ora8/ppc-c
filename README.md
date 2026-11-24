@@ -566,6 +566,29 @@ if r.IsError then …;                           { is_err; auch r.IsOk }
 * Intern ist ein `result` ein kleines Struct aus Fehler-Flag, Wert und Fehler – ohne Kosten,
   solange kein Fehler auftritt.
 
+## Endlosschleife: `loop`
+
+`loop <Anweisung>` wiederholt die Anweisung ohne Bedingung (wie `loop` in Rust); verlassen wird
+sie mit `Break`, `Exit` oder einem fehlgeschlagenen `try`:
+
+```pascal
+loop
+  begin
+    ReadLn(zeile);
+    if zeile = 'ende' then Break;
+    Verarbeite(zeile);
+  end;
+
+loop
+  vao k := TAuftrag.Create(n);       { frischer Besitzer in jedem Durchlauf }
+  begin
+    if not k.Bearbeite then Break;   { k wird auch bei Break freigegeben }
+  end;
+```
+
+Verlässt `Break` oder `Continue` einen Block mit eigenen Variablen, geben dessen Besitzer ihre
+Objekte sofort frei (in jeder Schleifenart); Ausleihen auf sie sind danach ungültig.
+
 ## Unterstützte Sprache
 
 * `program`, `uses` (ignoriert), `const` (auch typisierte Konstanten und Array-Initialisierer),
@@ -578,7 +601,7 @@ if r.IsError then …;                           { is_err; auch r.IsOk }
   Static Links), `var`-, `out`-, `vao`- und `T const`-Parameter, `forward`, Rekursion, `Result`/Funktionsname,
   `Exit(Wert)`
 * Anweisungen: `:=`, `if`, `case` (auch mit Strings und Bereichen), `while`, `repeat`, `for … to/downto`,
-  `with`, `Break`, `Continue`, `Exit`
+  `loop` (Endlosschleife), `with`, `Break`, `Continue`, `Exit`
 * Ausdrücke: Arithmetik, `div`, `mod`, `shl`, `shr`, `and`/`or`/`xor`/`not` (Kurzschluss bei Boolean),
   Vergleiche, Stringverkettung, `in [a, b..c]`, Typumwandlungen `Integer(x)`, `TFoo(obj)`
 * Standardroutinen: `Write(Ln)` mit `:Breite:Nachkommastellen`, `Read(Ln)`, `Length`, `Copy`,

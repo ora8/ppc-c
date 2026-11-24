@@ -12,6 +12,8 @@ static int level;
 static int indent;
 static int tmpc;
 static VEC(int) loops; /* continue label id, or 0 for native 'continue' */
+static VEC(int) loop_blk; /* open block statements when each loop started */
+static VEC(Stmt *) cg_blocks; /* block statements being generated, innermost last */
 static Routine *tobject_free, *tobject_destroy;
 
 static char *gx(Expr *e);
@@ -730,6 +732,13 @@ static void gstmts(StmtVec *v) {
     for (int i = 0; i < v->len; i++) gs(v->items[i]);
 }
 
+/* Break/Continue leave the blocks inside the loop: their owners free their objects */
+static void leave_blocks(void) {
+    if (!loop_blk.len) return;
+    for (int k = cg_blocks.len - 1; k >= loop_blk.items[loop_blk.len - 1]; k--)
+        stack_destroy(cg_blocks.items[k]->wvars.items, cg_blocks.items[k]->wvars.len);
+}
+
 static void gs(Stmt *s) {
     switch (s->kind) {
     case S_EMPTY: return;
@@ -760,7 +769,9 @@ static void gs(Stmt *s) {
                 stack_init(v);
             }
         }
+        vpush(cg_blocks, s);
         gstmts(&s->blk->body);
+        cg_blocks.len--;
         stack_destroy(s->wvars.items, s->wvars.len);
         indent--;
         line("}");
@@ -795,21 +806,26 @@ static void gs(Stmt *s) {
         return;
     case S_WHILE:
         vpush(loops, 0);
-        line("while (%s) {", gx(s->a));
+        vpush(loop_blk, cg_blocks.len);
+        if (s->a) line("while (%s) {", gx(s->a));
+        else line("for (;;) {");
         indent++;
         gs(s->s1);
         indent--;
         line("}");
         loops.len--;
+        loop_blk.len--;
         return;
     case S_REPEAT:
         vpush(loops, 0);
+        vpush(loop_blk, cg_blocks.len);
         line("do {");
         indent++;
         gstmts(&s->body);
         indent--;
         line("} while (!(%s));", gx(s->a));
         loops.len--;
+        loop_blk.len--;
         return;
     case S_FOR: {
         int id = ++tmpc;
@@ -823,8 +839,10 @@ static void gs(Stmt *s) {
         line("for (;;) {");
         indent++;
         vpush(loops, id);
+        vpush(loop_blk, cg_blocks.len);
         gs(s->s1);
         loops.len--;
+        loop_blk.len--;
         line("__cont%d:;", id);
         line("if ((int64_t)%s == __hi%d) break;", v, id);
         line("%s%s;", v, s->down ? "--" : "++");
@@ -890,8 +908,12 @@ static void gs(Stmt *s) {
         indent--;
         line("}");
         return;
-    case S_BREAK: line("break;"); return;
+    case S_BREAK:
+        leave_blocks();
+        line("break;");
+        return;
     case S_CONTINUE:
+        leave_blocks();
         if (loops.len && loops.items[loops.len - 1]) line("goto __cont%d;", loops.items[loops.len - 1]);
         else line("continue;");
         return;
@@ -953,6 +975,8 @@ static void gen_routine(Routine *r) {
     cur = r;
     level = r->level;
     loops.len = 0;
+    loop_blk.len = 0;
+    cg_blocks.len = 0;
     Buf body = {0};
     out = &body;
     indent = 0;
@@ -1089,6 +1113,8 @@ void codegen(Program *p, FILE *f) {
     cur = NULL;
     level = 0;
     loops.len = 0;
+    loop_blk.len = 0;
+    cg_blocks.len = 0;
     indent = 0;
     line("int main(int argc, char **argv) {");
     indent = 1;

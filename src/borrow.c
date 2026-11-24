@@ -63,7 +63,9 @@ typedef struct {
 
 typedef struct {
     State brk, cont;
+    int blk; /* blocks open when the loop started: Break/Continue leave the ones above */
 } LoopCtx;
+static VEC(Stmt *) cblocks; /* block statements being analyzed, innermost last */
 
 static Program *prog;
 static VEC(TVar) tv;
@@ -1407,11 +1409,14 @@ static void loop_body(Stmt *st, State *s, int kind) {
     State exitst = st_unreach();
     for (int iter = 0; iter < 20; iter++) {
         LoopCtx *lc = NEW(LoopCtx);
+        lc->blk = cblocks.len;
         lc->brk = st_unreach();
         lc->cont = st_unreach();
         vpush(loops, lc);
         State b = st_copy(&head);
-        if (kind == 0) {
+        if (kind == 0 && !st->a) { /* loop: only Break leaves it */
+            an_stmt(st->s1, &b);
+        } else if (kind == 0) {
             use_expr(st->a, &b);
             State ex = st_copy(&b);
             refine(st->a, 0, &ex);
@@ -1438,6 +1443,20 @@ static void loop_body(Stmt *st, State *s, int kind) {
         head = nh;
     }
     *s = exitst;
+}
+
+/* leaving a block (at its end, or by Break/Continue): its owners free their objects */
+static void leave_block(Stmt *st, State *s, Pos endp) {
+    for (int k = 0; k < st->wvars.len; k++) {
+        Var *v = st->wvars.items[k];
+        int i = slot(v);
+        if (i < 0 || !s->reach) continue;
+        if (tv.items[i].kind == TV_OWNER && (s->own[i] & (O_OWNED | O_UNK)))
+            invalidate(s, sfmt("#%d", v->id), sfmt("'%s' freed its object at the end of its block (line %d)", v->name, endp.line));
+        if (v->is_stack) invalidate(s, sfmt("#%d", v->id), sfmt("'%s' went out of scope at the end of its block (line %d)", v->name, endp.line));
+        s->own[i] = O_NULL;
+        s->nn[i] = N_UNINIT;
+    }
 }
 
 static void an_stmt(Stmt *st, State *s) {
@@ -1515,12 +1534,13 @@ static void an_stmt(Stmt *st, State *s) {
         aliases.len = n0;
         return;
     }
-    case S_BREAK:
-        if (loops.len) st_join(&loops.items[loops.len - 1]->brk, s);
-        s->reach = 0;
-        return;
-    case S_CONTINUE:
-        if (loops.len) st_join(&loops.items[loops.len - 1]->cont, s);
+    case S_BREAK: case S_CONTINUE:
+        if (loops.len) {
+            LoopCtx *lc = loops.items[loops.len - 1];
+            State out = st_copy(s); /* the blocks inside the loop end here: their owners free */
+            for (int k = cblocks.len - 1; k >= lc->blk; k--) leave_block(cblocks.items[k], &out, st->pos);
+            st_join(st->kind == S_BREAK ? &lc->brk : &lc->cont, &out);
+        }
         s->reach = 0;
         return;
     case S_BLOCK: {
@@ -1536,19 +1556,10 @@ static void an_stmt(Stmt *st, State *s) {
             s->nn[i] = N_UNINIT;
             if (v->is_stack) origin_add(&s->org[i], sfmt("#%d", v->id), v->name, v, 1);
         }
+        vpush(cblocks, st);
         an_list(&st->blk->body, s);
-        /* leaving the block */
-        Pos endp = st->blk->body.len ? st->blk->body.items[st->blk->body.len - 1]->pos : st->pos;
-        for (int k = 0; k < st->wvars.len; k++) {
-            Var *v = st->wvars.items[k];
-            int i = slot(v);
-            if (i < 0 || !s->reach) continue;
-            if (tv.items[i].kind == TV_OWNER && (s->own[i] & (O_OWNED | O_UNK)))
-                invalidate(s, sfmt("#%d", v->id), sfmt("'%s' freed its object at the end of its block (line %d)", v->name, endp.line));
-            if (v->is_stack) invalidate(s, sfmt("#%d", v->id), sfmt("'%s' went out of scope at the end of its block (line %d)", v->name, endp.line));
-            s->own[i] = O_NULL;
-            s->nn[i] = N_UNINIT;
-        }
+        cblocks.len--;
+        leave_block(st, s, st->blk->body.len ? st->blk->body.items[st->blk->body.len - 1]->pos : st->pos);
         return;
     }
     case S_EXIT:

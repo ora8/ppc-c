@@ -2073,7 +2073,7 @@ static void stmt(Stmt *s) {
         return;
     case S_WHILE:
         push_scope();
-        s->a = cond_bind(s->a);
+        if (s->a) s->a = cond_bind(s->a); /* no condition: 'loop' */
         loop_depth++;
         stmt(s->s1);
         loop_depth--;
