@@ -357,8 +357,21 @@ static ParamGroupVec parse_params(void) {
     return v;
 }
 
+/* 'const function' / 'const procedure': does not change Self (methods) or has no side effects */
+static int const_routine_ahead(void) {
+    return is_kw("const") && T.items[P + 1].kind == TK_KW &&
+           (STREQ(T.items[P + 1].s, "function") || STREQ(T.items[P + 1].s, "procedure") ||
+            STREQ(T.items[P + 1].s, "constructor") || STREQ(T.items[P + 1].s, "destructor"));
+}
+
+static int last_const; /* the routine was declared with 'const' */
 static int routine_kind(void) {
     int k = RK_PROC;
+    last_const = 0;
+    if (const_routine_ahead()) {
+        next();
+        last_const = 1;
+    }
     if (is_kw("function")) k = RK_FUNC;
     else if (is_kw("constructor")) k = RK_CTOR;
     else if (is_kw("destructor")) k = RK_DTOR;
@@ -367,7 +380,8 @@ static int routine_kind(void) {
 }
 
 static int is_routine_kw(void) {
-    return is_kw("procedure") || is_kw("function") || is_kw("constructor") || is_kw("destructor");
+    return is_kw("procedure") || is_kw("function") || is_kw("constructor") || is_kw("destructor") ||
+           const_routine_ahead();
 }
 
 static Expr *parse_postfix(void);
@@ -417,6 +431,7 @@ static StructDecl *parse_struct(int kind) {
         if (is_routine_kw()) {
             MethodDecl m = {0};
             m.kind = routine_kind();
+            m.is_const = last_const;
             m.name = ident();
             m.params = parse_params();
             if (m.kind == RK_FUNC) {
@@ -551,6 +566,7 @@ static RoutineDecl *parse_routine(void) {
     RoutineDecl *d = NEW(RoutineDecl);
     d->pos = pos();
     d->kind = routine_kind();
+    d->is_const = last_const;
     d->name = ident();
     if (accept_sym(".")) {
         d->cls = d->name;
@@ -577,7 +593,7 @@ static RoutineDecl *parse_routine(void) {
 
 static void parse_decls(Block *blk) {
     for (;;) {
-        if (accept_kw("const")) {
+        if (!const_routine_ahead() && accept_kw("const")) {
             Decl *d = NEW(Decl);
             d->kind = D_CONST;
             while (CUR.kind == TK_IDENT) {

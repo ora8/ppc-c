@@ -9,12 +9,12 @@ static const char *PRELUDE =
     "    constructor Create;\n"
     "    destructor Destroy; virtual;\n"
     "    procedure Free;\n"
-    "    function ClassName: String;\n"
+    "    const function ClassName: String;\n"
     "  end;\n"
     "constructor TObject.Create; begin end;\n"
     "destructor TObject.Destroy; begin end;\n"
     "procedure TObject.Free; begin if Assigned(Self) then Destroy end;\n"
-    "function TObject.ClassName: String; begin Result := __ClassName(Self) end;\n";
+    "const function TObject.ClassName: String; begin Result := __ClassName(Self) end;\n";
 
 static char *read_file(const char *path) {
     FILE *f = fopen(path, "rb");

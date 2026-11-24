@@ -54,6 +54,7 @@ typedef struct {
     int ret_borrowed;
     int virt;
     int is_abstract;
+    int is_const; /* constfunc / constproc */
 } MethodDecl;
 
 typedef struct {
@@ -115,6 +116,7 @@ typedef struct {
     TypeExpr *ret;
     int ret_borrowed;
     int forward;
+    int is_const; /* constfunc / constproc */
     Block *body;
     Pos pos;
 } RoutineDecl;
@@ -314,6 +316,7 @@ struct Routine {
     int virt;
     int slot;
     int is_abstract;
+    int is_constm; /* constfunc/constproc: method does not change Self, routine has no side effects */
     int has_frame;
     int defined;
     int forward;

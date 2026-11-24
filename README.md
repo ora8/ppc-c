@@ -217,15 +217,16 @@ const
 begin
   Hoch := 1;                   { Fehler }
   w.X := 1;                    { Fehler: Teil einer Konstanten }
-  w.Skaliere(2);               { Fehler: Prozedur könnte w ändern }
-  WriteLn(w.Laenge);           { erlaubt: Funktion }
+  w.Skaliere(2);               { Fehler: Skaliere ist keine const-Methode }
+  WriteLn(w.Laenge);           { erlaubt: const function }
 ```
 
 * Lässt sich der Wert beim Übersetzen ausrechnen, ist es eine echte Konstante (auch für
   Array-Grenzen nutzbar); sonst eine unveränderliche Variable, belegt beim Eintritt in die
   Routine bzw. den Block (`const x = …; begin … end;`).
 * Unveränderlich ist auch alles, was im Wert steckt: Record-Felder und Array-Elemente. Auf
-  konstanten Records dürfen nur **Funktions**-Methoden aufgerufen werden, keine Prozeduren.
+  konstanten Records (und `const`/`constref`-Parametern) dürfen nur **const-Methoden**
+  aufgerufen werden (siehe unten).
 * Bei Objekten ist die **Referenz** konstant; das Objekt selbst kann über seine Methoden
   verändert werden (wie `final` in Java).
 * Typisierte Konstanten (`const Limit: Integer = 5;`) sind ebenfalls schreibgeschützt.
@@ -250,6 +251,41 @@ WriteLn(Doppelt(Hoch + 1));                     { auch Ausdrücke: temporäre Ko
 
 Der Borrow Checker behandelt `constref` als lesende Ausleihe: `Q(x, x)` mit einem `var`- und
 einem `constref`-Parameter ist ein Fehler.
+
+### Konstante Methoden und Routinen: `const function` / `const procedure`
+
+`const` vor `function` oder `procedure` (wie `void f() const` in C++):
+
+```pascal
+type
+  TVektor = record
+    X, Y: Real;
+    procedure Skaliere(F: Real);          { darf Self ändern }
+    const function Laenge: Real;          { ändert Self nicht }
+    const procedure Zeige;
+  end;
+  TKonto = class
+    const function Beschreibung: String; virtual;
+  end;
+
+const function TVektor.Laenge: Real; begin Result := Sqrt(X * X + Y * Y); end;
+
+const function Quadrat(N: Integer): Integer;   { freie Routine ohne Seiteneffekte }
+begin Result := N * N; end;
+```
+
+* **In einer const-Methode** ist `Self` nur lesbar: keine Zuweisung an Felder (auch bei
+  Klassen), und auf `Self` dürfen nur weitere const-Methoden aufgerufen werden.
+* **Auf konstanten Werten** – `const`-Variablen, `const`- und `constref`-Parameter, `Self` in
+  const-Methoden – sind nur const-Methoden aufrufbar.
+* **Eine freie `const function`/`const procedure`** hat keine Seiteneffekte auf den
+  Programmzustand: Sie ändert keine globalen oder äußeren Variablen, ruft nur andere
+  const-Routinen auf und ruft auf nicht-lokalen Objekten nur const-Methoden auf. Parameter,
+  lokale Variablen und neu erzeugte Objekte darf sie frei benutzen; Ausgaben mit `WriteLn`
+  sind erlaubt.
+* Deklaration und Implementierung müssen beide `const` sein; ein `override` muss die
+  const-Eigenschaft der überschriebenen Methode übernehmen. Konstruktoren und Destruktoren
+  können nicht `const` sein. `ClassName` ist eine const-Methode.
 
 ## Records mit Methoden
 

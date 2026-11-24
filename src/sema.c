@@ -328,7 +328,10 @@ static int is_lvalue(Expr *e) {
 static int rooted_const(Expr *e) {
     switch (e->kind) {
     case E_VAR: return e->var->is_const && e->var->type->kind != T_CLASS;
-    case E_FIELD: return e->a->type->kind != T_CLASS && rooted_const(e->a);
+    case E_FIELD:
+        if (e->a->type->kind == T_CLASS) /* object fields: only Self in a const method is read-only */
+            return e->a->kind == E_VAR && e->a->var->vkind == VK_SELF && e->a->var->is_const;
+        return rooted_const(e->a);
     case E_INDEX: case E_CAST: case E_CONV: return rooted_const(e->a);
     default: return 0;
     }
@@ -339,11 +342,33 @@ static const char *const_root_name(Expr *e) {
     return e->var->name;
 }
 
+/* the variable an lvalue/receiver expression is rooted in */
+static Var *root_var(Expr *e) {
+    while (e && e->kind != E_VAR) {
+        if (e->kind != E_FIELD && e->kind != E_INDEX && e->kind != E_DEREF && e->kind != E_CAST && e->kind != E_CONV) return NULL;
+        e = e->a;
+    }
+    return e ? e->var : NULL;
+}
+
+/* innermost enclosing 'const function/procedure' that is not a method (no side effects allowed) */
+static Routine *pure_ctx(void) {
+    for (Routine *r = cur; r; r = r->parent)
+        if (r->is_constm && !r->owner) return r;
+    return NULL;
+}
+
+static int nonlocal_to_rt(Var *v, Routine *r) { return v && v->vkind != VK_WITH && (v->is_global || v->level < r->level); }
+
 static void check_writable(Expr *e, const char *what) {
     if (!is_lvalue(e)) error_at(e->pos, "%s: variable identifier expected", what);
     if (e->kind == E_VAR && e->var->is_stack)
         error_at(e->pos, "%s: \"%s\" is a stack object and cannot be reassigned; construct it with %s.Create(...) (heap objects are declared in a 'var' section)", what,
                  e->var->name, e->var->name);
+    Routine *pr = pure_ctx();
+    if (pr && nonlocal_to_rt(root_var(e), pr))
+        error_at(e->pos, "%s: const %s '%s' cannot change the non-local variable '%s'", what,
+                 pr->kind == RK_FUNC ? "function" : "procedure", pr->name, root_var(e)->name);
     if (e->kind != E_VAR && rooted_const(e))
         error_at(e->pos, "%s: cannot modify a part of '%s', which is constant", what, const_root_name(e));
     if (e->kind == E_VAR && e->var->is_const)
@@ -579,6 +604,9 @@ static void define_record(Struct *s, TypeExpr *te) {
             if (STREQ(s->fields.items[j]->name, md->name.name))
                 error_at(md->name.pos, "\"%s\" is already a field of \"%s\"", md->name.name, s->name);
         Routine *r = new_routine(md->name.name, md->kind, md->name.pos);
+        r->is_constm = md->is_const;
+        if (md->is_const && (md->kind == RK_CTOR || md->kind == RK_DTOR))
+            error_at(md->name.pos, "constructors and destructors cannot be const");
         r->owner = s;
         r->level = 1;
         r->cname = sfmt("M%d_%s", s->id, md->name.name);
@@ -788,6 +816,9 @@ static void define_struct(Struct *s, StructDecl *sd) {
             if (STREQ(s->methods.items[j]->name, md->name.name))
                 error_at(md->name.pos, "duplicate method \"%s\" (overloading is not supported)", md->name.name);
         Routine *r = new_routine(md->name.name, md->kind, md->name.pos);
+        r->is_constm = md->is_const;
+        if (md->is_const && (md->kind == RK_CTOR || md->kind == RK_DTOR))
+            error_at(md->name.pos, "constructors and destructors cannot be const");
         r->owner = s;
         r->level = 1;
         r->cname = sfmt("M%d_%s", s->id, md->name.name);
@@ -805,6 +836,9 @@ static void define_struct(Struct *s, StructDecl *sd) {
         if (md->virt == VIRT_OVERRIDE) {
             int idx = find_slot(s, md->name.name);
             if (idx < 0) error_at(md->name.pos, "there is no method in an ancestor class to be overridden: \"%s\"", md->name.name);
+            if (s->slots.items[idx].intro->is_constm != r->is_constm)
+                error_at(md->name.pos, "overriding method \"%s\" must %sbe declared 'const' like the method it overrides",
+                         md->name.name, r->is_constm ? "not " : "");
             if (!same_signature(s->slots.items[idx].intro, r))
                 error_at(md->name.pos, "overriding method \"%s\" has a different signature", md->name.name);
             s->slots.items[idx].impl = r;
@@ -878,9 +912,22 @@ static Expr *make_call(Routine *rt, Expr *base, ExprVec *args, int mode, Type *n
     }
     if (rt->owner && !base && mode != CM_NEWCLASS)
         error_at(p, "method \"%s\" needs an instance", rt->name);
-    if (rt->owner && rt->owner->kind == SK_RECORD && rt->kind == RK_PROC && base && rooted_const(base))
-        error_at(p, "cannot call procedure '%s' on constant '%s' (it could change it); only functions are allowed", rt->name,
-                 const_root_name(base));
+    if (rt->owner && base && !rt->is_constm && mode != CM_NEWCLASS &&
+        (rooted_const(base) || (base->kind == E_VAR && base->var->vkind == VK_SELF && base->var->is_const)))
+        error_at(p, "cannot call '%s' on constant '%s': only const methods ('const function' / 'const procedure') are allowed",
+                 rt->name, const_root_name(base));
+    Routine *pr = pure_ctx();
+    if (pr && !rt->is_constm && !rt->prelude) {
+        int inside = 0;
+        for (Routine *q = rt->parent; q; q = q->parent)
+            if (q == pr) inside = 1;
+        if (!rt->owner && !inside && rt != pr)
+            error_at(p, "const %s '%s' can only call const routines, but '%s' is not const",
+                     pr->kind == RK_FUNC ? "function" : "procedure", pr->name, rt->name);
+        if (rt->owner && base && mode != CM_NEWCLASS && nonlocal_to_rt(root_var(base), pr))
+            error_at(p, "const %s '%s' cannot call the non-const method '%s' on the non-local '%s'",
+                     pr->kind == RK_FUNC ? "function" : "procedure", pr->name, rt->name, root_var(base)->name);
+    }
     if ((mode == CM_INHERITED || mode == CM_STATIC) && rt->is_abstract)
         error_at(p, "abstract method \"%s\" cannot be called directly", rt->name);
     c->cmode = mode;
@@ -2049,6 +2096,9 @@ static void routine_decl(RoutineDecl *d) {
             if (STREQ(st->methods.items[i]->name, d->name.name)) rt = st->methods.items[i];
         if (!rt) error_at(d->name.pos, "method \"%s\" is not declared in \"%s\"", d->name.name, st->name);
         if (rt->kind != d->kind) error_at(d->pos, "method kind does not match declaration of \"%s\"", rt->name);
+        if (rt->is_constm != d->is_const)
+            error_at(d->pos, "\"%s.%s\" is declared %s'const': the implementation must match", st->name, rt->name,
+                     rt->is_constm ? "" : "without ");
         if (rt->defined) error_at(d->pos, "method \"%s.%s\" is already implemented (or abstract)", st->name, rt->name);
         if (d->forward) error_at(d->pos, "methods cannot be forward declared");
         if (d->has_params) {
@@ -2075,12 +2125,14 @@ static void routine_decl(RoutineDecl *d) {
             build_params(&tmp, &d->params);
             if (d->ret) tmp.ret = resolve_type(d->ret);
             if (!same_signature(rt, &tmp)) error_at(d->pos, "declaration of \"%s\" differs from forward declaration", rt->name);
+            if (rt->is_constm != d->is_const) error_at(d->pos, "'const' of \"%s\" differs from its forward declaration", rt->name);
             for (int i = 0; i < rt->params.len; i++) rt->params.items[i].name = tmp.params.items[i].name;
         }
     } else {
         if (d->kind == RK_CTOR || d->kind == RK_DTOR)
             error_at(d->pos, "constructors/destructors must be methods");
         rt = new_routine(d->name.name, d->kind, d->name.pos);
+        rt->is_constm = d->is_const;
         rt->level = level + 1;
         rt->parent = cur;
         rt->cname = cur ? sfmt("%s_%s", cur->cname, d->name.name) : sfmt("R_%s", d->name.name);
@@ -2122,6 +2174,7 @@ static void routine_body(Routine *rt, RoutineDecl *d) {
         Var *self = new_var("Self", rt->owner->type, VK_SELF, rt->pos);
         self->is_ref = rt->owner->kind == SK_RECORD; /* record methods work on the caller's record */
         self->borrowed = 1;
+        self->is_const = rt->is_constm; /* const method: Self is read-only */
         self->in_frame = has_frame;
         rt->self = self;
         push_scope()->with = self;
