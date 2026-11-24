@@ -13,7 +13,7 @@ static const char *PRELUDE =
     "  end;\n"
     "constructor TObject.Create; begin end;\n"
     "destructor TObject.Destroy; begin end;\n"
-    "procedure TObject.Free; begin if Self <> nil then Destroy end;\n"
+    "procedure TObject.Free; begin if Assigned(Self) then Destroy end;\n"
     "function TObject.ClassName: String; begin Result := __ClassName(Self) end;\n";
 
 static char *read_file(const char *path) {

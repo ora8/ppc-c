@@ -82,19 +82,19 @@ procedure Verschiebe(S: TShape; DX: Integer);
 begin S.X := S.X + DX; end;
 
 procedure LokaleFiguren;
-var
+val
   r: TRect;                          { Stackobjekt: lebt nur in dieser Prozedur }
 begin
   r.Create(0, 0, 3, 4);
   ShowShape(r);
 end;                                 { hier wird r.Destroy automatisch gerufen }
 
-var
+val
   c: TCircle;                        { globales Stackobjekt }
-  pets: array[1..2] of nilable TAnimal;
-  a: borrowed nilable TAnimal;
+  pets: array[1..2] of optional TAnimal;
+  a: borrowed optional TAnimal;
   i: Integer;
-heap
+var
   h: TShape;                         { Heapobjekte }
   dog: TDog;
   cat: TCat;
@@ -121,14 +121,14 @@ begin
   cat.Legs := 3;
   cat.Speak;
   a := cat;
-  if a <> nil then
-    WriteLn('a is TCat: ', a is TCat, ', a is TDog: ', a is TDog, ', Leben: ', (a as TCat).Lives);
-  a := nil;
+  if a is some x then
+    WriteLn('a is TCat: ', x is TCat, ', a is TDog: ', x is TDog, ', Leben: ', (x as TCat).Lives);
+  a := none;
   pets[1] := dog;
   pets[2] := cat;
   for i := 1 to 2 do begin
     a := pets[i];
-    if a <> nil then Write(a.Name, ' ');
+    if a is some x then Write(x.Name, ' ');
   end;
   WriteLn;
   for i := 1 to 2 do pets[i].Free;

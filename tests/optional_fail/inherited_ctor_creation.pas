@@ -5,5 +5,5 @@ type TA = class constructor Create; end;
 constructor TA.Create; begin inherited Create; end;
 constructor TB.Make; begin inherited Create; F := TFoo.Create(1); end;
 destructor TB.Destroy; begin F.Free; inherited Destroy; end;
-heap b: TB;
+var b: TB;
 begin b := TB.Create; b.Free; end.

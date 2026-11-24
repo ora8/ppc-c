@@ -371,7 +371,7 @@ static unsigned nil_bits(Expr *e, State *s) {
         if (e->rt->kind == RK_CTOR) return N_NN;
         break;
     case E_BUILTIN:
-        if (e->bi == BI_NEW) return N_NN;
+        if (e->bi == BI_NEW || e->bi == BI_BOXNEW) return N_NN;
         break;
     case E_FIELD: {
         int k = ctor_field(e);
@@ -386,6 +386,7 @@ static unsigned nil_bits(Expr *e, State *s) {
 static char *alloc_hint(Expr *x) {
     const char *d = desc_of(x);
     if (x->kind == E_VAR && x->var->is_stack) return sfmt("%s.Create(...)", d);
+    if (x->kind == E_VAR && x->var->is_box) return sfmt("%s := <value>", d);
     if (x->type->kind == T_CLASS) return sfmt("%s := %s.Create", d, x->type->st->name);
     return sfmt("New(%s)", d);
 }
@@ -461,6 +462,7 @@ typedef struct {
 
 static void use_expr(Expr *e, State *s);
 static void use_lvalue(Expr *e, State *s);
+static void refine(Expr *c, int truth, State *s);
 static Src eval_src(Expr *e, State *s);
 static void call_effects(Expr *e, State *s, Origins *out);
 
@@ -557,6 +559,7 @@ static void builtin_effects(Expr *e, State *s) {
         }
         do_free(A->items[0], s, e->pos, 0, "disposed");
         return;
+    case BI_BOXFREE: do_free(A->items[0], s, e->pos, 0, "freed"); return;
     case BI_FREEANDNIL: {
         Expr *a = A->items[0];
         if (g_nil_check && !a->type->nilable)
@@ -645,7 +648,23 @@ static void use_expr(Expr *e, State *s) {
         return;
     case E_ADDR: use_lvalue(e->a, s); return;
     case E_UNARY: case E_CONV: case E_CAST: case E_IS: case E_AS: use_expr(e->a, s); return;
-    case E_BINARY: use_expr(e->a, s); use_expr(e->b, s); return;
+    case E_BINARY:
+        if ((e->op == OP_AND || e->op == OP_OR) && e->type->kind == T_BOOL) {
+            /* short-circuit: the right operand only runs if the left one is true (and) / false (or) */
+            use_expr(e->a, s);
+            int need = e->op == OP_AND;
+            State rhs = st_copy(s);
+            refine(e->a, need, &rhs);
+            use_expr(e->b, &rhs);
+            State skip = st_copy(s);
+            refine(e->a, !need, &skip);
+            st_join(&skip, &rhs);
+            *s = skip;
+            return;
+        }
+        use_expr(e->a, s);
+        use_expr(e->b, s);
+        return;
     case E_IN:
         use_expr(e->a, s);
         for (int i = 0; i < e->b->args.len; i++) {
@@ -659,6 +678,20 @@ static void use_expr(Expr *e, State *s) {
         return;
     }
     case E_BUILTIN: builtin_effects(e, s); return;
+    case E_ISSOME: {
+        /* 'opt is some k': k receives the content (a borrow of a place, or ownership of a fresh object) */
+        Src src = eval_src(e->a, s);
+        Var *k = e->var;
+        if (slot(k) >= 0) {
+            Expr kv = {0};
+            kv.kind = E_VAR;
+            kv.var = k;
+            kv.type = k->type;
+            kv.pos = e->pos;
+            assign_src(&kv, &src, s, e->pos, N_NN);
+        }
+        return;
+    }
     case E_FMT: use_expr(e->a, s); use_expr(e->b, s); use_expr(e->c, s); return;
     default: return;
     }
@@ -692,7 +725,7 @@ static Src eval_src(Expr *e, State *s) {
     }
     case E_BUILTIN:
         builtin_effects(e, s);
-        if (e->bi == BI_TAKE || (e->bi == BI_NEW && is_owning_type(e->type))) r.kind = SRC_TEMP;
+        if (e->bi == BI_TAKE || e->bi == BI_BOXNEW || (e->bi == BI_NEW && is_owning_type(e->type))) r.kind = SRC_TEMP;
         return r;
     case E_VAR: {
         Var *v = e->var;
@@ -830,6 +863,16 @@ static void assign_src(Expr *lhs, Src *src, State *s, Pos p, unsigned nbits) {
 }
 
 static void do_assign(Expr *lhs, Expr *rhs, State *s, Pos p) {
+    if (lhs->kind == E_DEREF && lhs->a->kind == E_VAR && lhs->a->var->is_box) {
+        /* storing into a heap value: allocates the cell if it has none yet */
+        use_expr(rhs, s);
+        int i = slot(lhs->a->var);
+        if (i >= 0) {
+            s->own[i] = O_OWNED;
+            s->nn[i] = N_NN;
+        }
+        return;
+    }
     if (!is_owning_type(lhs->type)) {
         use_expr(rhs, s);
         use_lvalue(lhs, s);
@@ -1097,6 +1140,21 @@ static void refine(Expr *c, int truth, State *s) {
         refine(c->a, !truth, s);
         return;
     }
+    if (c->kind == E_BINARY && c->type->kind == T_BOOL && (c->op == OP_AND || c->op == OP_OR)) {
+        int both = c->op == OP_AND ? truth : !truth; /* a and b true / a or b false: both sides hold */
+        if (both) {
+            refine(c->a, truth, s);
+            refine(c->b, truth, s);
+        } else {
+            /* a and b false: a false, or a true and b false (or analogously for 'or') */
+            State alt = st_copy(s);
+            refine(c->a, truth, s);
+            refine(c->a, c->op == OP_AND, &alt);
+            refine(c->b, truth, &alt);
+            st_join(s, &alt);
+        }
+        return;
+    }
     Var *v = NULL;
     int nonnil_if_true = 1;
     if (c->kind == E_BINARY && (c->op == OP_NE || c->op == OP_EQ)) {
@@ -1106,13 +1164,40 @@ static void refine(Expr *c, int truth, State *s) {
         if (y->kind == E_NIL && x->kind == E_VAR) v = x->var;
         else if (x->kind == E_NIL && y->kind == E_VAR) v = y->var;
         nonnil_if_true = c->op == OP_NE;
-    } else if (c->kind == E_BUILTIN && c->bi == BI_ASSIGNED && c->args.items[0]->kind == E_VAR)
+    } else if (c->kind == E_BUILTIN && (c->bi == BI_ASSIGNED || c->bi == BI_HASVALUE) && c->args.items[0]->kind == E_VAR)
         v = c->args.items[0]->var;
+    else if (c->kind == E_ISSOME) {
+        /* the binding only holds something when the test succeeded */
+        int k = slot(c->var);
+        if (k >= 0) {
+            if (truth) {
+                s->nn[k] = N_NN;
+                if (tv.items[k].kind == TV_OWNER && (s->own[k] & ~O_NULL)) s->own[k] &= (unsigned char)~O_NULL;
+            } else {
+                s->nn[k] = N_UNINIT;
+                if (tv.items[k].kind == TV_OWNER) s->own[k] = O_NULL;
+            }
+        }
+        Expr *x = strip_conv(c->a);
+        if (x->kind == E_VAR) v = x->var;
+    }
     if (!v || slot(v) < 0) return;
     int i = slot(v);
     int nonnil = truth ? nonnil_if_true : !nonnil_if_true;
-    if (nonnil) s->nn[i] = N_NN;
-    else s->nn[i] = (s->nn[i] & (N_NIL | N_UNINIT)) ? (s->nn[i] & (N_NIL | N_UNINIT)) : N_NIL;
+    /* a branch that contradicts what is known about v cannot be taken */
+    if (nonnil) {
+        if (!(s->nn[i] & N_NN)) {
+            s->reach = 0;
+            return;
+        }
+        s->nn[i] = N_NN;
+    } else {
+        if (!(s->nn[i] & (N_NIL | N_UNINIT))) {
+            s->reach = 0;
+            return;
+        }
+        s->nn[i] &= N_NIL | N_UNINIT;
+    }
     if (!tracked_owner(v)) return;
     if (nonnil) {
         if (s->own[i] & ~O_NULL) s->own[i] &= (unsigned char)~O_NULL;
@@ -1159,8 +1244,8 @@ static void exit_checks(State *s, Pos p) {
                 continue;
             }
             if ((st & O_OWNED) && !(st & O_UNK))
-                bwarn(p, "'%s' %s owns an object at the end of %s (memory leak; free it or transfer ownership)", v->name,
-                      (st & ~O_OWNED) ? "may still" : "still", where);
+                bwarn(p, "'%s' %s an object at the end of %s (memory leak; free it or transfer ownership)", v->name,
+                      (st & ~O_OWNED) ? "may still own" : "still owns", where);
         } else if (v->vkind == VK_RESULT) {
             for (int k = 0; k < s->org[i].len; k++) {
                 Origin *o = &s->org[i].items[k];
@@ -1300,6 +1385,35 @@ static void an_stmt(Stmt *st, State *s) {
         if (loops.len) st_join(&loops.items[loops.len - 1]->cont, s);
         s->reach = 0;
         return;
+    case S_BLOCK: {
+        /* entering the block: its variables start fresh */
+        for (int k = 0; k < st->wvars.len; k++) {
+            Var *v = st->wvars.items[k];
+            int i = slot(v);
+            if (i < 0) continue;
+            s->own[i] = O_NULL;
+            s->bor[i] = B_VALID;
+            s->org[i].len = 0;
+            s->why[i] = NULL;
+            s->nn[i] = N_UNINIT;
+            if (v->is_stack) origin_add(&s->org[i], sfmt("#%d", v->id), v->name, v, 1);
+        }
+        an_list(&st->blk->body, s);
+        /* leaving the block */
+        Pos endp = st->blk->body.len ? st->blk->body.items[st->blk->body.len - 1]->pos : st->pos;
+        for (int k = 0; k < st->wvars.len; k++) {
+            Var *v = st->wvars.items[k];
+            int i = slot(v);
+            if (i < 0 || !s->reach) continue;
+            if (tv.items[i].kind == TV_OWNER && (s->own[i] & O_OWNED) && !(s->own[i] & O_UNK))
+                bwarn(endp, "'%s' %s an object at the end of its block (memory leak; free it or transfer ownership)", v->name,
+                      (s->own[i] & ~O_OWNED) ? "may still own" : "still owns");
+            if (v->is_stack) invalidate(s, sfmt("#%d", v->id), sfmt("'%s' went out of scope at the end of its block (line %d)", v->name, endp.line));
+            s->own[i] = O_NULL;
+            s->nn[i] = N_UNINIT;
+        }
+        return;
+    }
     case S_EXIT:
         if (st->a && unit && unit->result) {
             Expr *rv = new_expr(E_VAR, st->pos);
@@ -1354,7 +1468,7 @@ static void ws_expr(Expr *e) {
         }
         return;
     case E_BUILTIN:
-        if (e->bi == BI_NEW || e->bi == BI_DISPOSE || e->bi == BI_FREEANDNIL || e->bi == BI_TAKE)
+        if (e->bi == BI_NEW || e->bi == BI_DISPOSE || e->bi == BI_FREEANDNIL || e->bi == BI_TAKE || e->bi == BI_BOXFREE)
             if (e->args.len && e->args.items[0]->kind != E_TYPEREF) ws_target(e->args.items[0]);
         for (int i = 0; i < e->args.len; i++) ws_expr(e->args.items[i]);
         ws_expr(e->b);
@@ -1408,6 +1522,9 @@ static void ws_stmt(Stmt *s) {
         ws_stmt(s->s1);
         return;
     case S_EXIT: ws_expr(s->a); return;
+    case S_BLOCK:
+        for (int i = 0; i < s->blk->body.len; i++) ws_stmt(s->blk->body.items[i]);
+        return;
     default: return;
     }
 }
@@ -1449,6 +1566,8 @@ static void cl_stmt(Stmt *s, RtSet *c) {
     }
     for (int i = 0; i < s->else_.len; i++) cl_stmt(s->else_.items[i], c);
     for (int i = 0; i < s->exprs.len; i++) cl_expr(s->exprs.items[i], c);
+    if (s->kind == S_BLOCK)
+        for (int i = 0; i < s->blk->body.len; i++) cl_stmt(s->blk->body.items[i], c);
 }
 
 static void compute_write_sets(void) {

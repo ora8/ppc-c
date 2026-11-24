@@ -2,5 +2,5 @@
 { FLAGS: --no-nil-check }
 program T;
 type TN = class V: Integer; Child: TN; end;
-heap n: TN;
+var n: TN;
 begin n := TN.Create; WriteLn(n.Child.V); n.Free; end.

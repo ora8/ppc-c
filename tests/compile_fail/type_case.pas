@@ -1,4 +1,4 @@
 { EXPECT: type identifier expected, "integer" is unknown }
 program T;
-var x: integer;
+val x: integer;
 begin end.

@@ -2,6 +2,7 @@
  * Produces a resolved/annotated AST that the borrow checker and the
  * code generator work on. Identifiers are case-sensitive. */
 #include "ast.h"
+#include <ctype.h>
 #include <limits.h>
 
 typedef enum { SY_VAR, SY_CONST, SY_TYPE, SY_ROUTINE } SymKind;
@@ -38,6 +39,7 @@ static int loop_depth;
 static int in_prelude;
 static int var_counter, routine_counter, struct_counter, enum_counter, with_counter;
 static StmtVec *local_init;
+static int in_block; /* inside a block statement with its own declarations */
 
 static Type *t_void, *t_int, *t_i64, *t_i8, *t_u8, *t_i16, *t_u16, *t_u32, *t_bool, *t_char,
     *t_real, *t_str, *t_ptr, *t_nil;
@@ -47,6 +49,9 @@ static Expr *ex(Expr *e);
 static Type *resolve_type(TypeExpr *te);
 static void decls(Block *b, int has_frame);
 static void stmts(StmtVec *v);
+static Type *infer_type(Expr *r, Pos p, const char *name);
+static void settle_var(Var *v, Type *t, Expr *src, Pos p);
+static void check_settled(Var **vars, int n);
 
 /* ============================================================== types */
 
@@ -82,6 +87,7 @@ const char *type_name(Type *t) {
     case T_ARRAY: return sfmt("array[%lld..%lld] of %s", t->lo, t->hi, type_name(t->base));
     case T_RECORD: case T_CLASS: return t->st->name;
     case T_ENUM: return t->en->name;
+    case T_OPT: return sfmt("optional %s", type_name(t->base));
     }
     return "?";
 }
@@ -104,7 +110,7 @@ int is_owning_temp(Expr *e) {
         if (r->kind == RK_CTOR) return e->cmode == CM_NEWCLASS;
         return r->kind == RK_FUNC && is_ref_type(r->ret) && !r->ret_borrowed;
     }
-    if (e->kind == E_BUILTIN) return e->bi == BI_TAKE || (e->bi == BI_NEW && e->type && is_ref_type(e->type));
+    if (e->kind == E_BUILTIN) return e->bi == BI_TAKE || e->bi == BI_BOXNEW || (e->bi == BI_NEW && e->type && is_ref_type(e->type));
     return 0;
 }
 
@@ -127,8 +133,17 @@ static int same_type(Type *a, Type *b) {
     case T_ARRAY: return a->lo == b->lo && a->hi == b->hi && same_type(a->base, b->base);
     case T_RECORD: case T_CLASS: return a->st == b->st;
     case T_ENUM: return a->en == b->en;
+    case T_OPT: return same_type(a->base, b->base);
     default: return 1;
     }
+}
+
+static int is_optional(Type *t) { return t->kind == T_OPT || (t->kind == T_CLASS && t->nilable); }
+
+/* the type inside an optional */
+static Type *unwrapped(Type *t) {
+    if (t->kind == T_OPT) return t->base;
+    return t->st->type; /* class: the canonical non-optional class type */
 }
 
 static Type *arith_int(Type *a, Type *b) {
@@ -140,6 +155,12 @@ static Type *arith_int(Type *a, Type *b) {
 
 /* 0 = incompatible, 1 = compatible as is, 2 = needs conversion node */
 static int assign_compat(Type *to, Type *from) {
+    if (to->kind == T_CLASS && from->kind == T_CLASS && from->nilable && !to->nilable) return 0;
+    if (to->kind == T_OPT) {
+        if (from->kind == T_OPT) return same_type(to, from);
+        if (from->kind == T_NIL) return 2;
+        return assign_compat(to->base, from) ? 2 : 0;
+    }
     if (same_type(to, from)) return 1;
     switch (to->kind) {
     case T_INT: return from->kind == T_INT;
@@ -150,7 +171,7 @@ static int assign_compat(Type *to, Type *from) {
         if (from->kind == T_PTR && (!to->base || !from->base)) return 2;
         return 0;
     case T_CLASS:
-        if (from->kind == T_NIL) return 1;
+        if (from->kind == T_NIL) return to->nilable;
         if (from->kind == T_CLASS && struct_descends(from->st, to->st)) return 2;
         return 0;
     default: return 0;
@@ -166,6 +187,19 @@ static Expr *conv(Expr *e, Type *to) {
 
 static Expr *coerce(Expr *e, Type *to, const char *ctx) {
     int c = assign_compat(to, e->type);
+    if (!c && e->type->kind == T_NIL)
+        error_at(e->pos, "none can only be stored in an optional type, not in \"%s\" (declare it 'optional %s')",
+                 type_name(to), type_name(to));
+    if (!c && is_optional(e->type) && !is_optional(to))
+        error_at(e->pos, "optional value of type \"%s\" cannot be used as \"%s\" in %s; unpack it first: 'if x is some v then ...'",
+                 type_name(e->type), type_name(to), ctx);
+    if (c && to->kind == T_OPT && e->type->kind != T_OPT && e->type->kind != T_NIL) {
+        Expr *inner = coerce(e, to->base, ctx); /* e.g. Integer -> optional Real */
+        Expr *w = new_expr(E_CONV, e->pos);
+        w->a = inner;
+        w->type = to;
+        return w;
+    }
     if (!c)
         error_at(e->pos, "incompatible types in %s: got \"%s\" expected \"%s\"", ctx, type_name(e->type),
                  type_name(to));
@@ -292,7 +326,7 @@ static int is_lvalue(Expr *e) {
 static void check_writable(Expr *e, const char *what) {
     if (!is_lvalue(e)) error_at(e->pos, "%s: variable identifier expected", what);
     if (e->kind == E_VAR && e->var->is_stack)
-        error_at(e->pos, "%s: \"%s\" is a stack object and cannot be reassigned; construct it with %s.Create(...) (heap objects are declared in a 'heap' section)", what,
+        error_at(e->pos, "%s: \"%s\" is a stack object and cannot be reassigned; construct it with %s.Create(...) (heap objects are declared in a 'var' section)", what,
                  e->var->name, e->var->name);
     if (e->kind == E_VAR && e->var->is_const)
         error_at(e->pos, "%s: cannot modify constant/loop variable \"%s\"", what, e->var->name);
@@ -472,7 +506,7 @@ static Struct *new_struct(const char *name, int kind, Pos p) {
 /* zero-initialized storage (arrays, records, New(p)^) cannot hold non-nilable references */
 static void require_nilable(Type *t, Pos p, const char *where) {
     if (g_nil_check && is_ref_type(t) && !t->nilable)
-        error_at(p, "%s of type \"%s\" must be declared 'nilable %s' (this storage starts out empty)", where, type_name(t),
+        error_at(p, "%s of type \"%s\" must be declared 'optional %s' (this storage starts out empty)", where, type_name(t),
                  type_name(t));
 }
 
@@ -505,8 +539,46 @@ static void add_fields(Struct *s, FieldDeclVec *fields) {
     }
 }
 
-static void define_record(Struct *s, FieldDeclVec *fields) {
-    add_fields(s, fields);
+static void build_params(Routine *rt, ParamGroupVec *pg);
+static Routine *new_routine(const char *name, int kind, Pos p);
+
+/* records: value types; methods are static (no inheritance, no virtual methods) */
+static void define_record(Struct *s, TypeExpr *te) {
+    add_fields(s, &te->fields);
+    StructDecl *sd = te->sd;
+    if (sd && (sd->methods.len || sd->props.len) && strncmp(s->name, "record", 6) == 0 && isdigit((unsigned char)s->name[6]))
+        error_at(te->pos, "records with methods must be declared as a named type");
+    for (int i = 0; sd && i < sd->methods.len; i++) {
+        MethodDecl *md = &sd->methods.items[i];
+        if (md->kind == RK_CTOR || md->kind == RK_DTOR)
+            error_at(md->name.pos, "records cannot have constructors or destructors (records are values: use a procedure such as Init or a function that returns the record)");
+        if (md->virt != VIRT_NONE || md->is_abstract)
+            error_at(md->name.pos, "record methods cannot be virtual, abstract or override (records have no inheritance)");
+        for (int j = 0; j < s->methods.len; j++)
+            if (STREQ(s->methods.items[j]->name, md->name.name))
+                error_at(md->name.pos, "duplicate method \"%s\" (overloading is not supported)", md->name.name);
+        for (int j = 0; j < s->fields.len; j++)
+            if (STREQ(s->fields.items[j]->name, md->name.name))
+                error_at(md->name.pos, "\"%s\" is already a field of \"%s\"", md->name.name, s->name);
+        Routine *r = new_routine(md->name.name, md->kind, md->name.pos);
+        r->owner = s;
+        r->level = 1;
+        r->cname = sfmt("M%d_%s", s->id, md->name.name);
+        build_params(r, &md->params);
+        if (md->ret) r->ret = resolve_type(md->ret);
+        r->ret_borrowed = md->ret_borrowed;
+        vpush(s->methods, r);
+    }
+    for (int i = 0; sd && i < sd->props.len; i++) {
+        PropDecl *pd = &sd->props.items[i];
+        Prop *pr = NEW(Prop);
+        pr->name = pd->name.name;
+        pr->type = resolve_type(pd->ty);
+        pr->read = pd->has_read ? pd->read.name : NULL;
+        pr->write = pd->has_write ? pd->write.name : NULL;
+        pr->pos = pd->name.pos;
+        vpush(s->props, pr);
+    }
     s->defined = 1;
     vpush(prog->structs, s);
 }
@@ -540,14 +612,18 @@ static Type *resolve_type_inner(TypeExpr *te);
 static Type *resolve_type(TypeExpr *te) {
     Type *t = resolve_type_inner(te);
     if (!te->nilable) return t;
-    if (t->kind != T_CLASS && !(t->kind == T_PTR && t->base))
-        error_at(te->pos, "'nilable' requires a class or typed pointer type, not \"%s\"", type_name(t));
-    if (t->nilable) return t;
-    Type *n = NEW(Type);
-    *n = *t;
-    n->nilable = 1;
-    n->name = sfmt("nilable %s", type_name(t));
-    return n;
+    if (is_optional(t)) error_at(te->pos, "optional of optional is not allowed");
+    if (t->kind == T_CLASS) { /* optional class: a reference that may be none (NULL) */
+        Type *n = NEW(Type);
+        *n = *t;
+        n->nilable = 1;
+        n->name = sfmt("optional %s", type_name(t));
+        return n;
+    }
+    if (t->kind == T_VOID) error_at(te->pos, "invalid optional type");
+    Type *o = new_type(T_OPT, sfmt("optional %s", type_name(t))); /* value optional: flag + value */
+    o->base = t;
+    return o;
 }
 
 static Type *resolve_type_inner(TypeExpr *te) {
@@ -603,7 +679,7 @@ static Type *resolve_type_inner(TypeExpr *te) {
     }
     case TE_RECORD: {
         Struct *s = new_struct(sfmt("record%d", struct_counter + 1), SK_RECORD, te->pos);
-        define_record(s, &te->fields);
+        define_record(s, te);
         return s->type;
     }
     case TE_STRUCT:
@@ -867,6 +943,14 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
         switch (s->kind) {
         case SY_VAR:
             if (args) error_at(p, "\"%s\" is a variable and cannot be called", name);
+            if (s->var->pending)
+                error_at(p, "the type of '%s' is not known yet: assign a value to it first ('%s := ...')", name, name);
+            if (s->var->is_box) { /* heap value: used like the value it holds */
+                Expr *d = new_expr(E_DEREF, p);
+                d->a = var_expr(s->var, p);
+                d->type = s->var->type->base;
+                return d;
+            }
             return var_expr(s->var, p);
         case SY_CONST: {
             if (args) error_at(p, "\"%s\" is a constant and cannot be called", name);
@@ -890,6 +974,14 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
         const char *name = e->id.name;
         if (e->a->kind == E_IDENT) {
             Look L = lookup(e->a->id.name);
+            if (L.kind == LK_SYM && L.sym->kind == SY_VAR && L.sym->var->is_box && STREQ(name, "Free")) {
+                if (args && args->len) error_at(p, "Free takes no arguments");
+                Expr *f = new_expr(E_BUILTIN, p);
+                f->bi = BI_BOXFREE;
+                f->type = t_void;
+                vpush(f->args, var_expr(L.sym->var, p));
+                return f;
+            }
             if (L.kind == LK_SYM && L.sym->kind == SY_TYPE) {
                 Type *t = L.sym->type;
                 if (t->kind == T_CLASS) {
@@ -897,6 +989,14 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
                     if (!find_member(t->st, name, &M.f, &M.m, &M.p) || !M.m || M.m->kind != RK_CTOR)
                         error_at(p, "\"%s.%s\" is not a constructor", t->st->name, name);
                     return make_call(M.m, NULL, args, CM_NEWCLASS, t, p);
+                }
+                if (STREQ(name, "Create")) { /* T.Create(init): allocate a heap value */
+                    Expr *bn = builtin(BI_BOXNEW, args, p);
+                    bn->ctype = t;
+                    if (bn->args.len) bn->args.items[0] = coerce(bn->args.items[0], t, "Create");
+                    bn->type = ptr_to(t);
+                    bn->type->name = sfmt("heap %s", type_name(t));
+                    return bn;
                 }
                 if (t->kind == T_ENUM) {
                     for (int i = 0; i < t->en->names.len; i++)
@@ -908,6 +1008,20 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
         }
         Expr *base = autoderef(value(e->a));
         Type *bt = base->type;
+        if (is_optional(bt)) {
+            if (STREQ(name, "HasValue") || STREQ(name, "ValueOr")) {
+                ExprVec a2 = {0};
+                vpush(a2, base);
+                if (args)
+                    for (int i = 0; i < args->len; i++) vpush(a2, args->items[i]);
+                return builtin(STREQ(name, "HasValue") ? BI_HASVALUE : BI_VALUEOR, &a2, p);
+            }
+            if (!(bt->kind == T_CLASS && STREQ(name, "Free"))) {
+                const char *what = base->kind == E_VAR ? base->var->name : base->kind == E_FIELD ? base->field->name : "x";
+                error_at(p, "'%s' is optional (%s): unpack it first, e.g. 'if %s is some v then v.%s'", what,
+                         type_name(bt), what, name);
+            }
+        }
         if (bt->kind != T_RECORD && bt->kind != T_CLASS)
             error_at(p, "illegal qualifier: \"%s\" has no members", type_name(bt));
         Look L = {0};
@@ -1061,9 +1175,15 @@ static Expr *ex(Expr *e) {
                 return e;
             }
             if (is_ordinal(ta) && same_type(ta, tb)) return e;
+            if ((ta->kind == T_NIL || tb->kind == T_NIL) && (op == OP_EQ || op == OP_NE)) {
+                Type *o = ta->kind == T_NIL ? tb : ta;
+                if (is_optional(o) || o->kind == T_NIL) return e;
+                error_at(e->pos, "\"%s\" is not optional and can never be none", type_name(o));
+            }
+            if (is_optional(ta) || is_optional(tb))
+                error_at(e->pos, "optional values can only be compared with none; unpack them with 'is some'");
             if (is_ptrlike(ta) && is_ptrlike(tb) && (op == OP_EQ || op == OP_NE)) {
-                if (ta->kind == T_NIL || tb->kind == T_NIL || assign_compat(ta, tb) || assign_compat(tb, ta))
-                    return e;
+                if (assign_compat(ta, tb) || assign_compat(tb, ta)) return e;
             }
             error_at(e->pos, "incompatible types in comparison: \"%s\" and \"%s\"", type_name(ta), type_name(tb));
         }
@@ -1088,6 +1208,8 @@ static Expr *ex(Expr *e) {
         e->type = t_bool;
         return e;
     }
+    case E_ISSOME: error_at(e->pos, "'is some' is only allowed in if/while conditions (alone or combined with 'and')");
+    case E_SOMEPAT: error_at(e->pos, "'some x' is only allowed as a case label for an optional selector");
     case E_IS: case E_AS: {
         e->a = value(e->a);
         if (e->a->type->kind != T_CLASS) error_at(e->pos, "class instance expected before 'is'/'as'");
@@ -1367,10 +1489,29 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
             e->type = t_real;
         return e;
     case BI_RANDOMIZE: NARGS(0, 0); return e;
+    case BI_BOXNEW:
+        NARGS(0, 1);
+        if (n) vpush(e->args, value(A(0)));
+        return e;
+    case BI_HASVALUE: {
+        NARGS(1, 1);
+        vpush(e->args, A(0));
+        e->type = t_bool;
+        return e;
+    }
+    case BI_VALUEOR: {
+        NARGS(2, 2);
+        if (A(0)->type->kind != T_OPT)
+            error_at(p, "ValueOr is only available for optional values, not for optional objects (use 'is some')");
+        vpush(e->args, A(0));
+        vpush(e->args, coerce(value(A(1)), A(0)->type->base, "ValueOr"));
+        e->type = A(0)->type->base;
+        return e;
+    }
     case BI_ASSIGNED: {
         NARGS(1, 1);
         Expr *a = value(A(0));
-        if (!is_ptrlike(a->type)) error_at(p, "pointer or class instance expected");
+        if (!is_ptrlike(a->type) && a->type->kind != T_OPT) error_at(p, "class instance or optional value expected");
         vpush(e->args, a);
         e->type = t_bool;
         return e;
@@ -1429,6 +1570,44 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
 
 /* ============================================================== statements */
 
+static int scope_has_frame(void) { return cur ? cur->has_frame : 0; }
+
+/* 'opt is some k': declares k (inside the current scope) and unpacks into it */
+static Expr *bind_some(Expr *e) {
+    e->a = value(e->a);
+    Type *t = e->a->type;
+    if (!is_optional(t)) error_at(e->pos, "\"%s\" is not optional, 'is some' needs an optional value", type_name(t));
+    Var *k = new_var(e->id.name, unwrapped(t), cur ? VK_LOCAL : VK_GLOBAL, e->id.pos);
+    k->cname = sfmt("B%d_%s", k->id, e->id.name);
+    k->is_global = !cur;
+    k->level = level;
+    k->in_frame = scope_has_frame();
+    /* unpacking a place borrows its content; unpacking a fresh owned object takes ownership */
+    k->borrowed = t->kind == T_CLASS && !is_owning_temp(e->a);
+    k->is_const = k->borrowed || t->kind == T_OPT;
+    if (cur) vpush(cur->locals, k);
+    else vpush(prog->globals, k);
+    add_sym(SY_VAR, e->id.name, e->id.pos)->var = k;
+    e->var = k;
+    e->type = t_bool;
+    return e;
+}
+
+static Expr *cond(Expr *e);
+
+/* condition that may unpack optionals: 'x is some k', joined with 'and' */
+static Expr *cond_bind(Expr *e) {
+    if (e->kind == E_ISSOME) return bind_some(e);
+    if (e->kind == E_BINARY && e->op == OP_AND && (e->a->kind == E_ISSOME || e->b->kind == E_ISSOME ||
+                                                   (e->a->kind == E_BINARY && e->a->op == OP_AND))) {
+        e->a = cond_bind(e->a);
+        e->b = cond_bind(e->b);
+        e->type = t_bool;
+        return e;
+    }
+    return cond(e);
+}
+
 static Expr *cond(Expr *e) {
     Expr *v = value(e);
     if (v->type->kind != T_BOOL) error_at(e->pos, "Boolean expression expected, got \"%s\"", type_name(v->type));
@@ -1437,6 +1616,34 @@ static Expr *cond(Expr *e) {
 
 static void assign(Stmt *s) {
     Expr *l = s->a;
+    if (l->kind == E_IDENT) {
+        Look P = lookup(l->id.name);
+        if (P.kind == LK_SYM && P.sym->kind == SY_VAR && P.sym->var->pending) { /* first assignment decides the type */
+            Expr *r = value(s->b);
+            settle_var(P.sym->var, infer_type(r, s->b->pos, l->id.name), r, l->pos);
+            s->b = r;
+        }
+    }
+    if (l->kind == E_IDENT) {
+        Look B = lookup(l->id.name);
+        if (B.kind == LK_SYM && B.sym->kind == SY_VAR && B.sym->var->is_box) {
+            Var *v = B.sym->var;
+            Expr *r = value(s->b);
+            if (r->type->kind == T_PTR && r->type->base) { /* I := Integer.Create(...) */
+                if (!same_type(r->type, v->type))
+                    error_at(s->b->pos, "incompatible types: got \"%s\" expected \"%s\"", type_name(r->type), type_name(v->type));
+                s->a = var_expr(v, l->pos);
+                s->b = r;
+                return;
+            }
+            Expr *d = new_expr(E_DEREF, l->pos); /* I := 5: store into the heap value */
+            d->a = var_expr(v, l->pos);
+            d->type = v->type->base;
+            s->a = d;
+            s->b = coerce(r, d->type, "assignment");
+            return;
+        }
+    }
     if (l->kind == E_IDENT) {
         Look L = lookup(l->id.name);
         if (L.kind == LK_SYM && L.sym->kind == SY_ROUTINE) {
@@ -1541,15 +1748,19 @@ static void stmt(Stmt *s) {
     }
     case S_COMPOUND: stmts(&s->body); return;
     case S_IF:
-        s->a = cond(s->a);
+        push_scope(); /* bindings of 'is some' are visible in the then-branch */
+        s->a = cond_bind(s->a);
         stmt(s->s1);
+        pop_scope();
         if (s->s2) stmt(s->s2);
         return;
     case S_WHILE:
-        s->a = cond(s->a);
+        push_scope();
+        s->a = cond_bind(s->a);
         loop_depth++;
         stmt(s->s1);
         loop_depth--;
+        pop_scope();
         return;
     case S_REPEAT:
         loop_depth++;
@@ -1578,6 +1789,50 @@ static void stmt(Stmt *s) {
     case S_CASE: {
         s->a = value(s->a);
         Type *t = s->a->type;
+        if (is_optional(t)) {
+            /* case opt of some x: ...; none: ... end  ==>  if opt is some x then ... else ... */
+            Stmt *some_body = NULL, *none_body = NULL;
+            Expr *pat = NULL;
+            for (int i = 0; i < s->arms.len; i++) {
+                CaseArm *arm = &s->arms.items[i];
+                if (arm->lo.len != 1 || arm->hi.items[0]) error_at(arm->body->pos, "optional case arms are 'some x:' or 'none:'");
+                Expr *l = arm->lo.items[0];
+                if (l->kind == E_SOMEPAT && !some_body) {
+                    pat = l;
+                    some_body = arm->body;
+                } else if (l->kind == E_NIL && !none_body)
+                    none_body = arm->body;
+                else
+                    error_at(l->pos, "optional case arms are 'some x:' and 'none:' (each at most once)");
+            }
+            if (s->has_else) {
+                if (none_body && some_body) error_at(s->pos, "'else' is unreachable: both 'some' and 'none' are handled");
+                Stmt *c = new_stmt(S_COMPOUND, s->pos);
+                c->body = s->else_;
+                if (!none_body) none_body = c;
+                else if (!some_body) some_body = c;
+            }
+            Stmt *n = new_stmt(S_IF, s->pos);
+            if (pat) {
+                Expr *is = new_expr(E_ISSOME, pat->pos);
+                is->a = s->a;
+                is->id = pat->id;
+                n->a = is;
+                n->s1 = some_body ? some_body : new_stmt(S_EMPTY, s->pos);
+                n->s2 = none_body;
+            } else {
+                Expr *eq = new_expr(E_BINARY, s->pos);
+                eq->op = OP_EQ;
+                eq->a = s->a;
+                eq->b = new_expr(E_NIL, s->pos);
+                n->a = eq;
+                n->s1 = none_body ? none_body : new_stmt(S_EMPTY, s->pos);
+                n->s2 = some_body;
+            }
+            *s = *n;
+            stmt(s);
+            return;
+        }
         if (!is_ordinal(t) && t->kind != T_STR) error_at(s->a->pos, "ordinal or string selector expected");
         for (int i = 0; i < s->arms.len; i++) {
             CaseArm *arm = &s->arms.items[i];
@@ -1597,6 +1852,7 @@ static void stmt(Stmt *s) {
             Type *t = v->type;
             if (t->kind != T_RECORD && t->kind != T_CLASS)
                 error_at(v->pos, "record or class expected in 'with'");
+            if (is_optional(t)) error_at(v->pos, "'with' needs a value, but \"%s\" is optional (unpack it with 'is some')", type_name(t));
             if (t->kind != T_CLASS && !is_lvalue(v)) error_at(v->pos, "'with' needs a variable");
             Var *w = new_var("with", t, VK_WITH, v->pos);
             w->is_ref = t->kind != T_CLASS;
@@ -1611,6 +1867,37 @@ static void stmt(Stmt *s) {
         return;
     }
     case S_EXIT: return;
+    case S_BLOCK: {
+        /* begin-block with its own declarations: a new scope */
+        for (int i = 0; i < s->blk->decls.len; i++) {
+            DeclKind k = s->blk->decls.items[i]->kind;
+            if (k == D_ROUTINE || k == D_TYPE)
+                error_at(s->pos, "only const, val and var sections are allowed before a nested begin ... end");
+            if (k == D_CONST)
+                for (int j = 0; j < s->blk->decls.items[i]->consts.len; j++)
+                    if (s->blk->decls.items[i]->consts.items[j].ty)
+                        error_at(s->pos, "typed constants are not allowed in a nested block (declare them at routine level)");
+        }
+        push_scope();
+        StmtVec *save_init = local_init;
+        StmtVec inits = {0};
+        local_init = &inits;
+        in_block++;
+        int n0 = cur ? cur->locals.len : prog->globals.len;
+        decls(s->blk, cur ? cur->has_frame : 0);
+        VEC(Var *) *all = cur ? (void *)&cur->locals : (void *)&prog->globals;
+        for (int i = n0; i < all->len; i++) vpush(s->wvars, all->items[i]);
+        in_block--;
+        local_init = save_init;
+        stmts(&s->blk->body);
+        StmtVec body = {0};
+        for (int i = 0; i < inits.len; i++) vpush(body, inits.items[i]);
+        for (int i = 0; i < s->blk->body.len; i++) vpush(body, s->blk->body.items[i]);
+        s->blk->body = body;
+        check_settled(s->wvars.items, s->wvars.len);
+        pop_scope();
+        return;
+    }
     }
 }
 
@@ -1642,9 +1929,56 @@ static void add_init(StmtVec *dst, Var *v, Expr *init) {
         return;
     }
     Stmt *s = new_stmt(S_ASSIGN, init->pos);
-    s->a = var_expr(v, init->pos);
-    s->b = coerce(value(init), v->type, "initializer");
+    Expr *r = value(init);
+    if (v->is_box && !(r->type->kind == T_PTR && r->type->base)) { /* heap value: store into the (new) cell */
+        Expr *d = new_expr(E_DEREF, init->pos);
+        d->a = var_expr(v, init->pos);
+        d->type = v->type->base;
+        s->a = d;
+        s->b = coerce(r, d->type, "initializer");
+    } else {
+        s->a = var_expr(v, init->pos);
+        s->b = coerce(r, v->type, "initializer");
+    }
     vpush(*dst, s);
+}
+
+/* type of a variable declared without ': Type', taken from the value assigned to it */
+static Type *infer_type(Expr *r, Pos p, const char *name) {
+    if (r->kind == E_TYPEREF || r->type == t_void) error_at(p, "cannot infer the type of '%s' from this expression", name);
+    if (r->type->kind == T_NIL) error_at(p, "cannot infer the type of '%s' from none: declare it as '%s: optional T'", name, name);
+    if (r->type->kind == T_PTR && r->type->base && r->kind == E_BUILTIN && r->bi == BI_BOXNEW) return r->type->base;
+    return r->type;
+}
+
+/* give a variable declared without a type its type */
+static void settle_var(Var *v, Type *t, Expr *src, Pos p) {
+    v->pending = 0;
+    if (v->decl_heap) {
+        if (t->kind == T_CLASS) {
+            v->type = t; /* owner of a heap object */
+        } else {
+            Type *b = ptr_to(t);
+            b->name = sfmt("heap %s", type_name(t));
+            v->type = b;
+            v->is_box = 1;
+        }
+        return;
+    }
+    if (t->kind == T_CLASS) {
+        if (src && is_owning_temp(src))
+            error_at(p, "'%s' would be a stack object: declare it with a type ('val %s: %s;' and %s.Create(...)), or use 'var %s = ...' for a heap object",
+                     v->name, v->name, type_name(t), v->name, v->name);
+        v->borrowed = 1; /* val x = someObject: a borrowed reference */
+    }
+    v->type = t;
+}
+
+static void check_settled(Var **vars, int n) {
+    for (int i = 0; i < n; i++)
+        if (vars[i]->pending)
+            error_at(vars[i]->pos, "the type of '%s' cannot be determined: it is never assigned (declare '%s: Type')",
+                     vars[i]->name, vars[i]->name);
 }
 
 static void routine_decl(RoutineDecl *d) {
@@ -1653,8 +1987,8 @@ static void routine_decl(RoutineDecl *d) {
         if (cur) error_at(d->pos, "method implementations must be at program level");
         Look L = lookup(d->cls.name);
         if (L.kind != LK_SYM || L.sym->kind != SY_TYPE ||
-            L.sym->type->kind != T_CLASS)
-            error_at(d->cls.pos, "\"%s\" is not a class type", d->cls.name);
+            (L.sym->type->kind != T_CLASS && L.sym->type->kind != T_RECORD))
+            error_at(d->cls.pos, "\"%s\" is not a class or record type", d->cls.name);
         Struct *st = L.sym->type->st;
         for (int i = 0; i < st->methods.len; i++)
             if (STREQ(st->methods.items[i]->name, d->name.name)) rt = st->methods.items[i];
@@ -1731,6 +2065,7 @@ static void routine_body(Routine *rt, RoutineDecl *d) {
 
     if (rt->owner) {
         Var *self = new_var("Self", rt->owner->type, VK_SELF, rt->pos);
+        self->is_ref = rt->owner->kind == SK_RECORD; /* record methods work on the caller's record */
         self->borrowed = 1;
         self->in_frame = has_frame;
         rt->self = self;
@@ -1758,6 +2093,7 @@ static void routine_body(Routine *rt, RoutineDecl *d) {
     }
     decls(d->body, has_frame);
     stmts(&d->body->body);
+    check_settled(rt->locals.items, rt->locals.len);
     StmtVec body = {0};
     for (int i = 0; i < inits.len; i++) vpush(body, inits.items[i]);
     for (int i = 0; i < d->body->body.len; i++) vpush(body, d->body->body.items[i]);
@@ -1821,7 +2157,7 @@ static void decls(Block *b, int has_frame) {
                 if (k == TE_CLASSFWD) continue;
                 if (k == TE_STRUCT || k == TE_RECORD) {
                     Struct *st = find_local(td->name.name)->type->st;
-                    if (k == TE_RECORD) define_record(st, &td->ty->fields);
+                    if (k == TE_RECORD) define_record(st, td->ty);
                     else define_struct(st, td->ty->sd);
                     continue;
                 }
@@ -1842,32 +2178,64 @@ static void decls(Block *b, int has_frame) {
         case D_VAR:
             for (int i = 0; i < d->vars.len; i++) {
                 VarDecl *vd = &d->vars.items[i];
+                Pos dpos = vd->names.items[0].pos;
+                if (vd->init && vd->names.len > 1) error_at(dpos, "only one variable can be initialized");
+                if (!vd->ty) {
+                    /* no type: taken from the initializer, or from the first assignment in the code */
+                    Expr *r = NULL;
+                    if (vd->init) {
+                        if (vd->init->kind == E_LIST) error_at(dpos, "an initializer list needs a declared array type");
+                        r = value(vd->init);
+                    }
+                    for (int k = 0; k < vd->names.len; k++) {
+                        Ident *id = &vd->names.items[k];
+                        Var *v = new_var(id->name, NULL, cur ? VK_LOCAL : VK_GLOBAL, id->pos);
+                        if (in_block) v->cname = sfmt("L%d_%s", v->id, id->name);
+                        v->pending = 1;
+                        v->decl_heap = vd->is_heap;
+                        v->in_frame = has_frame;
+                        if (cur) vpush(cur->locals, v);
+                        else vpush(prog->globals, v);
+                        add_sym(SY_VAR, id->name, id->pos)->var = v;
+                        if (r) {
+                            settle_var(v, infer_type(r, vd->init->pos, id->name), r, id->pos);
+                            add_init((cur || in_block) ? local_init : &prog->init, v, r);
+                        }
+                    }
+                    continue;
+                }
                 Type *t = resolve_type(vd->ty);
                 check_complete(t, vd->ty->pos);
                 if (vd->borrowed && !is_owning_type(t))
                     error_at(vd->ty->pos, "'borrowed' requires a class or typed pointer type");
                 int is_stack = 0;
+                int is_box = 0;
                 if (vd->is_heap) {
-                    if (!is_ref_type(t))
-                        error_at(vd->ty->pos, "only class and pointer types can be declared in a heap section (use 'var' for \"%s\")",
-                                 type_name(t));
+                    if (t->kind != T_CLASS) { /* heap value: the variable owns a heap cell holding a T */
+                        Type *b = ptr_to(t);
+                        b->name = sfmt("heap %s", type_name(t));
+                        t = b;
+                        is_box = 1;
+                    }
                 } else if (t->kind == T_CLASS && !vd->borrowed) {
                     if (t->nilable)
-                        error_at(vd->ty->pos, "a nilable class variable refers to a heap object: declare it in a 'heap' section (or as 'borrowed nilable')");
-                    is_stack = 1; /* class variable in 'var': the object itself lives in the stack frame */
+                        error_at(vd->ty->pos, "an optional class variable refers to a heap object: declare it in a 'var' section (or as 'borrowed optional' in 'val')");
+                    is_stack = 1; /* class variable in 'val': the object itself lives in the stack frame */
                     if (vd->init) error_at(vd->ty->pos, "stack objects are constructed with x.Create(...) in the code");
                 }
-                if (vd->init && vd->names.len > 1) error_at(vd->ty->pos, "only one variable can be initialized");
                 for (int k = 0; k < vd->names.len; k++) {
                     Ident *id = &vd->names.items[k];
                     Var *v = new_var(id->name, t, cur ? VK_LOCAL : VK_GLOBAL, id->pos);
+                    if (in_block) v->cname = sfmt("L%d_%s", v->id, id->name);
                     v->borrowed = vd->borrowed || is_stack;
                     v->is_stack = is_stack;
+                    v->is_box = is_box;
+                    v->decl_heap = vd->is_heap;
                     v->in_frame = has_frame;
                     if (cur) vpush(cur->locals, v);
                     else vpush(prog->globals, v);
                     add_sym(SY_VAR, id->name, id->pos)->var = v;
-                    if (vd->init) add_init(cur ? local_init : &prog->init, v, vd->init);
+                    if (vd->init) add_init((cur || in_block) ? local_init : &prog->init, v, vd->init);
                 }
             }
             break;
@@ -1934,6 +2302,7 @@ Program *sema_program(Block *prelude, Block *pb, const char *name) {
     push_scope();
     decls(pb, 0);
     stmts(&pb->body);
+    check_settled(prog->globals.items, prog->globals.len);
     prog->body = pb->body;
 
     for (int i = 0; i < prog->routines.len; i++) {

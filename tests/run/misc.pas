@@ -24,7 +24,7 @@ procedure TAccount.Apply(n: Integer);
   begin
     Balance := Balance + k;
   end;
-var i: Integer;
+val i: Integer;
 begin
   for i := 1 to n do Step(i);
 end;
@@ -47,7 +47,7 @@ begin
 end;
 
 function FirstNeg(const a: TArr5): Integer;
-var i: Integer;
+val i: Integer;
 begin
   for i := 1 to 5 do
     if a[i] < 0 then Exit(i);
@@ -55,7 +55,7 @@ begin
 end;
 
 function Outer(x: Integer): Integer;
-var depth: Integer;
+val depth: Integer;
   function Mid(y: Integer): Integer;
     function Inner(z: Integer): Integer;
     begin
@@ -70,10 +70,10 @@ begin
   Result := Mid(x) * 10 + depth;
 end;
 
-heap
+var
   acc: TAccount;
   p: TRec;
-var
+val
   d: TDay;
   arr: TArr5;
   s, t: String;

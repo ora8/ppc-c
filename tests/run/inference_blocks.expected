@@ -1,0 +1,8 @@
+I = 10, N = 3.5, S = Hallo
+ohne Deklaration: normaler begin-Block
+im Block: j = 10, s.V = 1, h.V = 2
+  Destroy TFoo 2
+  Destroy TFoo 1
+nach dem Block
+Schleife: q = 0
+Schleife: q = 100

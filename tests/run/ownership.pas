@@ -2,16 +2,16 @@ program Ownership;
 type
   TItem = class
     Value: Integer;
-    Next: nilable TItem;         { besitzt das naechste Element (nil am Ende) }
+    Next: optional TItem;         { besitzt das naechste Element (none am Ende) }
     constructor Create(V: Integer);
     destructor Destroy; override;
   end;
   TList = class
-    Head: nilable TItem;
+    Head: optional TItem;
     Count: Integer;
     procedure Push(owned Item: TItem);   { uebernimmt den Besitz }
-    function Find(V: Integer): borrowed nilable TItem;
-    function PopFront: nilable TItem;    { gibt Besitz an Aufrufer }
+    function Find(V: Integer): borrowed optional TItem;
+    function PopFront: optional TItem;    { gibt Besitz an Aufrufer }
     destructor Destroy; override;
   end;
 
@@ -26,27 +26,27 @@ end;
 
 procedure TList.Push(owned Item: TItem);
 begin
-  Item.Next := Take(Head);       { Head -> nil, Besitz wandert zu Item.Next }
+  Item.Next := Take(Head);       { Head -> none, Besitz wandert zu Item.Next }
   Head := Item;                  { Move des Parameters ins Feld }
   Inc(Count);
 end;
 
-function TList.Find(V: Integer): borrowed nilable TItem;
-var cur: borrowed nilable TItem;
+function TList.Find(V: Integer): borrowed optional TItem;
+val cur: borrowed optional TItem;
 begin
-  Result := nil;
+  Result := none;
   cur := Head;
-  while cur <> nil do begin
-    if cur.Value = V then begin Result := cur; Exit; end;
-    cur := cur.Next;
+  while cur is some c do begin
+    if c.Value = V then begin Result := c; Exit; end;
+    cur := c.Next;
   end;
 end;
 
-function TList.PopFront: nilable TItem;
+function TList.PopFront: optional TItem;
 begin
   Result := Take(Head);
-  if Result <> nil then begin
-    Head := Take(Result.Next);
+  if Result is some r then begin
+    Head := Take(r.Next);
     Dec(Count);
   end;
 end;
@@ -58,10 +58,10 @@ begin
 end;
 
 procedure PrintList(L: TList);   { Wertparameter = Ausleihe }
-var it: borrowed nilable TItem;
+val it: borrowed optional TItem;
 begin
   it := L.Head;
-  while it <> nil do begin Write(it.Value, ' '); it := it.Next; end;
+  while it is some x do begin Write(x.Value, ' '); it := x.Next; end;
   WriteLn('(', L.Count, ' Elemente)');
 end;
 
@@ -77,12 +77,12 @@ function TVec.Len: Real; begin Result := Sqrt(X * X + Y * Y); end;
 procedure Scale(V: TVec; F: Real);   { Ausleihe genuegt, um die Felder zu aendern }
 begin V.X := V.X * F; V.Y := V.Y * F; end;
 
-heap
+var
   list: TList;                   { Heapobjekte: Besitzer, von Hand freigeben }
   item: TItem;
-  popped: nilable TItem;
-var
-  found: borrowed nilable TItem;
+  popped: optional TItem;
+val
+  found: borrowed optional TItem;
   i: Integer;
   pv: borrowed TVec;
   v: TVec;                       { Stackobjekt }
@@ -95,9 +95,9 @@ begin
   list.Push(item);
   PrintList(list);
   found := list.Find(30);
-  if found <> nil then WriteLn('gefunden: ', found.Value);
+  if found is some f then WriteLn('gefunden: ', f.Value);
   popped := list.PopFront;
-  if popped <> nil then WriteLn('entnommen: ', popped.Value);
+  if popped is some q then WriteLn('entnommen: ', q.Value);
   popped.Free;
   PrintList(list);
   list.Free;

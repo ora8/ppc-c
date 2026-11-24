@@ -1,8 +1,8 @@
 program StackObjekte;
-{ Stackobjekte: Klassenvariablen im Abschnitt 'var' sind Objekte im
+{ Stackobjekte: Klassenvariablen im Abschnitt 'val' sind Objekte im
   Stackframe. Sie werden mit x.Create(...) konstruiert, brauchen kein Free
   und werden am Ende des Blocks automatisch abgebaut (Destroy).
-  Klassenvariablen im Abschnitt 'heap' sind Heapobjekte: Erzeugen mit
+  Klassenvariablen im Abschnitt 'var' sind Heapobjekte: Erzeugen mit
   x := TKlasse.Create(...), Freigeben mit x.Free. }
 type
   TPunkt = class
@@ -13,7 +13,7 @@ type
   end;
 
   TFigur = class
-    Pos: TPunkt;                    { nicht-nilable Feld: muss im Konstruktor gesetzt werden }
+    Pos: TPunkt;                    { nicht-optional Feld: muss im Konstruktor gesetzt werden }
     constructor Create(AX, AY: Integer);
     destructor Destroy; override;
     function Name: String; virtual;
@@ -80,17 +80,17 @@ begin
 end;
 
 procedure Lokal;
-var
+val
   k: TKreis;                        { Stackobjekt: lebt nur waehrend Lokal laeuft }
 begin
   k.Create(0, 0, 1);
   k.Zeige;
 end;                                { k.Destroy wird hier automatisch gerufen }
 
-var
+val
   k: TKreis;                        { Stackobjekte des Hauptprogramms }
   q: TQuadrat;
-heap
+var
   h: TFigur;                        { Heapobjekt derselben Klassenhierarchie }
 begin
   WriteLn('--- Stackobjekte ---');

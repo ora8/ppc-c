@@ -84,7 +84,7 @@ struct TypeExpr {
     IdentVec enums;           /* TE_ENUM */
     FieldDeclVec fields;      /* TE_RECORD */
     StructDecl *sd;           /* TE_STRUCT */
-    int nilable;              /* 'nilable' modifier */
+    int nilable;              /* 'optional' modifier */
 };
 
 typedef struct {
@@ -145,7 +145,9 @@ typedef enum {
     E_BUILTIN, /* builtin: bi, args */
     E_CONV,    /* implicit conversion of a to type */
     E_CAST,    /* explicit typecast T(a) */
-    E_TYPEREF  /* a type used in expression position: ctype */
+    E_TYPEREF, /* a type used in expression position: ctype */
+    E_ISSOME,  /* a is some id: unpacks an optional into the new variable var */
+    E_SOMEPAT  /* 'some id' as a case label */
 } ExprKind;
 
 enum { OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_IDIV, OP_MOD, OP_AND, OP_OR, OP_XOR, OP_SHL, OP_SHR,
@@ -182,7 +184,7 @@ struct Expr {
 
 typedef enum {
     S_EMPTY, S_ASSIGN, S_CALL, S_COMPOUND, S_IF, S_WHILE, S_REPEAT, S_FOR, S_CASE, S_WITH,
-    S_BREAK, S_CONTINUE, S_EXIT
+    S_BREAK, S_CONTINUE, S_EXIT, S_BLOCK
 } StmtKind;
 
 typedef struct {
@@ -202,12 +204,13 @@ struct Stmt {
     StmtVec else_;
     int has_else;
     ExprVec exprs;    /* with */
-    VEC(Var *) wvars; /* with temporaries */
+    VEC(Var *) wvars; /* with temporaries; S_BLOCK: the block's variables */
+    Block *blk;       /* S_BLOCK: declarations and body */
 };
 
 /* ------------------------------------------------------------- semantics */
 
-typedef enum { T_VOID, T_INT, T_BOOL, T_CHAR, T_REAL, T_STR, T_PTR, T_ARRAY, T_RECORD, T_CLASS, T_ENUM, T_NIL } TypeKind;
+typedef enum { T_VOID, T_INT, T_BOOL, T_CHAR, T_REAL, T_STR, T_PTR, T_ARRAY, T_RECORD, T_CLASS, T_OPT, T_ENUM, T_NIL } TypeKind;
 enum { IK_I8, IK_U8, IK_I16, IK_U16, IK_I32, IK_U32, IK_I64 };
 
 struct Type {
@@ -219,7 +222,7 @@ struct Type {
     Struct *st;
     EnumInfo *en;
     char *name;
-    int nilable; /* class/pointer type that may hold nil */
+    int nilable; /* optional class type: may be none (represented as NULL) */
 };
 
 struct Field {
@@ -279,7 +282,10 @@ struct Var {
     int vkind;
     int mode;     /* parameter mode */
     int is_const; /* const parameter / for-loop var */
-    int is_stack; /* class variable in a 'var' section: object lives in the stack frame */
+    int is_stack; /* class variable in a 'val' section: object lives in the stack frame */
+    int is_box;   /* value variable in a 'var' section: value lives on the heap (like Box<T>) */
+    int pending;  /* declared without a type: the first assignment decides it */
+    int decl_heap; /* declared in a 'var' section */
     Routine *owner;
     int id;
     Pos pos;
@@ -339,7 +345,8 @@ enum {
     BI_ROUND, BI_FRAC, BI_INT, BI_ODD, BI_HIGH, BI_LOW, BI_SIZEOF, BI_COPY, BI_POS, BI_DELETE,
     BI_INSERT, BI_INTTOSTR, BI_STRTOINT, BI_FLOATTOSTR, BI_STR, BI_UPCASE, BI_UPPERCASE,
     BI_LOWERCASE, BI_CONCAT, BI_HALT, BI_RANDOM, BI_RANDOMIZE, BI_ASSIGNED, BI_NEW, BI_DISPOSE,
-    BI_FREEANDNIL, BI_TAKE, BI_SETLENGTH, BI_CLASSNAME, BI_PI, BI_EXIT, BI_BREAK, BI_CONTINUE
+    BI_FREEANDNIL, BI_TAKE, BI_SETLENGTH, BI_CLASSNAME, BI_PI, BI_EXIT, BI_BREAK, BI_CONTINUE,
+    BI_HASVALUE, BI_VALUEOR, BI_BOXNEW, BI_BOXFREE
 };
 
 /* parser.c */

@@ -1,22 +1,23 @@
 program BorrowOk;
 { Ownership-Regeln von ppc an einem kleinen Adressbuch.
-  Besitzer:  Variablen im Abschnitt 'heap', Felder vom Klassentyp
+  Besitzer:  Variablen im Abschnitt 'var', Felder vom Klassentyp
   Ausleihe:  'borrowed' Variablen, Wert-/const-Parameter
   Move:      Zuweisung Besitzer -> Besitzer, 'owned'-Parameter, Take()
-  nilable:   nur solche Referenzen duerfen nil sein (z. B. Listenende) }
+  optional:   nur solche Referenzen duerfen fehlen (none), z. B. das Listenende;
+             benutzt werden sie nach dem Auspacken mit 'is some' }
 type
   TPerson = class
     Name: String;
-    Next: nilable TPerson;               { besitzt den Nachfolger, nil am Ende }
+    Next: optional TPerson;               { besitzt den Nachfolger, none am Ende }
     constructor Create(const AName: String);
     destructor Destroy; override;
   end;
 
   TBuch = class
-    Erste: nilable TPerson;              { besitzt die ganze Kette }
+    Erste: optional TPerson;              { besitzt die ganze Kette }
     procedure Neu(owned P: TPerson);     { uebernimmt den Besitz von P }
-    function Suche(const N: String): borrowed nilable TPerson;  { leiht nur aus }
-    function Entnimm: nilable TPerson;   { gibt Besitz an den Aufrufer }
+    function Suche(const N: String): borrowed optional TPerson;  { leiht nur aus }
+    function Entnimm: optional TPerson;   { gibt Besitz an den Aufrufer }
     destructor Destroy; override;
   end;
 
@@ -28,44 +29,44 @@ begin Next.Free; inherited Destroy; end;
 
 procedure TBuch.Neu(owned P: TPerson);
 begin
-  P.Next := Take(Erste);                 { Erste wird nil, Kette wandert zu P.Next }
+  P.Next := Take(Erste);                 { Erste wird none, Kette wandert zu P.Next }
   Erste := P;                            { Move: P ist danach verbraucht }
 end;
 
-function TBuch.Suche(const N: String): borrowed nilable TPerson;
-var p: borrowed nilable TPerson;
+function TBuch.Suche(const N: String): borrowed optional TPerson;
+val p: borrowed optional TPerson;
 begin
-  Result := nil;
+  Result := none;
   p := Erste;
-  while p <> nil do begin
-    if p.Name = N then begin Result := p; Exit; end;
-    p := p.Next;
+  while p is some x do begin
+    if x.Name = N then begin Result := x; Exit; end;
+    p := x.Next;
   end;
 end;
 
-function TBuch.Entnimm: nilable TPerson;
+function TBuch.Entnimm: optional TPerson;
 begin
   Result := Take(Erste);
-  if Result <> nil then Erste := Take(Result.Next);
+  if Result is some r then Erste := Take(r.Next);
 end;
 
 destructor TBuch.Destroy;
 begin Erste.Free; inherited Destroy; end;
 
 procedure Zeige(B: TBuch);               { Wertparameter = Ausleihe, darf nicht freigeben }
-var p: borrowed nilable TPerson;
+val p: borrowed optional TPerson;
 begin
   p := B.Erste;
-  while p <> nil do begin Write(p.Name, ' '); p := p.Next; end;
+  while p is some x do begin Write(x.Name, ' '); p := x.Next; end;
   WriteLn;
 end;
 
-heap
+var
   buch: TBuch;                           { Heapobjekte: Besitzer }
   anna: TPerson;
-  weg: nilable TPerson;
-var
-  treffer: borrowed nilable TPerson;     { Ausleihe }
+  weg: optional TPerson;
+val
+  treffer: borrowed optional TPerson;     { Ausleihe }
 begin
   buch := TBuch.Create;
   buch.Neu(TPerson.Create('Bert'));      { Temporaeres Objekt direkt uebergeben }
@@ -76,10 +77,10 @@ begin
   Zeige(buch);
 
   treffer := buch.Suche('Anna');         { Ausleihe aus dem Buch }
-  if treffer <> nil then WriteLn('gefunden: ', treffer.Name);
+  if treffer is some t then WriteLn('gefunden: ', t.Name);
 
   weg := buch.Entnimm;                   { Besitz kommt zurueck }
-  if weg <> nil then WriteLn('entnommen: ', weg.Name);
+  if weg is some w then WriteLn('entnommen: ', w.Name);
   weg.Free;                              { Besitzer gibt frei }
   Zeige(buch);
 

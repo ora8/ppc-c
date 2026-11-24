@@ -6,8 +6,8 @@ type
     Saldo: Integer;
   end;
 
-var
-  Global: borrowed nilable TKonto;
+val
+  Global: borrowed optional TKonto;
 
 procedure Schliesse(K: TKonto);          { K ist nur ausgeliehen }
 begin
@@ -15,19 +15,19 @@ begin
 end;
 
 procedure Merke;
-var konto: TKonto;                       { Stackobjekt }
+val konto: TKonto;                       { Stackobjekt }
 begin
   konto.Create;
   Global := konto;                       { FEHLER 2: Referenz auf Stackobjekt entkommt }
 end;
 
 procedure Tausche(var A, B: Integer);
-var t: Integer;
+val t: Integer;
 begin t := A; A := B; B := t; end;
 
-heap
-  a, b: TKonto;
 var
+  a, b: TKonto;
+val
   blick: borrowed TKonto;
   x: Integer;
 begin

@@ -18,10 +18,10 @@ typedef struct {
 static const char *KEYWORDS[] = {
     "and", "array", "as", "begin", "case", "class", "const", "constructor", "destructor", "div",
     "do", "downto", "else", "end", "for", "function", "goto", "if", "implementation", "in",
-    "inherited", "interface", "is", "label", "mod", "nil", "not", "object", "of", "or", "packed",
+    "inherited", "interface", "is", "label", "mod", "nil", "none", "some", "optional", "not", "object", "of", "or", "packed",
     "procedure", "program", "property", "record", "repeat", "set", "shl", "shr", "then", "to",
     "type", "unit", "until", "uses", "var", "while", "with", "xor", "try", "except", "finally",
-    "raise", "otherwise", "heap", NULL};
+    "raise", "otherwise", "heap", "val", NULL};
 
 static const char *SYMS[] = {":=", "<=", ">=", "<>", "..", "+", "-", "*", "/", "=", "<", ">", "(",
                              ")", "[", "]", ",", ";", ":", ".", "^", "@", NULL};
@@ -370,7 +370,7 @@ static int is_routine_kw(void) {
 static StructDecl *parse_struct(int kind) {
     StructDecl *sd = NEW(StructDecl);
     sd->kind = kind;
-    if (accept_sym("(")) {
+    if (kind == SK_CLASS && accept_sym("(")) {
         sd->parent = ident();
         sd->has_parent = 1;
         if (is_sym(",")) error_at(pos(), "interfaces are not supported");
@@ -383,8 +383,9 @@ static StructDecl *parse_struct(int kind) {
             next();
             continue;
         }
-        if (accept_kw("var")) continue;
+        if (accept_kw("var") || accept_kw("val")) continue;
         if (is_kw("class")) error_at(pos(), "class methods/fields are not supported");
+        if (kind == SK_RECORD && is_kw("case")) error_at(pos(), "variant records are not supported");
         if (is_routine_kw()) {
             MethodDecl m = {0};
             m.kind = routine_kind();
@@ -428,25 +429,26 @@ static StructDecl *parse_struct(int kind) {
             expect_sym(":");
             f.borrowed = accept_borrowed();
             f.ty = parse_type();
-            expect_sym(";");
+            if (!(kind == SK_RECORD && is_kw("end"))) expect_sym(";"); /* records: last ';' optional */
             vpush(sd->fields, f);
             continue;
         }
-        error_at(pos(), "unexpected %s in class declaration", describe());
+        error_at(pos(), "unexpected %s in %s declaration", describe(), kind == SK_RECORD ? "record" : "class");
     }
     return sd;
 }
 
 static TypeExpr *parse_type(void) {
     Pos p = pos();
-    if (is_ident("nilable")) {
-        next();
+    if (is_ident("nilable")) error_at(p, "'nilable' was replaced by 'optional'");
+    if (accept_kw("optional")) {
         TypeExpr *t = parse_type();
+        if (t->nilable) error_at(p, "optional of optional is not allowed");
         t->nilable = 1;
         return t;
     }
     if (is_sym("^"))
-        error_at(p, "pointer types are not supported: use a class (objects in a 'heap' section live on the heap)");
+        error_at(p, "pointer types are not supported: use a class (objects declared in a 'var' section live on the heap)");
     accept_kw("packed");
     if (accept_kw("array")) {
         TypeExpr *t = new_te(TE_ARRAY, p);
@@ -458,23 +460,14 @@ static TypeExpr *parse_type(void) {
         t->elem = parse_type();
         return t;
     }
-    if (accept_kw("record")) {
+    if (accept_kw("record")) { /* records: value types; may have methods and properties */
         TypeExpr *t = new_te(TE_RECORD, p);
-        while (!is_kw("end")) {
-            if (is_kw("case")) error_at(pos(), "variant records are not supported");
-            FieldDecl f = {0};
-            f.names = ident_list();
-            expect_sym(":");
-            f.borrowed = accept_borrowed();
-            f.ty = parse_type();
-            vpush(t->fields, f);
-            if (!accept_sym(";")) break;
-        }
-        expect_kw("end");
+        t->sd = parse_struct(SK_RECORD);
+        t->fields = t->sd->fields;
         return t;
     }
     if (is_kw("object"))
-        error_at(p, "'object' types are not supported: use 'class' (class variables in 'var' are stack objects, in 'heap' heap objects)");
+        error_at(p, "'object' types are not supported: use 'class' (class variables in 'val' are stack objects, in 'var' heap objects)");
     if (accept_kw("class")) {
         if (is_sym(";")) return new_te(TE_CLASSFWD, p);
         if (is_kw("of")) error_at(pos(), "class references ('class of') are not supported");
@@ -581,37 +574,42 @@ static void parse_decls(Block *blk) {
                 vpush(d->types, t);
             }
             vpush(blk->decls, d);
-        } else if (accept_kw("var")) {
+        } else if (accept_kw("val")) {
+            /* val section: values; class variables here are stack objects */
             Decl *d = NEW(Decl);
             d->kind = D_VAR;
             while (CUR.kind == TK_IDENT) {
                 VarDecl v = {0};
                 v.names = ident_list();
-                expect_sym(":");
-                v.borrowed = accept_borrowed();
-                v.ty = parse_type();
+                if (accept_sym(":")) { /* without ': Type' the first assignment decides the type */
+                    v.borrowed = accept_borrowed();
+                    v.ty = parse_type();
+                }
                 if (accept_sym("=")) v.init = parse_init();
                 expect_sym(";");
                 vpush(d->vars, v);
             }
             vpush(blk->decls, d);
-        } else if (accept_kw("heap")) {
-            /* heap section: owning references to heap objects (created with TClass.Create, freed with Free) */
+        } else if (is_kw("heap")) {
+            error_at(pos(), "the 'heap' section is now called 'var' (and the old 'var' section is called 'val')");
+        } else if (accept_kw("var")) {
+            /* var section: owning references to heap objects (created with TClass.Create, freed with Free) */
             Decl *d = NEW(Decl);
             d->kind = D_VAR;
             while (CUR.kind == TK_IDENT) {
                 VarDecl v = {0};
                 v.names = ident_list();
-                expect_sym(":");
-                if (is_ident("borrowed"))
-                    error_at(pos(), "a heap section declares owners; borrowed references belong into 'var'");
-                v.ty = parse_type();
+                if (accept_sym(":")) {
+                    if (is_ident("borrowed"))
+                        error_at(pos(), "a 'var' section declares heap objects (owners); borrowed references belong into 'val'");
+                    v.ty = parse_type();
+                }
                 v.is_heap = 1;
                 if (accept_sym("=")) v.init = parse_init();
                 expect_sym(";");
                 vpush(d->vars, v);
             }
-            if (!d->vars.len) error_at(pos(), "identifier expected in heap section");
+            if (!d->vars.len) error_at(pos(), "identifier expected in var section");
             vpush(blk->decls, d);
         } else if (is_kw("label")) {
             error_at(pos(), "labels/goto are not supported");
@@ -642,6 +640,16 @@ static StmtVec parse_stmt_list(const char *term) {
 static Stmt *parse_stmt(void) {
     Pos p = pos();
     if (is_sym(";") || is_kw("end") || is_kw("until") || is_kw("else")) return new_stmt(S_EMPTY, p);
+    if (is_kw("val") || is_kw("var") || is_kw("const")) {
+        /* block statement: declarations followed by begin ... end form a new scope */
+        Stmt *s = new_stmt(S_BLOCK, p);
+        s->blk = NEW(Block);
+        parse_decls(s->blk);
+        expect_kw("begin");
+        s->blk->body = parse_stmt_list("end");
+        expect_kw("end");
+        return s;
+    }
     if (accept_kw("begin")) {
         Stmt *s = new_stmt(S_COMPOUND, p);
         s->body = parse_stmt_list("end");
@@ -695,7 +703,13 @@ static Stmt *parse_stmt(void) {
             if (is_kw("end")) break;
             CaseArm arm = {0};
             for (;;) {
-                vpush(arm.lo, parse_expr());
+                if (is_kw("some")) { /* some x: pattern for optional selectors */
+                    Expr *sp = new_expr(E_SOMEPAT, pos());
+                    next();
+                    sp->id = ident();
+                    vpush(arm.lo, sp);
+                } else
+                    vpush(arm.lo, parse_expr());
                 vpush(arm.hi, accept_sym("..") ? parse_expr() : NULL);
                 if (!accept_sym(",")) break;
             }
@@ -762,6 +776,14 @@ static Expr *parse_expr(void) {
         Expr *e = new_expr(E_IN, p);
         e->a = l;
         e->b = parse_simple();
+        return e;
+    }
+    if (is_kw("is") && T.items[P + 1].kind == TK_KW && STREQ(T.items[P + 1].s, "some")) {
+        next();
+        next();
+        Expr *e = new_expr(E_ISSOME, p);
+        e->a = l;
+        e->id = ident();
         return e;
     }
     if (accept_kw("is")) {
@@ -899,7 +921,8 @@ static Expr *parse_primary(void) {
         return e;
     default: break;
     }
-    if (accept_kw("nil")) return new_expr(E_NIL, p);
+    if (accept_kw("none")) return new_expr(E_NIL, p);
+    if (is_kw("nil")) error_at(p, "'nil' does not exist: optional values are empty with 'none'");
     if (accept_sym("(")) {
         e = parse_expr();
         expect_sym(")");

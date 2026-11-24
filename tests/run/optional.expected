@@ -1,0 +1,16 @@
+a = some(7), b = none
+HasValue: TRUE FALSE, ValueOr: 7 -1
+a ist gesetzt
+b ist leer
+r = 3.0
+Wurzel(16) = 4.0
+Wurzel(-1): keine
+Parse: some(123) none none
+s = Hallo (5 Zeichen)
+s ist leer
+Bert: none
+Bert: some(42)
+Summe der gesetzten Werte: 13
+Gross(liste) = TRUE
+20 3 
+entnommen: 20, liste leer: TRUE

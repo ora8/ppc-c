@@ -8,7 +8,7 @@ type
   TPoint = record
     X, Y: Integer;
   end;
-var
+val
   i, sum: Integer;
   r: Real;
   s: String;
@@ -24,18 +24,18 @@ begin
 end;
 
 procedure Swap(var a, b: Integer);
-var t: Integer;
+val t: Integer;
 begin
   t := a; a := b; b := t;
 end;
 
 function SumTo(n: Integer): Integer;
-var acc: Integer;
+val acc: Integer;
   procedure Add(k: Integer);
   begin
     acc := acc + k;
   end;
-var k: Integer;
+val k: Integer;
 begin
   acc := 0;
   for k := 1 to n do Add(k);

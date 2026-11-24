@@ -1,4 +1,4 @@
-{ EXPECT: array element of type "TFoo" must be declared 'nilable TFoo' }
+{ EXPECT: record field of type "TFoo" must be declared 'optional TFoo' }
 program T; type TFoo = class V: Integer; constructor Create(AV: Integer); end; constructor TFoo.Create(AV: Integer); begin inherited Create; V := AV; end;
-var a: array[1..3] of TFoo;
+type R = record F: TFoo; end;
 begin end.

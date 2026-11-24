@@ -1,7 +1,7 @@
 program StackVsHeap;
 { Eine Klasse, zwei Speicherorte:
-    var  z: TZaehler;   -> Stackobjekt: x.Create(...), Destroy automatisch am Blockende
-    heap h: TZaehler;   -> Heapobjekt:  h := TZaehler.Create(...), h.Free von Hand }
+    val  z: TZaehler;   -> Stackobjekt: x.Create(...), Destroy automatisch am Blockende
+    var  h: TZaehler;   -> Heapobjekt:  h := TZaehler.Create(...), h.Free von Hand }
 type
   TZaehler = class
     Name: String;
@@ -25,9 +25,9 @@ function NeuerZaehler(const N: String): TZaehler;
 begin Result := TZaehler.Create(N); end;
 
 procedure Block;
-var
+val
   s: TZaehler;                    { Stackobjekt: Speicher liegt im Stackframe }
-heap
+var
   h: TZaehler;                    { Heapobjekt: Speicher kommt vom Heap }
 begin
   WriteLn('Block beginnt');
@@ -40,9 +40,9 @@ begin
   WriteLn('Block endet');
 end;                              { Stackobjekt s wird hier automatisch abgebaut }
 
-heap
-  r: TZaehler;
 var
+  r: TZaehler;
+val
   b: borrowed TZaehler;
 begin
   Block;

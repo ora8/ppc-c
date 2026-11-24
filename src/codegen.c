@@ -100,6 +100,18 @@ static char *ctype(Type *t) {
     case T_STR: return "PStr";
     case T_ENUM: return "int32_t";
     case T_NIL: return "void*";
+    case T_OPT: { /* value optional: struct { has; value } (like std::optional) */
+        char *elem = ctype(t->base);
+        char *key = sfmt("opt|%s", elem);
+        for (int i = 0; i < arrs.len; i++)
+            if (STREQ(arrs.items[i].key, key)) return sfmt("struct %s", arrs.items[i].name);
+        if (t->base->kind == T_RECORD) ensure_struct(t->base->st);
+        ArrDef d = {key, sfmt("O%d", arrs.len + 1)};
+        vpush(arrs, d);
+        buf_printf(&b_fwd, "struct %s;\n", d.name);
+        buf_printf(&b_types, "struct %s { uint8_t has; %s v; };\n", d.name, elem);
+        return sfmt("struct %s", d.name);
+    }
     case T_PTR: return t->base ? sfmt("%s*", ctype(t->base)) : "void*";
     case T_RECORD: return sfmt("struct S%d", t->st->id);
     case T_CLASS: return sfmt("struct S%d*", t->st->id);
@@ -186,6 +198,16 @@ static Routine *find_method(Struct *s, const char *name) {
 static char *gcall_core(Expr *e, const char *selfp, Struct *sst, const char *as);
 
 
+static int cg_lvalue(Expr *e) {
+    switch (e->kind) {
+    case E_VAR: return 1;
+    case E_FIELD: return e->a->type->kind == T_CLASS || cg_lvalue(e->a);
+    case E_INDEX: case E_CAST: return cg_lvalue(e->a);
+    case E_DEREF: return 1;
+    default: return 0;
+    }
+}
+
 static char *gcall(Expr *e) {
     Routine *r = e->rt;
     char *selfp = NULL;
@@ -206,6 +228,13 @@ static char *gcall(Expr *e) {
             buf_printf(&args, "((%s*)&%s)", ctype(pm->type), gx(e->args.items[i]));
         else
             buf_put(&args, gx(e->args.items[i]));
+    }
+    if (e->a && e->a->type->kind == T_RECORD && !cg_lvalue(e->a)) {
+        /* method call on a temporary record value: give it an address first */
+        int id = ++tmpc;
+        char *tv = sfmt("__rt%d", id);
+        char *call = gcall_core(e, sfmt("(&%s)", tv), sst, buf_str(&args));
+        return sfmt("({ %s %s = %s; %s; })", ctype(e->a->type), tv, gx(e->a), call);
     }
     return gcall_core(e, selfp, sst, buf_str(&args));
 }
@@ -343,7 +372,20 @@ static char *gbuiltin(Expr *e) {
     case BI_HALT: return sfmt("(fflush(stdout), exit((int)(%s)))", A->len ? G(0) : "0");
     case BI_RANDOM: return A->len ? sfmt("__random_int(%s)", G(0)) : "__random_real()";
     case BI_RANDOMIZE: return "__randomize()";
-    case BI_ASSIGNED: return sfmt("((%s) != 0)", G(0));
+    case BI_ASSIGNED: case BI_HASVALUE:
+        if (A->items[0]->type->kind == T_OPT) return sfmt("((%s).has != 0)", G(0));
+        return sfmt("((%s) != 0)", G(0));
+    case BI_BOXNEW: { /* heap value: allocate a zeroed cell, optionally initialize it */
+        int id = ++tmpc;
+        char *ct = ctype(e->ctype);
+        if (A->len) return sfmt("({ %s *__b%d = (%s*)__ppc_alloc(sizeof(%s)); *__b%d = %s; __b%d; })", ct, id, ct, ct, id, G(0), id);
+        return sfmt("((%s*)__ppc_alloc(sizeof(%s)))", ct, ct);
+    }
+    case BI_BOXFREE: return sfmt("(__ppc_free(%s), %s = 0)", G(0), G(0));
+    case BI_VALUEOR: {
+        int id = ++tmpc;
+        return sfmt("({ %s __o%d = %s; __o%d.has ? __o%d.v : (%s); })", ctype(A->items[0]->type), id, G(0), id, id, G(1));
+    }
     case BI_NEW: {
         Expr *a = A->items[0];
         Type *pt = a->kind == E_TYPEREF ? a->ctype : a->type;
@@ -434,6 +476,10 @@ static char *gx(Expr *e) {
             if (op == OP_ADD) return sfmt("__pstr_cat(%s, %s)", a, b);
             return sfmt("(__pstr_cmp(%s, %s) %s 0)", a, b, binop_str(op));
         }
+        if (is_cmp(op) && (ta->kind == T_OPT || e->b->type->kind == T_OPT)) { /* opt = none / opt <> none */
+            Expr *o = ta->kind == T_OPT ? e->a : e->b;
+            return sfmt("((%s).has %s 0)", gx(o), op == OP_EQ ? "==" : "!=");
+        }
         if (is_cmp(op) && (ta->kind == T_PTR || ta->kind == T_CLASS || ta->kind == T_NIL))
             return sfmt("((void*)(%s) %s (void*)(%s))", a, binop_str(op), b);
         if (op == OP_AND || op == OP_OR || op == OP_XOR) {
@@ -468,8 +514,21 @@ static char *gx(Expr *e) {
     }
     case E_IS: return sfmt("__is((void*)(%s), &VMTI%d)", gx(e->a), e->ctype->st->id);
     case E_AS: return sfmt("((struct S%d*)__as((void*)(%s), &VMTI%d))", e->ctype->st->id, gx(e->a), e->ctype->st->id);
+    case E_ISSOME: {
+        Var *k = e->var;
+        if (e->a->type->kind == T_OPT) {
+            int id = ++tmpc;
+            return sfmt("({ %s __s%d = %s; __s%d.has ? (%s = __s%d.v, 1) : 0; })", ctype(e->a->type), id, gx(e->a), id,
+                        var_ref(k), id);
+        }
+        return sfmt("((%s = %s) != 0)", var_ref(k), gx(e->a));
+    }
     case E_CONV: {
         Type *to = e->type, *from = e->a->type;
+        if (to->kind == T_OPT) {
+            if (from->kind == T_NIL) return sfmt("((%s){0})", ctype(to));
+            return sfmt("((%s){1, %s})", ctype(to), gx(e->a));
+        }
         char *a = gx(e->a);
         if (to->kind == T_REAL) return sfmt("((double)(%s))", a);
         if (to->kind == T_STR && from->kind == T_CHAR) return sfmt("__pstr_char(%s)", a);
@@ -502,8 +561,8 @@ static void stack_destroy(Var **vars, int n) {
     for (int i = n - 1; i >= 0; i--) {
         Var *v = vars[i];
         if (!v->is_stack) continue;
-        line("if (%s) ((struct VMT%d*)(%s->__vmt))->v%d(%s, 0);", var_aux(v, "__live"), v->type->st->id, var_raw(v),
-             tobject_destroy->slot, var_raw(v));
+        line("if (%s) { ((struct VMT%d*)(%s->__vmt))->v%d(%s, 0); %s = 0; }", var_aux(v, "__live"), v->type->st->id,
+             var_raw(v), tobject_destroy->slot, var_raw(v), var_aux(v, "__live"));
     }
 }
 
@@ -514,7 +573,34 @@ static void gstmts(StmtVec *v) {
 static void gs(Stmt *s) {
     switch (s->kind) {
     case S_EMPTY: return;
-    case S_ASSIGN: line("%s = %s;", gx(s->a), gx(s->b)); return;
+    case S_ASSIGN:
+        if (s->a->kind == E_DEREF && s->a->a->kind == E_VAR && s->a->a->var->is_box) {
+            /* storing into a heap value allocates its cell on first use */
+            Var *v = s->a->a->var;
+            char *x = var_ref(v), *ct = ctype(v->type->base);
+            line("if (!%s) %s = (%s*)__ppc_alloc(sizeof(%s));", x, x, ct, ct);
+            line("*%s = %s;", x, gx(s->b));
+            return;
+        }
+        line("%s = %s;", gx(s->a), gx(s->b));
+        return;
+    case S_BLOCK:
+        line("{");
+        indent++;
+        for (int i = 0; i < s->wvars.len; i++) { /* fresh variables each time the block is entered */
+            Var *v = s->wvars.items[i];
+            char *x = var_raw(v);
+            line("memset(&(%s), 0, sizeof(%s));", x, x);
+            if (v->is_stack) {
+                line("%s = 0;", var_aux(v, "__live"));
+                stack_init(v);
+            }
+        }
+        gstmts(&s->blk->body);
+        stack_destroy(s->wvars.items, s->wvars.len);
+        indent--;
+        line("}");
+        return;
     case S_CALL: line("%s;", gx(s->a)); return;
     case S_COMPOUND:
         line("{");
