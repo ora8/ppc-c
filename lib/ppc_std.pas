@@ -1,4 +1,4 @@
-{ ppc_std: Standardbibliothek von Perfect Pascal  (einbinden mit 'uses ppc_std;')
+{ ppc_std: Standardbibliothek von Perfect Pascal  (einbinden mit 'import ppc_std;')
 
   TListe<T>                 Liste, die mitwächst (Index ab 0)
   TStapel<T>                Stapel (zuletzt hinein, zuerst heraus)
@@ -8,6 +8,8 @@
 
   Alle Container besitzen ihre Elemente (Objekte werden mit dem Container freigegeben).
   Herausnehmen (Nimm, Pop, Entferne) gibt den Besitz an den Aufrufer weiter. }
+
+module ppc_std;
 
 type
   TListe<T> = class
@@ -213,3 +215,5 @@ begin
   for val i := 0 to High(a) do
     if (a[i] = x) and not Result.HasValue then Result := i;
 end;
+
+end.

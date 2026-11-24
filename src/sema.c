@@ -3504,7 +3504,7 @@ static void check_generic_alone(Generic *g) {
 
 /* ============================================================== program */
 
-static void add_type(const char *name, Type *t) { add_sym(SY_TYPE, name, (Pos){0, 0})->type = t; }
+static void add_type(const char *name, Type *t) { add_sym(SY_TYPE, name, (Pos){0, 0, NULL})->type = t; }
 
 Program *sema_program(Block *prelude, Block **libs, int nlibs, Block *pb, const char *name) {
     prog = NEW(Program);
@@ -3542,12 +3542,12 @@ Program *sema_program(Block *prelude, Block **libs, int nlibs, Block *pb, const 
     add_type("Single", t_real);
     add_type("Extended", t_real);
     add_type("String", t_str);
-    Sym *s = add_sym(SY_CONST, "True", (Pos){0, 0});
-    s->cval = lit_int(1, t_bool, (Pos){0, 0});
-    s = add_sym(SY_CONST, "False", (Pos){0, 0});
-    s->cval = lit_int(0, t_bool, (Pos){0, 0});
-    s = add_sym(SY_CONST, "MaxInt", (Pos){0, 0});
-    s->cval = lit_int(INT_MAX, t_int, (Pos){0, 0});
+    Sym *s = add_sym(SY_CONST, "True", (Pos){0, 0, NULL});
+    s->cval = lit_int(1, t_bool, (Pos){0, 0, NULL});
+    s = add_sym(SY_CONST, "False", (Pos){0, 0, NULL});
+    s->cval = lit_int(0, t_bool, (Pos){0, 0, NULL});
+    s = add_sym(SY_CONST, "MaxInt", (Pos){0, 0, NULL});
+    s->cval = lit_int(INT_MAX, t_int, (Pos){0, 0, NULL});
 
     in_prelude = 1;
     decls(prelude, 0);

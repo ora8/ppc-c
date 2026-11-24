@@ -1,6 +1,6 @@
 # Design: Generics für ppc
 
-Status: **abgenommen** (alle Vorschläge aus Abschnitt 8 angenommen). Stufe 1 (generische Records und Klassen), Stufe 2 (generische Funktionen und Prozeduren), Stufe 3 (Einschränkungen), Stufe 4 (Prüfung des Rumpfs gegen die Einschränkungen), Stufe 5 (dynamische Arrays) und Stufe 6 (Standardbibliothek `uses ppc_std`) sind gebaut – alle Stufen sind fertig.
+Status: **abgenommen** (alle Vorschläge aus Abschnitt 8 angenommen). Stufe 1 (generische Records und Klassen), Stufe 2 (generische Funktionen und Prozeduren), Stufe 3 (Einschränkungen), Stufe 4 (Prüfung des Rumpfs gegen die Einschränkungen), Stufe 5 (dynamische Arrays) und Stufe 6 (Standardbibliothek `import ppc_std`) sind gebaut – alle Stufen sind fertig.
 
 ## 1. Ziel
 
@@ -174,7 +174,7 @@ Wege:
 | 3 | Einschränkungen `class`, Basisklasse, `Copy`, `Clone`, `Equatable`, `Comparable`; Move-Regeln für `T` im Borrow Checker | `Sortiere<T: Comparable>` |
 | 4 | Prüfung des generischen Rumpfs gegen die Einschränkungen (Fehler ohne Instanz) | Rust-artige Meldungen |
 | 5 | dynamische Arrays `array of T` | wachsende Container |
-| 6 | kleine Standardbibliothek: `TListe<T>`, `TStapel<T>`, `TMap<K, V>`, `Sortiere`, `Suche` | als `uses ppc_std` |
+| 6 | kleine Standardbibliothek: `TListe<T>`, `TStapel<T>`, `TMap<K, V>`, `Sortiere`, `Suche` | als `import ppc_std` |
 
 Jede Stufe kommt mit eigenen Tests (Lauf- und Fehlertests), ASan-Prüfung und README-Abschnitt.
 
@@ -186,7 +186,7 @@ Jede Stufe kommt mit eigenen Tests (Lauf- und Fehlertests), ASan-Prüfung und RE
 | `val x: T` für Objekt-Instanzen | besitzende Referenz wie `vao`; keine Stackobjekte in generischem Code |
 | Prüfstrategie | zuerst pro Instanz, ab Stufe 4 gegen die Einschränkungen |
 | Reihenfolge | dynamische Arrays als eigene Stufe vor den Containern |
-| Standardbibliothek | als ppc-Quelltext (`uses ppc_std`) |
+| Standardbibliothek | als ppc-Quelltext (`import ppc_std`) |
 
 Ursprüngliche Fragen:
 
@@ -196,4 +196,4 @@ Ursprüngliche Fragen:
 3. **Prüfstrategie:** erst pro Instanz, später gegen Einschränkungen (Vorschlag) – oder gleich
    Rust-artig?
 4. **Reihenfolge:** dynamische Arrays vor den Generics, danach oder parallel?
-5. **Standardbibliothek:** als ppc-Quelltext (`uses ppc_std`) oder fest im Compiler wie `TObject`?
+5. **Standardbibliothek:** als ppc-Quelltext (`import ppc_std`) oder fest im Compiler wie `TObject`?

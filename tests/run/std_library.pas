@@ -1,6 +1,6 @@
 program StdLibrary;
 { Standardbibliothek (Generics Stufe 6): uses ppc_std -> TListe, TStapel, TMap, Sortiere, Suche }
-uses ppc_std;
+import ppc_std;
 type
   TKunde = class
     Name: String;

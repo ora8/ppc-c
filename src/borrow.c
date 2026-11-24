@@ -103,7 +103,7 @@ static void berror(Pos p, const char *fmt, ...) {
     vsnprintf(msg, sizeof msg, fmt, ap);
     va_end(ap);
     if (!g_borrow_check || seen(p, "E", msg)) return;
-    fprintf(stderr, "%s(%d,%d) Borrow error: %s\n", g_filename, p.line, p.col, msg);
+    fprintf(stderr, "%s(%d,%d) Borrow error: %s\n", POS_FILE(p), p.line, p.col, msg);
     nerrors++;
 }
 
@@ -114,7 +114,7 @@ static void nerror(Pos p, const char *fmt, ...) {
     vsnprintf(msg, sizeof msg, fmt, ap);
     va_end(ap);
     if (!g_nil_check || seen(p, "N", msg)) return;
-    fprintf(stderr, "%s(%d,%d) Nil error: %s\n", g_filename, p.line, p.col, msg);
+    fprintf(stderr, "%s(%d,%d) Nil error: %s\n", POS_FILE(p), p.line, p.col, msg);
     nerrors++;
 }
 
@@ -125,7 +125,7 @@ __attribute__((unused)) static void bwarn(Pos p, const char *fmt, ...) {
     vsnprintf(msg, sizeof msg, fmt, ap);
     va_end(ap);
     if (!g_borrow_check || seen(p, "W", msg)) return;
-    fprintf(stderr, "%s(%d,%d) Borrow warning: %s\n", g_filename, p.line, p.col, msg);
+    fprintf(stderr, "%s(%d,%d) Borrow warning: %s\n", POS_FILE(p), p.line, p.col, msg);
     g_warnings++;
 }
 

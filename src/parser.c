@@ -21,7 +21,7 @@ static const char *KEYWORDS[] = {
     "inherited", "interface", "is", "label", "mod", "nil", "none", "some", "optional", "not", "object", "of", "or", "packed",
     "procedure", "program", "property", "record", "repeat", "set", "shl", "shr", "then", "to",
     "type", "unit", "until", "uses", "var", "while", "with", "xor", "try",
-    "loop", "val", "vao", "default", "result", "ok", "error", NULL};
+    "loop", "val", "vao", "default", "result", "ok", "error", "module", "import", NULL};
 
 static const char *SYMS[] = {":=", "<=", ">=", "<>", "..", "+", "-", "*", "/", "=", "<", ">", "(",
                              ")", "[", "]", ",", ";", ":", ".", "^", "@", NULL};
@@ -48,7 +48,7 @@ static TokVec tokenize(const char *src) {
             ADV();
             continue;
         }
-        Pos pos = {line, col};
+        Pos pos = {line, col, g_filename};
         if (c == '{') {
             while (i < n && b[i] != '}') ADV();
             if (i >= n) error_at(pos, "unterminated comment");
@@ -195,7 +195,7 @@ static TokVec tokenize(const char *src) {
     }
     Token e = {0};
     e.kind = TK_EOF;
-    e.pos = (Pos){line, col};
+    e.pos = (Pos){line, col, g_filename};
     vpush(out, e);
     return out;
 #undef ADV
@@ -1268,12 +1268,43 @@ static Block *parse_block(void) {
     return b;
 }
 
+static IdentVec parse_imports(void) {
+    IdentVec v = {0};
+    if (is_kw("uses")) error_at(pos(), "'uses' was replaced by 'import' (for example 'import ppc_std;')");
+    if (accept_kw("import")) {
+        v = ident_list();
+        expect_sym(";");
+    }
+    return v;
+}
+
+/* module Name; [import ...;] declarations end. */
+Block *parse_module(const char *src, Ident *name) {
+    T = tokenize(src);
+    cur_toks = NEW(TokVec);
+    *cur_toks = T;
+    P = 0;
+    if (!is_kw("module")) error_at(pos(), "a module starts with 'module Name;'");
+    next();
+    *name = ident();
+    expect_sym(";");
+    Block *b = NEW(Block);
+    b->uses = parse_imports();
+    parse_decls(b);
+    if (is_kw("begin")) error_at(pos(), "a module has no main block ('begin ... end'): it ends with 'end.'");
+    expect_kw("end");
+    expect_sym(".");
+    if (CUR.kind != TK_EOF) error_at(pos(), "unexpected %s after the end of the module", describe());
+    return b;
+}
+
 Block *parse_program(const char *src, char **name, Pos *end_pos) {
     T = tokenize(src);
     cur_toks = NEW(TokVec);
     *cur_toks = T;
     P = 0;
     *name = xstrdup("main");
+    if (is_kw("module")) error_at(pos(), "this file is a module ('module %s;'), not a program: import it from a program", T.items[P + 1].s);
     if (accept_kw("program")) {
         *name = ident().name;
         if (accept_sym("(")) {
@@ -1282,11 +1313,7 @@ Block *parse_program(const char *src, char **name, Pos *end_pos) {
         }
         expect_sym(";");
     }
-    IdentVec uses = {0};
-    if (accept_kw("uses")) {
-        uses = ident_list();
-        expect_sym(";");
-    }
+    IdentVec uses = parse_imports();
     Block *b = NEW(Block);
     b->uses = uses;
     parse_decls(b);

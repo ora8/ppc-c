@@ -10,7 +10,9 @@
 
 typedef struct {
     int line, col;
+    const char *file; /* source file (modules); NULL: the program file */
 } Pos;
+#define POS_FILE(p) ((p).file ? (p).file : g_filename)
 
 void *xmalloc(size_t n);
 void *xcalloc(size_t n, size_t sz);

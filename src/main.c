@@ -17,6 +17,43 @@ static const char *PRELUDE =
     "procedure TObject.Free; begin if Assigned(Self) then Destroy end;\n"
     "function TObject.ClassName: String; const; begin Result := __ClassName(Self) end;\n";
 
+static VEC(Block *) mods;     /* loaded modules, dependencies first */
+static VEC(char *) mod_names; /* parallel to mods */
+static VEC(char *) loading;   /* modules being loaded (cycle detection) */
+static const char *mod_dir;
+static char *read_file(const char *path);
+
+static void load_module(Ident *name) {
+    for (int i = 0; i < mod_names.len; i++)
+        if (STREQ(mod_names.items[i], name->name)) return; /* loaded once */
+    for (int i = 0; i < loading.len; i++)
+        if (STREQ(loading.items[i], name->name)) error_at(name->pos, "modules import each other in a cycle: '%s'", name->name);
+    const char *src;
+    char *file;
+    if (STREQ(name->name, "ppc_std")) {
+        src = PPC_STD;
+        file = "ppc_std.pas";
+    } else {
+        file = sfmt("%s/%s.pas", mod_dir, name->name);
+        FILE *f = fopen(file, "rb");
+        if (!f) error_at(name->pos, "module '%s' not found (looked for %s)", name->name, file);
+        fclose(f);
+        src = read_file(file);
+    }
+    vpush(loading, name->name);
+    const char *save = g_filename;
+    g_filename = file;
+    Ident mname;
+    Block *b = parse_module(src, &mname);
+    if (!STREQ(mname.name, name->name))
+        error_at(mname.pos, "the file declares 'module %s', but it is imported as '%s'", mname.name, name->name);
+    g_filename = save;
+    for (int i = 0; i < b->uses.len; i++) load_module(&b->uses.items[i]);
+    loading.len--;
+    vpush(mods, b);
+    vpush(mod_names, name->name);
+}
+
 static char *read_file(const char *path) {
     FILE *f = fopen(path, "rb");
     if (!f) {
@@ -92,17 +129,18 @@ int main(int argc, char **argv) {
         fprintf(stderr, "%s: %d syntax error(s), compilation aborted\n", input, g_errors);
         return 1;
     }
-    /* units: the standard library is built in */
-    Block **libs = (Block **)xcalloc(prog_block->uses.len + 1, sizeof(Block *));
-    int nlibs = 0;
-    for (int i = 0; i < prog_block->uses.len; i++) {
-        Ident *u = &prog_block->uses.items[i];
-        if (!STREQ(u->name, "ppc_std")) error_at(u->pos, "unknown unit '%s' (available: ppc_std)", u->name);
-        g_filename = "ppc_std.pas";
-        libs[nlibs++] = parse_decls_only(PPC_STD);
-        g_filename = input;
+    /* modules: 'import Name' loads Name.pas next to the program (ppc_std is built in), dependencies first */
+    {
+        const char *slash = strrchr(input, '/');
+        mod_dir = slash ? xstrndup(input, (size_t)(slash - input)) : ".";
     }
-    Program *prog = sema_program(prelude, libs, nlibs, prog_block, pname);
+    for (int i = 0; i < prog_block->uses.len; i++) load_module(&prog_block->uses.items[i]);
+    g_filename = input;
+    if (g_errors) {
+        fprintf(stderr, "%s: %d error(s) in modules, compilation aborted\n", input, g_errors);
+        return 1;
+    }
+    Program *prog = sema_program(prelude, mods.items, mods.len, prog_block, pname);
     if (g_errors) {
         fprintf(stderr, "%s: %d error(s), compilation aborted\n", input, g_errors);
         return 1;

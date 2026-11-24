@@ -1,6 +1,6 @@
 program StdShadow;
 { eigene Namen verdecken die der Bibliothek; die Bibliothek benutzt weiter ihre eigenen }
-uses ppc_std;
+import ppc_std;
 type
   TStapel = record Hoehe: Integer; end;          { verdeckt TStapel<T> aus ppc_std }
 

@@ -394,6 +394,7 @@ enum {
 /* parser.c */
 Block *parse_program(const char *src, char **name, Pos *end_pos);
 Block *parse_decls_only(const char *src);
+Block *parse_module(const char *src, Ident *name);
 TypeExpr *reparse_type(void *toks, int start);
 RoutineDecl *reparse_routine(void *toks, int start);
 Expr *new_expr(ExprKind k, Pos p);

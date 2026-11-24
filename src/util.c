@@ -74,7 +74,7 @@ void buf_printf(Buf *b, const char *fmt, ...) {
 const char *buf_str(Buf *b) { return b->d ? b->d : ""; }
 
 void verror_at(const char *kind, Pos p, const char *fmt, va_list ap) {
-    fprintf(stderr, "%s(%d,%d) %s: ", g_filename, p.line, p.col, kind);
+    fprintf(stderr, "%s(%d,%d) %s: ", POS_FILE(p), p.line, p.col, kind);
     vfprintf(stderr, fmt, ap);
     if (g_err_context) fprintf(stderr, " (in %s)", g_err_context);
     fputc('\n', stderr);

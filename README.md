@@ -665,14 +665,57 @@ als Einschränkung (`T: TTier`) stehen alle Felder und Methoden von `TTier` zur 
   für ein Objekt-`T` gelten die üblichen Regeln für Besitz und Ausleihen.
 * `ClassName` liefert den Namen der Instanz, z. B. `'TListe<TKunde>'`.
 
-## Standardbibliothek: `uses ppc_std`
+## Module: `module` und `import`
 
-Die Standardbibliothek ist selbst in Perfect Pascal geschrieben ([lib/ppc_std.pas](lib/ppc_std.pas))
-und wird in den Compiler eingebettet. Sie besteht aus generischen Containern und Algorithmen:
+Ein Programm bindet Module mit **`import`** ein. Ein Modul ist eine eigene Datei, die mit
+**`module Name;`** beginnt, Deklarationen enthält (Konstanten, Typen, Variablen, Routinen,
+Generics) und mit `end.` endet:
+
+```pascal
+module Geometrie;                       { Datei Geometrie.pas }
+import ppc_std;                         { ein Modul darf selbst importieren }
+
+type
+  TPunkt = record
+    X, Y: Real;
+    function Abstand(b: TPunkt): Real; const;
+  end;
+
+function TPunkt.Abstand(b: TPunkt): Real; const;
+begin Result := Sqrt(Sqr(X - b.X) + Sqr(Y - b.Y)); end;
+
+end.
+```
+
+```pascal
+program Haupt;                          { Datei Haupt.pas im selben Verzeichnis }
+import ppc_std, Geometrie;
+
+val a: TPunkt := (X: 0; Y: 0);
+val b: TPunkt := (X: 3; Y: 4);
+begin
+  WriteLn(a.Abstand(b):0:1);            { 5.0 }
+end.
+```
+
+* `import Name` sucht `Name.pas` im Verzeichnis des Programms; der Name nach `module` muss zum
+  Dateinamen passen. Jedes Modul wird nur einmal geladen, seine eigenen Importe zuerst;
+  gegenseitige Importe (Zyklen) sind ein Fehler.
+* Alles, was ein Modul deklariert, ist im importierenden Programm sichtbar. Eigene Namen im
+  Programm verdecken die eines Moduls.
+* Fehler in einem Modul werden mit dessen Dateinamen gemeldet:
+  `Geometrie.pas(12,5) Error: …`.
+* Ein Modul hat keinen Hauptblock (`begin … end`); es endet mit `end.`. Das alte `uses` ergibt
+  `'uses' was replaced by 'import'`.
+
+### Standardbibliothek: `import ppc_std`
+
+Die Standardbibliothek ist selbst ein Perfect-Pascal-Modul ([lib/ppc_std.pas](lib/ppc_std.pas)) und
+wird in den Compiler eingebettet. Sie besteht aus generischen Containern und Algorithmen:
 
 ```pascal
 program Beispiel;
-uses ppc_std;
+import ppc_std;
 val zahlen: array of Integer := (5, 3, 9, 1, 7);
 vao kunden := TListe<TKunde>.Create;
 vao alter := TMap<String, Integer>.Create;
@@ -698,7 +741,7 @@ end.                                                 { alle Container geben ihre
   Aufrufer weiter (`optional T`), `Hole` und `Top` leihen nur aus.
 * Eigene Namen im Programm verdecken die der Bibliothek; die Bibliothek selbst benutzt weiter ihre
   eigenen.
-* Andere Units gibt es noch nicht: `uses SysUtils` ergibt `unknown unit 'SysUtils' (available: ppc_std)`.
+* Ein unbekanntes Modul ergibt `module 'SysUtils' not found (looked for ./SysUtils.pas)`.
 
 ## Records mit Methoden
 
@@ -985,7 +1028,7 @@ Objekte sofort frei (in jeder Schleifenart); Ausleihen auf sie sind danach ungü
 
 ## Unterstützte Sprache
 
-* `program`, `uses ppc_std` (Standardbibliothek), `const` (auch typisierte Konstanten und Array-Initialisierer),
+* `program`, `module` und `import` (eigene Module, Standardbibliothek `ppc_std`), `const` (auch typisierte Konstanten und Array-Initialisierer),
   `type`, `val` (Werte), `var` (Referenzen), `vao` (Besitzer), Blöcke mit eigenen Abschnitten
 * Typen: `Integer`/`LongInt` (32 Bit), `ShortInt`, `SmallInt`, `Byte`, `Word`, `Cardinal`,
   `Int64`, `Boolean`, `Char`, `Real`/`Double`, `String` (ShortString, max. 255 Zeichen),
@@ -1006,7 +1049,7 @@ Objekte sofort frei (in jeder Schleifenart); Ausleihen auf sie sind danach ungü
   bei `optional`: `HasValue`, `ValueOr`; bei `result`: `IsOk`, `IsError`, `ValueOr`
 
 Nicht unterstützt: `nil` (ersetzt durch `optional`/`none`), Zeiger (`^`, `@`, `New`, `Dispose`,
-`Pointer` – ersetzt durch Objekte, `var`-Referenzen und `var`-Parameter), `object`-Typen (ersetzt durch `class`), Units, Mengentypen (außer Mengen-Literalen bei `in`), offene
+`Pointer` – ersetzt durch Objekte, `var`-Referenzen und `var`-Parameter), `object`-Typen (ersetzt durch `class`), Mengentypen (außer Mengen-Literalen bei `in`), offene
 Array-Parameter (`array of T` ist ein dynamisches Array), Exceptions (ersetzt durch `result T` und `try`), Interfaces, Überladen, Prozedurtypen,
 varianten Records, `goto`, Datei-I/O.
 
