@@ -996,7 +996,13 @@ static void do_assign(Expr *lhs, Expr *rhs, State *s, Pos p) {
         access_expr(lhs, s, 1, NULL);
         return;
     }
+    /* binding a borrow to a place: the borrow itself is the access (reported as borrow, not as read) */
+    Expr *pl = strip_conv(rhs);
+    int rebind = lhs->kind == E_VAR && tracked_borrow(lhs->var) &&
+                 (pl->kind == E_VAR || pl->kind == E_FIELD || pl->kind == E_INDEX || pl->kind == E_DEREF);
+    if (rebind) in_base++;
     Src src = eval_src(rhs, s);
+    if (rebind) in_base--;
     unsigned nb = nil_bits(rhs, s);
     use_lvalue(lhs, s);
     (void)is_place_kind;
