@@ -324,11 +324,28 @@ static int is_lvalue(Expr *e) {
     }
 }
 
+/* is e (a part of) a value stored in a constant? Objects behind a class reference stay changeable. */
+static int rooted_const(Expr *e) {
+    switch (e->kind) {
+    case E_VAR: return e->var->is_const && e->var->type->kind != T_CLASS;
+    case E_FIELD: return e->a->type->kind != T_CLASS && rooted_const(e->a);
+    case E_INDEX: case E_CAST: case E_CONV: return rooted_const(e->a);
+    default: return 0;
+    }
+}
+
+static const char *const_root_name(Expr *e) {
+    while (e->kind != E_VAR) e = e->a;
+    return e->var->name;
+}
+
 static void check_writable(Expr *e, const char *what) {
     if (!is_lvalue(e)) error_at(e->pos, "%s: variable identifier expected", what);
     if (e->kind == E_VAR && e->var->is_stack)
         error_at(e->pos, "%s: \"%s\" is a stack object and cannot be reassigned; construct it with %s.Create(...) (heap objects are declared in a 'var' section)", what,
                  e->var->name, e->var->name);
+    if (e->kind != E_VAR && rooted_const(e))
+        error_at(e->pos, "%s: cannot modify a part of '%s', which is constant", what, const_root_name(e));
     if (e->kind == E_VAR && e->var->is_const)
         error_at(e->pos, "%s: cannot modify constant/loop variable \"%s\"", what, e->var->name);
 }
@@ -861,6 +878,9 @@ static Expr *make_call(Routine *rt, Expr *base, ExprVec *args, int mode, Type *n
     }
     if (rt->owner && !base && mode != CM_NEWCLASS)
         error_at(p, "method \"%s\" needs an instance", rt->name);
+    if (rt->owner && rt->owner->kind == SK_RECORD && rt->kind == RK_PROC && base && rooted_const(base))
+        error_at(p, "cannot call procedure '%s' on constant '%s' (it could change it); only functions are allowed", rt->name,
+                 const_root_name(base));
     if ((mode == CM_INHERITED || mode == CM_STATIC) && rt->is_abstract)
         error_at(p, "abstract method \"%s\" cannot be called directly", rt->name);
     c->cmode = mode;
@@ -1863,6 +1883,7 @@ static void stmt(Stmt *s) {
             if (t->kind != T_CLASS && !is_lvalue(v)) error_at(v->pos, "'with' needs a variable");
             Var *w = new_var("with", t, VK_WITH, v->pos);
             w->is_ref = t->kind != T_CLASS;
+            w->is_const = t->kind != T_CLASS && rooted_const(v);
             w->borrowed = 1;
             vpush(s->wvars, w);
             s->exprs.items[i] = v;
@@ -1880,10 +1901,6 @@ static void stmt(Stmt *s) {
             DeclKind k = s->blk->decls.items[i]->kind;
             if (k == D_ROUTINE || k == D_TYPE)
                 error_at(s->pos, "only const, val and var sections are allowed before a nested begin ... end");
-            if (k == D_CONST)
-                for (int j = 0; j < s->blk->decls.items[i]->consts.len; j++)
-                    if (s->blk->decls.items[i]->consts.items[j].ty)
-                        error_at(s->pos, "typed constants are not allowed in a nested block (declare them at routine level)");
         }
         push_scope();
         StmtVec *save_init = local_init;
@@ -2115,10 +2132,10 @@ static void routine_body(Routine *rt, RoutineDecl *d) {
         Param *pm = &rt->params.items[i];
         Var *v = new_var(pm->name, pm->type, VK_PARAM, d->pos);
         v->mode = pm->mode;
-        v->is_ref = pm->mode == PM_VAR || pm->mode == PM_OUT;
-        v->is_const = pm->mode == PM_CONST;
+        v->is_ref = pm->mode == PM_VAR || pm->mode == PM_OUT || pm->mode == PM_CONSTREF;
+        v->is_const = pm->mode == PM_CONST || pm->mode == PM_CONSTREF;
         v->in_frame = has_frame;
-        v->borrowed = (pm->mode == PM_VALUE || pm->mode == PM_CONST) && is_owning_type(pm->type);
+        v->borrowed = (pm->mode == PM_VALUE || pm->mode == PM_CONST || pm->mode == PM_CONSTREF) && is_owning_type(pm->type);
         pm->var = v;
         add_sym(SY_VAR, pm->name, d->pos)->var = v;
     }
@@ -2152,8 +2169,31 @@ static void decls(Block *b, int has_frame) {
         case D_CONST:
             for (int i = 0; i < d->consts.len; i++) {
                 ConstDecl *c = &d->consts.items[i];
-                if (c->ty) {
-                    /* typed constant = initialized static variable */
+                if (!c->ty || (cur || in_block)) {
+                    Expr *r = c->value->kind == E_LIST ? NULL : value(c->value);
+                    Expr *lit = r && !c->ty ? fold(r) : NULL;
+                    if (lit) { /* compile-time constant */
+                        Sym *cs = add_sym(SY_CONST, c->name.name, c->name.pos);
+                        cs->cval = lit;
+                        cs->type = lit->type;
+                        continue;
+                    }
+                    if (!c->ty && !r) error_at(c->name.pos, "an initializer list needs a declared array type");
+                    /* immutable variable: initialized when the declaration is executed */
+                    Type *t = c->ty ? resolve_type(c->ty) : infer_type(r, c->value->pos, c->name.name);
+                    Var *v = new_var(c->name.name, t, cur ? VK_LOCAL : VK_GLOBAL, c->name.pos);
+                    v->cname = sfmt("K%d_%s", v->id, c->name.name);
+                    v->in_frame = has_frame;
+                    if (t->kind == T_CLASS) v->borrowed = !(r && is_owning_temp(r)); /* owns a fresh object, else borrows */
+                    if (cur) vpush(cur->locals, v);
+                    else vpush(prog->globals, v);
+                    add_sym(SY_VAR, c->name.name, c->name.pos)->var = v;
+                    add_init((cur || in_block) ? local_init : &prog->init, v, r ? r : c->value);
+                    v->is_const = 1;
+                    continue;
+                }
+                {
+                    /* typed constant at program level = initialized, read-only static variable */
                     Type *t = resolve_type(c->ty);
                     int save = level;
                     level = 0;
@@ -2161,15 +2201,10 @@ static void decls(Block *b, int has_frame) {
                     level = save;
                     v->is_global = 1;
                     v->level = 0;
-                    if (cur) v->cname = sfmt("C%d_%s", v->id, c->name.name);
                     vpush(prog->globals, v);
                     add_sym(SY_VAR, c->name.name, c->name.pos)->var = v;
                     add_init(&prog->init, v, c->value);
-                } else {
-                    Expr *lit = const_expr(c->value);
-                    Sym *s = add_sym(SY_CONST, c->name.name, c->name.pos);
-                    s->cval = lit;
-                    s->type = lit->type;
+                    v->is_const = 1;
                 }
             }
             break;

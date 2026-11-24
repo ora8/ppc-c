@@ -203,6 +203,54 @@ end;
   auf sie sind danach ungültig (der Borrow Checker meldet ihre Benutzung).
 * Routinen, Typen und typisierte Konstanten sind in Blöcken nicht erlaubt.
 
+## Konstanten und `constref`
+
+**`const`** deklariert Werte, die sich nicht mehr ändern lassen:
+
+```pascal
+procedure P(n: Integer);
+const
+  Max = 100;                   { Konstante zur Übersetzungszeit (wie bisher) }
+  Hoch = n * n;                { unveränderlich, Wert zur Laufzeit }
+  Text = 'n=' + IntToStr(n);
+  w = v;                       { unveränderliche Kopie eines Records }
+begin
+  Hoch := 1;                   { Fehler }
+  w.X := 1;                    { Fehler: Teil einer Konstanten }
+  w.Skaliere(2);               { Fehler: Prozedur könnte w ändern }
+  WriteLn(w.Laenge);           { erlaubt: Funktion }
+```
+
+* Lässt sich der Wert beim Übersetzen ausrechnen, ist es eine echte Konstante (auch für
+  Array-Grenzen nutzbar); sonst eine unveränderliche Variable, belegt beim Eintritt in die
+  Routine bzw. den Block (`const x = …; begin … end;`).
+* Unveränderlich ist auch alles, was im Wert steckt: Record-Felder und Array-Elemente. Auf
+  konstanten Records dürfen nur **Funktions**-Methoden aufgerufen werden, keine Prozeduren.
+* Bei Objekten ist die **Referenz** konstant; das Objekt selbst kann über seine Methoden
+  verändert werden (wie `final` in Java).
+* Typisierte Konstanten (`const Limit: Integer = 5;`) sind ebenfalls schreibgeschützt.
+
+**`constref`-Parameter** werden per Referenz übergeben (keine Kopie) und sind nur lesbar –
+wie `const T&` in C++ bzw. `&T` in Rust. Sinnvoll für Strings, Records und Arrays:
+
+```pascal
+function Summe(constref A: TGross): Integer;    { keine Kopie des Arrays }
+procedure Zeige(constref S: String; constref V: TVektor);
+…
+Zeige('Text', v);
+WriteLn(Doppelt(Hoch + 1));                     { auch Ausdrücke: temporäre Kopie }
+```
+
+| Parameter | Übergabe | Ändern erlaubt |
+|---|---|---|
+| (Wert) | Kopie | ja, nur die Kopie |
+| `const` | Kopie | nein |
+| `constref` | Referenz | nein |
+| `var` / `out` | Referenz | ja, beim Aufrufer |
+
+Der Borrow Checker behandelt `constref` als lesende Ausleihe: `Q(x, x)` mit einem `var`- und
+einem `constref`-Parameter ist ein Fehler.
+
 ## Records mit Methoden
 
 Records sind **Werte**: `b := a` kopiert, Wertparameter und Funktionsergebnisse sind Kopien,

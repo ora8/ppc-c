@@ -280,8 +280,12 @@ static char *gcall(Expr *e) {
             /* owned temporary passed to a borrowing parameter: freed after the call */
             int id = ++tmpc;
             buf_printf(&pre, "%s __ta%d = %s; ", ctype(pm->type), id, gx(a));
-            buf_printf(&args, "__ta%d", id);
+            buf_printf(&args, pm->mode == PM_CONSTREF ? "&__ta%d" : "__ta%d", id);
             buf_printf(&post, "%s; ", drop_code(pm->type, sfmt("__ta%d", id)));
+        } else if (pm->mode == PM_CONSTREF) {
+            /* read-only by reference: the variable itself, or a temporary copy of a computed value */
+            if (cg_lvalue(a)) buf_printf(&args, "((%s*)&%s)", ctype(pm->type), gx(a));
+            else buf_printf(&args, "(&((%s[1]){%s})[0])", ctype(pm->type), gx(a));
         } else {
             buf_put(&args, gx(a));
             Var *mv = pm->mode == PM_OWNED ? move_source(a) : NULL;
@@ -858,7 +862,7 @@ static char *sig(Routine *r, int names) {
     if (r->kind == RK_DTOR) buf_printf(&b, "%sint %s", SEP(), names ? "__free" : "");
     for (int i = 0; i < r->params.len; i++) {
         Param *p = &r->params.items[i];
-        int ref = p->mode == PM_VAR || p->mode == PM_OUT;
+        int ref = p->mode == PM_VAR || p->mode == PM_OUT || p->mode == PM_CONSTREF;
         buf_printf(&b, "%s%s%s %s", SEP(), ctype(p->type), ref ? "*" : "", names && p->var ? p->var->cname : "");
     }
     if (!n) buf_put(&b, "void");
@@ -874,7 +878,7 @@ static char *slot_type(Routine *r, const char *name) {
     if (r->kind == RK_DTOR) buf_put(&b, ", int");
     for (int i = 0; i < r->params.len; i++) {
         Param *p = &r->params.items[i];
-        int ref = p->mode == PM_VAR || p->mode == PM_OUT;
+        int ref = p->mode == PM_VAR || p->mode == PM_OUT || p->mode == PM_CONSTREF;
         buf_printf(&b, ", %s%s", ctype(p->type), ref ? "*" : "");
     }
     buf_put(&b, ")");

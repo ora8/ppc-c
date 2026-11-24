@@ -340,6 +340,9 @@ static ParamGroupVec parse_params(void) {
         } else if (is_ident("owned")) {
             next();
             g.mode = PM_OWNED;
+        } else if (is_ident("constref")) { /* read-only, passed by reference (no copy) */
+            next();
+            g.mode = PM_CONSTREF;
         } else
             g.mode = PM_VALUE;
         g.names = ident_list();

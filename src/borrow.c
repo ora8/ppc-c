@@ -1081,7 +1081,7 @@ static void call_effects(Expr *e, State *s, Origins *out) {
             }
         } else {
             use_expr(a, s);
-            if (pm->mode == PM_CONST) {
+            if (pm->mode == PM_CONST || pm->mode == PM_CONSTREF) {
                 char *p = path_of(a, &root);
                 if (p) {
                     ArgPath x = {p, desc_of(a), 0, 1};

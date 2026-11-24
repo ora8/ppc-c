@@ -27,7 +27,7 @@ typedef VEC(Ident) IdentVec;
 
 /* ------------------------------------------------------------------ syntax */
 
-enum { PM_VALUE, PM_VAR, PM_CONST, PM_OUT, PM_OWNED };
+enum { PM_VALUE, PM_VAR, PM_CONST, PM_OUT, PM_OWNED, PM_CONSTREF };
 enum { RK_PROC, RK_FUNC, RK_CTOR, RK_DTOR };
 enum { VIRT_NONE, VIRT_VIRTUAL, VIRT_OVERRIDE };
 enum { SK_RECORD, SK_CLASS };
