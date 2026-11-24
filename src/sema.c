@@ -169,6 +169,21 @@ static int is_ptrlike(Type *t) { return t->kind == T_PTR || t->kind == T_CLASS |
 
 /* owning types: class instances and typed pointers (borrow checker) */
 int is_ref_type(Type *t) { return t && (t->kind == T_CLASS || (t->kind == T_PTR && t->base)); }
+/* a value that contains strings (each has its own heap buffer: copied on assignment, freed at the end) */
+int has_str(Type *t) {
+    if (!t) return 0;
+    switch (t->kind) {
+    case T_STR: return 1;
+    case T_ARRAY: case T_DYN: case T_OPT: return has_str(t->base);
+    case T_RES: return has_str(t->base) || has_str(t->err);
+    case T_RECORD:
+        for (int i = 0; i < t->st->fields.len; i++)
+            if (has_str(t->st->fields.items[i]->type)) return 1;
+        return 0;
+    default: return 0;
+    }
+}
+
 /* a value (array, record, optional value) that owns objects in its elements or fields */
 int has_owned(Type *t) {
     if (!t) return 0;
@@ -1867,7 +1882,7 @@ static Expr *ex(Expr *e) {
                 long long cv;
                 Expr *c = fold(idx);
                 if (c && lit_ord(c, &cv)) {
-                    if (cv < 0 || cv > 255) error_at(idx->pos, "string index %lld is outside 0..255", cv);
+                    if (cv < 1) error_at(idx->pos, "string index %lld: strings are indexed from 1", cv);
                     n->in_range = 1;
                 }
                 n->type = t_char;
@@ -2449,7 +2464,7 @@ static Expr *bind_some(Expr *e) {
     /* unpacking a place borrows its content; unpacking a fresh owned object takes ownership */
     k->borrowed = t->kind == T_CLASS && !is_owning_temp(e->a);
     k->is_const = k->borrowed || t->kind == T_OPT || t->kind == T_RES;
-    k->no_drop = t->kind == T_OPT; /* a copy of the value: the original keeps owning */
+    k->no_drop = t->kind == T_OPT && has_owned(kt); /* a copy of the value: the original keeps owning (strings are copied) */
     if (cur) vpush(cur->locals, k);
     else vpush(prog->globals, k);
     add_sym(SY_VAR, e->id.name, e->id.pos)->var = k;

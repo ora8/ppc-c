@@ -7,7 +7,7 @@
 #include <string.h>
 #include <time.h>
 
-typedef struct { unsigned char s[256]; } PStr; /* ShortString: s[0] = length */
+typedef struct { int64_t len; unsigned char *p; } PStr; /* String: length + heap buffer (see strings) */
 struct __VMTHdr { void *parent; const char *name; size_t size; void (*drop)(void *); void (*clonefix)(void *); };
 /* drop: frees the owning fields; clonefix: after copying an object, replaces its owned objects by clones */
 
@@ -64,68 +64,110 @@ static void *__nilchk(void *p, int line, int col) {
     return p;
 }
 
-/* ---- strings ---- */
-static PStr __pstr_lit(const char *c, int n) {
+/* ---- strings ----
+ * A String is { len, p }. Every variable owns its own heap buffer (copied on assignment, freed at
+ * the end of its scope). Results of string operations are temporaries: they are registered in a
+ * pool that is emptied after every statement (down to the mark of the running routine).
+ * Literals are views of static memory and are never freed. */
+static PStr *__tp;
+static size_t __tpn, __tpc;
+static PStr __ppc_tmp(PStr s) {
+    if (!s.p) return s;
+    if (__tpn == __tpc) {
+        __tpc = __tpc ? __tpc * 2 : 64;
+        __tp = (PStr *)realloc(__tp, __tpc * sizeof(PStr));
+        if (!__tp) __rt_error(203, "heap overflow");
+    }
+    __tp[__tpn++] = s;
+    return s;
+}
+static size_t __ppc_mark(void) { return __tpn; }
+static void __ppc_release(size_t m) {
+    while (__tpn > m) free(__tp[--__tpn].p);
+}
+static PStr __pstr_new(int64_t n) { /* fresh owned buffer (not registered) */
     PStr r;
-    if (n > 255) n = 255;
-    r.s[0] = (unsigned char)n;
-    memcpy(r.s + 1, c, (size_t)n);
+    r.len = n;
+    r.p = n ? (unsigned char *)__ppc_alloc((size_t)n + 1) : NULL;
     return r;
 }
-static PStr __pstr_char(unsigned char c) { PStr r; r.s[0] = 1; r.s[1] = c; return r; }
-static PStr __pstr_cstr(const char *c) { return __pstr_lit(c, (int)strlen(c)); }
+static PStr __pstr_dup(PStr s) { /* an owned copy */
+    PStr r = __pstr_new(s.len);
+    if (s.len) memcpy(r.p, s.p, (size_t)s.len);
+    return r;
+}
+static void __pstr_free(PStr *s) {
+    free(s->p);
+    s->p = NULL;
+    s->len = 0;
+}
+static PStr __pstr_lit(const char *c, int64_t n) { PStr r; r.len = n; r.p = n ? (unsigned char *)c : NULL; return r; }
+static PStr __pstr_char(unsigned char c) { PStr r = __pstr_new(1); r.p[0] = c; return __ppc_tmp(r); }
+static PStr __pstr_cstr(const char *c) { return __pstr_lit(c, (int64_t)strlen(c)); }
+static PStr __pstr_mem(const char *c, int64_t n) { PStr r = __pstr_new(n); if (n) memcpy(r.p, c, (size_t)n); return __ppc_tmp(r); }
 static PStr __pstr_cat(PStr a, PStr b) {
-    int n = a.s[0], m = b.s[0];
-    if (n + m > 255) m = 255 - n;
-    memcpy(a.s + 1 + n, b.s + 1, (size_t)m);
-    a.s[0] = (unsigned char)(n + m);
-    return a;
+    PStr r = __pstr_new(a.len + b.len);
+    if (a.len) memcpy(r.p, a.p, (size_t)a.len);
+    if (b.len) memcpy(r.p + a.len, b.p, (size_t)b.len);
+    return __ppc_tmp(r);
 }
 static int __pstr_cmp(PStr a, PStr b) {
-    int n = a.s[0], m = b.s[0], k = n < m ? n : m;
-    int c = memcmp(a.s + 1, b.s + 1, (size_t)k);
+    int64_t k = a.len < b.len ? a.len : b.len;
+    int c = k ? memcmp(a.p, b.p, (size_t)k) : 0;
     if (c) return c;
-    return n - m;
+    return a.len < b.len ? -1 : a.len > b.len;
 }
 static PStr __pstr_copy(PStr s, int64_t i, int64_t c) {
-    PStr r;
-    int n = s.s[0];
     if (i < 1) i = 1;
-    if (i > n || c <= 0) { r.s[0] = 0; return r; }
-    if (c > n - i + 1) c = n - i + 1;
-    r.s[0] = (unsigned char)c;
-    memcpy(r.s + 1, s.s + i, (size_t)c);
-    return r;
+    if (i > s.len || c <= 0) return __pstr_lit("", 0);
+    if (c > s.len - i + 1) c = s.len - i + 1;
+    return __pstr_mem((const char *)s.p + i - 1, c);
 }
 static int32_t __pstr_pos(PStr sub, PStr s) {
-    int n = s.s[0], m = sub.s[0];
-    if (m == 0) return 0;
-    for (int i = 1; i + m - 1 <= n; i++)
-        if (memcmp(s.s + i, sub.s + 1, (size_t)m) == 0) return i;
+    if (sub.len == 0) return 0;
+    for (int64_t i = 0; i + sub.len <= s.len; i++)
+        if (memcmp(s.p + i, sub.p, (size_t)sub.len) == 0) return (int32_t)(i + 1);
     return 0;
 }
+static void __pstr_setlen(PStr *s, int64_t n) {
+    if (n < 0) n = 0;
+    if (!n) { __pstr_free(s); return; }
+    s->p = (unsigned char *)realloc(s->p, (size_t)n + 1);
+    if (!s->p) __rt_error(203, "heap overflow");
+    if (n > s->len) memset(s->p + s->len, ' ', (size_t)(n - s->len));
+    s->len = n;
+}
 static void __pstr_delete(PStr *s, int64_t i, int64_t c) {
-    int n = s->s[0];
-    if (i < 1 || i > n || c <= 0) return;
-    if (c > n - i + 1) c = n - i + 1;
-    memmove(s->s + i, s->s + i + c, (size_t)(n - i - c + 1));
-    s->s[0] = (unsigned char)(n - c);
+    if (i < 1 || i > s->len || c <= 0) return;
+    if (c > s->len - i + 1) c = s->len - i + 1;
+    memmove(s->p + i - 1, s->p + i - 1 + c, (size_t)(s->len - (i - 1) - c));
+    __pstr_setlen(s, s->len - c);
 }
 static void __pstr_insert(PStr src, PStr *s, int64_t i) {
-    int n = s->s[0];
+    if (!src.len) return;
     if (i < 1) i = 1;
-    if (i > n + 1) i = n + 1;
-    PStr head = __pstr_copy(*s, 1, i - 1), tail = __pstr_copy(*s, i, 255);
-    *s = __pstr_cat(__pstr_cat(head, src), tail);
+    if (i > s->len + 1) i = s->len + 1;
+    int64_t old = s->len;
+    PStr copy = __pstr_dup(src); /* src may point into s */
+    __pstr_setlen(s, old + copy.len);
+    memmove(s->p + i - 1 + copy.len, s->p + i - 1, (size_t)(old - (i - 1)));
+    memcpy(s->p + i - 1, copy.p, (size_t)copy.len);
+    free(copy.p);
 }
-static PStr __int_to_str(int64_t v) { char b[32]; int n = snprintf(b, sizeof b, "%lld", (long long)v); return __pstr_lit(b, n); }
+static void __pstr_assign(PStr *dst, PStr src) { /* dst := src (an owned copy) */
+    PStr n = __pstr_dup(src);
+    free(dst->p);
+    *dst = n;
+}
+static PStr __int_to_str(int64_t v) { char b[32]; int n = snprintf(b, sizeof b, "%lld", (long long)v); return __pstr_mem(b, n); }
 static int32_t __str_to_int(PStr s) {
-    char b[257];
-    memcpy(b, s.s + 1, s.s[0]);
-    b[s.s[0]] = 0;
+    char b[64];
+    int64_t n = s.len < 63 ? s.len : 63;
+    if (n) memcpy(b, s.p, (size_t)n);
+    b[n] = 0;
     char *e;
     long long v = strtoll(b, &e, 10);
-    if (s.s[0] == 0 || *e) {
+    if (s.len == 0 || *e || s.len > 63) {
         fflush(stdout);
         fprintf(stderr, "EConvertError: \"%s\" is an invalid integer\n", b);
         exit(1);
@@ -135,15 +177,23 @@ static int32_t __str_to_int(PStr s) {
 static PStr __float_to_str(double d) {
     char b[64];
     int n = snprintf(b, sizeof b, "%.15g", d);
-    return __pstr_lit(b, n);
+    return __pstr_mem(b, n);
 }
-static PStr __upper(PStr s) { for (int i = 1; i <= s.s[0]; i++) s.s[i] = (unsigned char)toupper(s.s[i]); return s; }
-static PStr __lower(PStr s) { for (int i = 1; i <= s.s[0]; i++) s.s[i] = (unsigned char)tolower(s.s[i]); return s; }
+static PStr __upper(PStr s) {
+    PStr r = __pstr_new(s.len);
+    for (int64_t i = 0; i < s.len; i++) r.p[i] = (unsigned char)toupper(s.p[i]);
+    return __ppc_tmp(r);
+}
+static PStr __lower(PStr s) {
+    PStr r = __pstr_new(s.len);
+    for (int64_t i = 0; i < s.len; i++) r.p[i] = (unsigned char)tolower(s.p[i]);
+    return __ppc_tmp(r);
+}
 static unsigned char __upcase(unsigned char c) { return (unsigned char)toupper(c); }
 
 /* ---- output ---- */
 static void __w_pad(int64_t w, int len) { for (; len < w; len++) putchar(' '); }
-static void __w_str(PStr s, int64_t w) { __w_pad(w, s.s[0]); fwrite(s.s + 1, 1, s.s[0], stdout); }
+static void __w_str(PStr s, int64_t w) { __w_pad(w, (int)s.len); if (s.len) fwrite(s.p, 1, (size_t)s.len, stdout); }
 static void __w_cstr(const char *s, int64_t w) { __w_pad(w, (int)strlen(s)); fputs(s, stdout); }
 static void __w_char(unsigned char c, int64_t w) { __w_pad(w, 1); putchar(c); }
 static void __w_int(int64_t v, int64_t w) { printf("%*lld", (int)w, (long long)v); }
@@ -166,8 +216,8 @@ static void __fmt_real(char *out, size_t sz, double v, int64_t w, int64_t p) {
 }
 static void __w_real(double v, int64_t w, int64_t p) { char b[128]; __fmt_real(b, sizeof b, v, w, p); fputs(b, stdout); }
 static void __w_ln(void) { putchar('\n'); }
-static PStr __str_real(double v, int64_t w, int64_t p) { char b[128]; __fmt_real(b, sizeof b, v, w, p); return __pstr_cstr(b); }
-static PStr __str_int(int64_t v, int64_t w) { char b[64]; snprintf(b, sizeof b, "%*lld", (int)w, (long long)v); return __pstr_cstr(b); }
+static PStr __str_real(double v, int64_t w, int64_t p) { char b[128]; __fmt_real(b, sizeof b, v, w, p); return __pstr_mem(b, (int64_t)strlen(b)); }
+static PStr __str_int(int64_t v, int64_t w) { char b[64]; snprintf(b, sizeof b, "%*lld", (int)w, (long long)v); return __pstr_mem(b, (int64_t)strlen(b)); }
 
 /* ---- input ---- */
 static int64_t __r_int(void) {
@@ -188,17 +238,22 @@ static unsigned char __r_char(void) {
     if (c == EOF) return 26;
     return (unsigned char)c;
 }
-static PStr __r_str(void) {
-    PStr r;
-    int n = 0, c;
+static PStr __r_str(void) { /* ReadLn(s): the rest of the line */
+    PStr r = __pstr_new(0);
+    int64_t cap = 0;
+    int c;
     fflush(stdout);
     while ((c = getchar()) != EOF && c != '\n') {
         if (c == '\r') continue;
-        if (n < 255) r.s[1 + n++] = (unsigned char)c;
+        if (r.len + 1 >= cap) {
+            cap = cap ? cap * 2 : 64;
+            r.p = (unsigned char *)realloc(r.p, (size_t)cap);
+            if (!r.p) __rt_error(203, "heap overflow");
+        }
+        r.p[r.len++] = (unsigned char)c;
     }
     if (c == '\n') ungetc(c, stdin);
-    r.s[0] = (unsigned char)n;
-    return r;
+    return __ppc_tmp(r);
 }
 static void __r_ln(void) { int c; while ((c = getchar()) != EOF && c != '\n') {} }
 

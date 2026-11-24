@@ -413,6 +413,7 @@ int borrow_check(Program *p);
 extern int g_borrow_check, g_nil_check, g_range_check;
 int is_ref_type(Type *t);
 int has_owned(Type *t);
+int has_str(Type *t);
 int is_owning_temp(Expr *e);
 
 /* codegen.c */

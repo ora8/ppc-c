@@ -691,7 +691,7 @@ static void builtin_effects(Expr *e, State *s) {
             } else
                 use_expr(a, s);
         }
-        if (e->bi == BI_SETLENGTH && A->len && A->items[0]->type->kind == T_DYN) {
+        if ((e->bi == BI_SETLENGTH || e->bi == BI_DELETE) && A->len && (A->items[0]->type->kind == T_DYN || A->items[0]->type->kind == T_STR)) {
             /* the buffer may move: borrows of its elements are dangling afterwards */
             Var *root = NULL;
             char *path = path_of(A->items[0], &root);

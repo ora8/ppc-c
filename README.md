@@ -366,6 +366,32 @@ end;                           { I and V are freed here }
   the value. After `I.Free` the next assignment creates the cell again.
 * Useful mainly for large records or arrays that should not live in the stack frame.
 
+### Strings
+
+`String` has no length limit. Strings are values, as in Pascal: every variable owns its own
+buffer, an assignment copies, and the buffer is freed at the end of the scope – no manual memory
+management and no reference counting:
+
+```pascal
+val
+  a := 'Hello';
+  b := a;                   { a copy }
+begin
+  b[1] := 'J';              { changes only b: Hello Jello }
+  for val i := 1 to 200 do b := b + 'abc';
+  WriteLn(Length(b));       { 605 }
+end;
+```
+
+* `s[i]` is indexed from 1 to `Length(s)` and checked at run time; `SetLength`, `Delete`,
+  `Insert`, `Copy`, `Pos`, `UpperCase`, `IntToStr` … work on strings of any length.
+* Value parameters get their own copy; `s: String const` passes by reference without a copy.
+* Strings in records, arrays, optional values, results and objects are copied, freed and cloned
+  with them.
+* Intermediate results (`a + b`, `IntToStr(i)`, function results) are temporaries that are freed
+  after the statement that uses them.
+* Changing the length (`SetLength`, `Delete`, `Insert`) invalidates borrows of characters.
+
 ### Literals and `default`
 
 ```pascal
@@ -1045,7 +1071,7 @@ once (in every kind of loop); borrows of them are invalid afterwards.
   typed constants and array initializers), `type`, `val` (values), `var` (references), `vao`
   (owners), blocks with their own sections
 * Types: `Integer`/`LongInt` (32 bit), `ShortInt`, `SmallInt`, `Byte`, `Word`, `Cardinal`,
-  `Int64`, `Boolean`, `Char`, `Real`/`Double`, `String` (ShortString, max. 255 characters),
+  `Int64`, `Boolean`, `Char`, `Real`/`Double`, `String` (dynamic, any length),
   enumerations, subranges, static (also multi-dimensional) and dynamic arrays, records (with
   methods), `class` (with class methods), generics
 * Procedures/functions, nested to any depth (access to outer variables through static links),
