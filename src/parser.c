@@ -21,7 +21,7 @@ static const char *KEYWORDS[] = {
     "inherited", "interface", "is", "label", "mod", "nil", "none", "some", "optional", "not", "object", "of", "or", "packed",
     "procedure", "program", "property", "record", "repeat", "set", "shl", "shr", "then", "to",
     "type", "unit", "until", "uses", "var", "while", "with", "xor", "try", "except", "finally",
-    "raise", "otherwise", "val", "vao", "default", NULL};
+    "raise", "val", "vao", "default", NULL};
 
 static const char *SYMS[] = {":=", "<=", ">=", "<>", "..", "+", "-", "*", "/", "=", "<", ">", "(",
                              ")", "[", "]", ",", ";", ":", ".", "^", "@", NULL};
@@ -299,7 +299,6 @@ static TypeExpr *new_te(TEKind k, Pos p) {
 
 /* 'var T' in a field or function result: a reference that does not own its object */
 static int accept_borrowed(void) {
-    if (is_ident("borrowed")) error_at(pos(), "'borrowed' was replaced by 'var' (for example 'Parent: var TNode')");
     if (accept_kw("var")) return 1;
     return 0;
 }
@@ -502,7 +501,6 @@ static StructDecl *parse_struct(int kind) {
 
 static TypeExpr *parse_type(void) {
     Pos p = pos();
-    if (is_ident("nilable")) error_at(p, "'nilable' was replaced by 'optional'");
     if (accept_kw("optional")) {
         TypeExpr *t = parse_type();
         if (t->nilable) error_at(p, "optional of optional is not allowed");
@@ -647,7 +645,6 @@ static void parse_decls(Block *blk) {
                 VarDecl v = {0};
                 v.names = ident_list();
                 if (accept_sym(":")) { /* without ': Type' the initializer decides the type */
-                    if (is_ident("borrowed")) error_at(pos(), "'borrowed' was replaced by the 'var' section ('var r: T := x')");
                     parse_decl_type(&v);
                 }
                 v.borrowed = STREQ(kw, "var");
@@ -744,7 +741,7 @@ static Stmt *parse_stmt(void) {
         s->a = parse_expr();
         expect_kw("of");
         for (;;) {
-            if (accept_kw("else") || accept_kw("otherwise")) {
+            if (accept_kw("else")) {
                 s->else_ = parse_stmt_list("end");
                 s->has_else = 1;
                 break;
@@ -766,7 +763,7 @@ static Stmt *parse_stmt(void) {
             arm.body = parse_stmt();
             vpush(s->arms, arm);
             if (!accept_sym(";")) {
-                if (is_kw("else") || is_kw("otherwise")) continue;
+                if (is_kw("else")) continue;
                 break;
             }
         }
