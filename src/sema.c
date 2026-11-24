@@ -2721,7 +2721,7 @@ static void decls(Block *b, int has_frame) {
                 int is_stack = t->kind == T_CLASS && !vd->is_heap && !vd->borrowed;
                 Expr *ctor = NULL;
                 if (is_stack) {
-                    if (t->nilable)
+                    if (t->nilable && vd->ty)
                         error_at(dpos, "a stack object always exists, it cannot be optional: use 'vao %s: %s := none' for a heap object that may be missing",
                                  vn, type_name(t));
                     if (!r) r = value(vd->init);
@@ -2730,13 +2730,24 @@ static void decls(Block *b, int has_frame) {
                             error_at(vd->init->pos, "stack object '%s' is declared as \"%s\" but '%s' is a \"%s\": both must be the same class",
                                      vn, type_name(t), r->var->name, type_name(r->var->type));
                         if (!vd->ty) t = r->var->type;
+                    } else if (!(r->kind == E_RCALL && r->cmode == CM_NEWCLASS) && r->type->kind == T_CLASS) {
+                        /* val k := h: a heap object moves into the stack frame (its memory is given back) */
+                        if (r->type->nilable)
+                            error_at(vd->init->pos, "the object for stack object '%s' may be none (\"%s\"): unpack it first with 'is some', or use 'vao'",
+                                     vn, type_name(r->type));
+                        if (vd->ty && r->type->st != t->st)
+                            error_at(vd->init->pos, "stack object '%s' is declared as \"%s\" but the object is a \"%s\": both must be the same class",
+                                     vn, type_name(t), type_name(r->type));
+                        if (!vd->ty) t = r->type->readonly ? r->type->st->type : r->type;
+                        if (r->type->readonly) error_at(vd->init->pos, "a read-only reference cannot be moved into a stack object");
                     } else if (r->kind != E_RCALL || r->cmode != CM_NEWCLASS)
                         error_at(vd->init->pos, "a stack object is created in its declaration: 'val %s := %s.Create(...)' (for a reference use 'var', to own a heap object 'vao')",
                                  vn, type_name(t));
-                    if (vd->ty && r->ctype->st != t->st)
+                    int is_new = r->kind == E_RCALL && r->cmode == CM_NEWCLASS;
+                    if (is_new && vd->ty && r->ctype->st != t->st)
                         error_at(vd->init->pos, "stack object '%s' is declared as \"%s\" but created as \"%s\": it is stored in place, so both must be the same class",
                                  vn, type_name(t), type_name(r->ctype));
-                    if (r->kind == E_RCALL && !vd->ty) t = r->ctype;
+                    if (is_new && !vd->ty) t = r->ctype;
                     ctor = r;
                 }
                 int is_alias = vd->borrowed && t->kind != T_CLASS; /* var x: Integer := y: x refers to y */
@@ -2763,7 +2774,14 @@ static void decls(Block *b, int has_frame) {
                     else vpush(prog->globals, v);
                     add_sym(SY_VAR, id->name, id->pos)->var = v;
                     StmtVec *dst = (cur || in_block) ? local_init : &prog->init;
-                    if (is_stack && ctor->kind == E_VAR) { /* move the other stack object into this one */
+                    if (is_stack && !(ctor->kind == E_VAR && ctor->var->is_stack) &&
+                        !(ctor->kind == E_RCALL && ctor->cmode == CM_NEWCLASS)) { /* heap object moves onto the stack */
+                        Stmt *ms = new_stmt(S_ASSIGN, vd->init->pos);
+                        ms->bind = 3;
+                        ms->a = var_expr(v, id->pos);
+                        ms->b = ctor;
+                        vpush(*dst, ms);
+                    } else if (is_stack && ctor->kind == E_VAR) { /* move the other stack object into this one */
                         Stmt *ms = new_stmt(S_ASSIGN, vd->init->pos);
                         ms->bind = 2;
                         ms->a = var_expr(v, id->pos);

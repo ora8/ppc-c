@@ -212,7 +212,7 @@ struct Stmt {
     Pos pos;
     Expr *a, *b, *c; /* assign: a := b; if/while: a cond; for: c var, a from, b to; exit: a */
     Stmt *s1, *s2;
-    int bind; /* S_ASSIGN: 1 = bind a reference variable (var x: Integer := y); 2 = move a stack object (val b := k) */
+    int bind; /* S_ASSIGN: 1 = bind a reference variable (var x: Integer := y); 2 = move a stack object (val b := k); 3 = move a heap object onto the stack (val k := h) */
     StmtVec body;
     Ident var;
     int down;

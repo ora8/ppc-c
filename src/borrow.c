@@ -376,9 +376,12 @@ static void access_expr(Expr *e, State *s, int write, Var *ex) {
     char *path = path_of(e, &root);
     if (!path || !root) return;
     int i = slot(root);
-    if (i >= 0 && tv.items[i].kind == TV_BORROW) { /* through a borrow: its objects are accessed */
-        for (int k = 0; k < s->org[i].len; k++)
-            access_path(s, s->org[i].items[k].path, root, ex, write, e->pos, desc_of(e));
+    if (i >= 0 && tv.items[i].kind == TV_BORROW) { /* through a borrow: the same part of its objects is accessed */
+        const char *rest = path + strlen(sfmt("#%d", root->id)); /* e.g. ".N" of "#7.N" */
+        for (int k = 0; k < s->org[i].len; k++) {
+            const char *o = s->org[i].items[k].path;
+            access_path(s, o ? sfmt("%s%s", o, rest) : NULL, root, ex, write, e->pos, desc_of(e));
+        }
         return;
     }
     access_path(s, path, ex, NULL, write, e->pos, desc_of(e));
@@ -1015,6 +1018,33 @@ static void do_stack_move(Var *b, Var *k, State *s, Pos p) {
     }
 }
 
+/* val k := h: an owned heap object moves into the stack object k */
+static void do_heap_to_stack(Var *k, Expr *rhs, State *s, Pos p) {
+    Src src = eval_src(rhs, s);
+    switch (src.kind) {
+    case SRC_OWNER: move_out(&src, s, p, sfmt("stack object '%s'", k->name)); break;
+    case SRC_BORROW:
+        berror(p, "'%s' is a reference and does not own its object, so it cannot be moved into stack object '%s'; move it from its owner, or copy it ('val %s := %s.Clone')",
+               src.desc, k->name, k->name, src.desc);
+        break;
+    case SRC_PLACE:
+        if (src.borrowed_place)
+            berror(p, "'%s' is a reference and does not own its object, so it cannot be moved into stack object '%s'", src.desc,
+                   k->name);
+        else
+            berror(p, "cannot move '%s' out of its container into stack object '%s'; take it out first ('if Take(%s) is some x then ...') or copy it ('.Clone')",
+                   src.desc, k->name, src.desc);
+        break;
+    default: break;
+    }
+    int i = slot(k);
+    if (i >= 0) {
+        s->nn[i] = N_NN;
+        s->bor[i] = B_VALID;
+        s->why[i] = NULL;
+    }
+}
+
 static void do_assign(Expr *lhs, Expr *rhs, State *s, Pos p) {
     if (lhs->kind == E_DEREF && lhs->a->kind == E_VAR && lhs->a->var->is_box) {
         /* storing into a heap value: allocates the cell if it has none yet */
@@ -1497,7 +1527,8 @@ static void an_stmt(Stmt *st, State *s) {
     switch (st->kind) {
     case S_EMPTY: return;
     case S_ASSIGN:
-        if (st->bind == 2) do_stack_move(st->a->var, st->b->var, s, st->pos);
+        if (st->bind == 3) do_heap_to_stack(st->a->var, st->b, s, st->pos);
+        else if (st->bind == 2) do_stack_move(st->a->var, st->b->var, s, st->pos);
         else if (st->bind) do_bind(st->a->var, st->b, s, st->pos);
         else do_assign(st->a, st->b, s, st->pos);
         return;

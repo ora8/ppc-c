@@ -180,6 +180,19 @@ end;                                        { k.Destroy läuft hier, k.Name wird
     Result := k;                    { Objekt samt Teil wandert auf den Heap }
   end;
   ```
+* **Vom Heap auf den Stack:** `val k := h` (oder ein Funktionsergebnis, `val k := Mach(1)`)
+  kopiert das Objekt in den Stackframe und gibt den Heap-Speicher zurück; `h` ist danach leer.
+  Die Klasse muss genau passen – ist das Objekt zur Laufzeit eine Unterklasse, stoppt das
+  Programm mit `Runtime error 219: a TBar object does not fit into stack object 's' (TFoo)`.
+* Zusammengefasst:
+
+  | von → nach | `val` (Stack) | `vao` (Heap) | `var` (Referenz) |
+  |---|---|---|---|
+  | `val k` | Move (`memcpy`) | Move auf den Heap | Ausleihe |
+  | `vao h` | Move auf den Stack | Move (Zeiger) | Ausleihe |
+  | `var r` | nur als Kopie: `val k := r.Clone` | nur als Kopie: `vao h := r.Clone` | Ausleihe |
+
+  Aus einer Referenz kann man nicht verschieben, weil das Objekt weiter seinem Besitzer gehört.
 * Ein Stackobjekt kann nicht neu zugewiesen und nicht freigegeben werden. Eine Kopie, die das
   Original behält: `vao t := k.Clone`.
 * Ausleihen (`var r: TFigur := k`, Parameter) sind erlaubt, dürfen aber den Block nicht

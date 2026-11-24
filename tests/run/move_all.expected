@@ -1,0 +1,9 @@
+a = 1 / 10
+b = 1
+  Destroy 1
+  Destroy 10
+r = 3, s = 2
+e = 3
+  Destroy 3
+  Destroy 3
+  Destroy 2

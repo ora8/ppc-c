@@ -965,6 +965,16 @@ static void gs(Stmt *s) {
     switch (s->kind) {
     case S_EMPTY: return;
     case S_ASSIGN:
+        if (s->bind == 3) { /* val k := h: the heap object moves into the frame, its memory is given back */
+            Var *k = s->a->var, *mv = move_source(s->b);
+            int id = ++tmpc, sid = k->type->st->id;
+            line("{ struct S%d *__h%d = (struct S%d*)%s;", sid, id, sid, nilchk(s->b, gx(s->b), s->pos));
+            line("  if (*(void**)__h%d != (void*)&VMTI%d) { fflush(stdout); fprintf(stderr, \"Runtime error 219: a %%s object does not fit into stack object '%s' (%s) at %%s(%d,%d)\\n\", (*(struct __VMTHdr**)__h%d)->name, __ppc_srcfile); exit(219); }",
+                 id, sid, k->name, k->type->st->name, s->pos.line, s->pos.col, id);
+            line("  memcpy(%s, __h%d, sizeof(struct S%d)); __ppc_free(__h%d); %s = 1;%s }", var_raw(k), id, sid, id,
+                 var_aux(k, "__live"), mv ? sfmt(" %s = 0;", var_ref(mv)) : "");
+            return;
+        }
         if (s->bind == 2) { /* val b := k: the stack object moves (byte copy), k is dead afterwards */
             Var *b = s->a->var, *k = s->b->var;
             line("memcpy(%s, %s, sizeof(struct S%d)); %s = 1; %s = 0;", var_raw(b), var_raw(k), b->type->st->id,
