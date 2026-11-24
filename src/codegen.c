@@ -237,6 +237,115 @@ static char *agg_drop_fn(Type *t) {
 }
 static char *agg_drop(Type *t, const char *lv) { return sfmt("%s(&(%s))", agg_drop_fn(t), lv); }
 
+static char *sig(Routine *r, int names);
+static char *ret_ctype(Routine *r);
+
+/* ---- generated Clone ('function Clone: T; const; auto;'): deep copy ---- */
+
+static Routine *find_clone(Struct *st) {
+    for (Struct *c = st; c; c = c->parent)
+        for (int i = 0; i < c->methods.len; i++) {
+            Routine *m = c->methods.items[i];
+            if (STREQ(m->name, "Clone") && m->kind == RK_FUNC && !m->params.len && !m->is_classm) return m;
+        }
+    return NULL;
+}
+
+/* a class whose objects can be cloned by a generated Clone (it or an ancestor has one) */
+static int needs_clone(Struct *s) {
+    for (Struct *c = s; c; c = c->parent)
+        for (int i = 0; i < c->methods.len; i++)
+            if (c->methods.items[i]->is_auto) return 1;
+    return 0;
+}
+
+static Pos clone_pos;
+static const char *clone_what;
+/* expression: a clone of the object x (class type t) */
+static char *clone_call(Type *t, const char *x, const char *field) {
+    Routine *m = find_clone(t->st);
+    if (!m)
+        error_at(clone_pos, "%s cannot be cloned: its field '%s' owns a \"%s\", which has no Clone (declare 'function Clone: %s; const; auto;' there)",
+                 clone_what, field, t->st->name, t->st->name);
+    char *call = m->slot >= 0 ? sfmt("((struct VMT%d*)((%s)->__vmt))->v%d(%s)", t->st->id, x, m->slot, x)
+                              : sfmt("%s((struct S%d*)(%s))", m->cname, m->owner->id, x);
+    if (m->ret->st != t->st) call = sfmt("((struct S%d*)__as((void*)(%s), &VMTI%d))", t->st->id, call, t->st->id);
+    return call;
+}
+
+static char *agg_clone(Type *t, const char *lv);
+static VEC(char *) aclone_keys;
+static VEC(char *) aclone_names;
+/* per value type that owns objects: replaces the owned objects of a fresh copy by clones */
+static char *agg_clone_fn(Type *t) {
+    char *ct = ctype(t);
+    for (int i = 0; i < aclone_keys.len; i++)
+        if (STREQ(aclone_keys.items[i], ct)) return aclone_names.items[i];
+    char *name = sfmt("Y%d", aclone_keys.len + 1);
+    vpush(aclone_keys, ct);
+    vpush(aclone_names, name);
+    buf_printf(&b_protos, "static void %s(%s *p);\n", name, ct);
+    Buf b = {0};
+    buf_printf(&b, "static void %s(%s *p) {\n", name, ct);
+    if (t->kind == T_ARRAY) {
+        buf_printf(&b, "  for (long i = 0; i < %lld; i++) {\n", t->hi - t->lo + 1);
+        if (is_ref_type(t->base)) buf_printf(&b, "    if (p->a[i]) p->a[i] = %s;\n", clone_call(t->base, "p->a[i]", "[]"));
+        else buf_printf(&b, "    %s;\n", agg_clone(t->base, "p->a[i]"));
+        buf_put(&b, "  }\n");
+    } else if (t->kind == T_OPT) {
+        buf_printf(&b, "  if (p->has) %s;\n", agg_clone(t->base, "p->v"));
+    } else {
+        for (int k = 0; k < t->st->fields.len; k++) {
+            Field *f = t->st->fields.items[k];
+            char *x = sfmt("p->%s", f->cname);
+            if (is_ref_type(f->type) && !f->borrowed) buf_printf(&b, "  if (%s) %s = %s;\n", x, x, clone_call(f->type, x, f->name));
+            else if (has_owned(f->type)) buf_printf(&b, "  %s;\n", agg_clone(f->type, x));
+        }
+    }
+    buf_put(&b, "}\n");
+    buf_put(&b_drops, buf_str(&b));
+    return name;
+}
+static char *agg_clone(Type *t, const char *lv) { return sfmt("%s(&(%s))", agg_clone_fn(t), lv); }
+
+/* K<id>: fix-up after an object of class s was copied byte for byte */
+static void gen_clonefix(Struct *s) {
+    clone_pos = s->pos;
+    clone_what = sfmt("\"%s\"", s->name);
+    buf_printf(&b_protos, "static void K%d(void *o);\n", s->id);
+    Buf b = {0};
+    buf_printf(&b, "static void K%d(void *o) {\n  struct S%d *s = (struct S%d*)o; (void)s;\n", s->id, s->id, s->id);
+    for (int k = 0; k < s->fields.len; k++) {
+        Field *f = s->fields.items[k];
+        char *x = sfmt("s->%s", f->cname);
+        if (is_ref_type(f->type) && !f->borrowed) buf_printf(&b, "  if (%s) %s = %s;\n", x, x, clone_call(f->type, x, f->name));
+        else if (has_owned(f->type)) buf_printf(&b, "  %s;\n", agg_clone(f->type, x));
+    }
+    buf_put(&b, "}\n");
+    buf_put(&b_drops, buf_str(&b));
+}
+
+/* body of a generated Clone */
+static void gen_auto_clone(Routine *r) {
+    Struct *s = r->owner;
+    buf_printf(&b_protos, "static %s;\n", sig(r, 0));
+    Buf b = {0};
+    buf_printf(&b, "static %s {\n", sig(r, 1));
+    if (s->kind == SK_CLASS) { /* copy the whole (dynamic) object, then clone what it owns */
+        buf_put(&b, "  struct __VMTHdr *h = *(struct __VMTHdr **)self;\n");
+        buf_put(&b, "  void *n = __ppc_alloc(h->size);\n  memcpy(n, self, h->size);\n  h->clonefix(n);\n");
+        buf_printf(&b, "  return (%s)n;\n", ret_ctype(r));
+    } else {
+        clone_pos = s->pos;
+        clone_what = sfmt("\"%s\"", s->name);
+        buf_printf(&b, "  struct S%d r = *self;\n", s->id);
+        if (has_owned(s->type)) buf_printf(&b, "  %s;\n", agg_clone(s->type, "r"));
+        buf_put(&b, "  return r;\n");
+    }
+    buf_put(&b, "}\n");
+    buf_put(&b_funcs, buf_str(&b));
+}
+
 /* value variable that owns the objects inside it */
 static int agg_owner_var(Var *v) {
     return has_owned(v->type) && !v->is_ref && !v->no_drop && (v->vkind == VK_LOCAL || v->vkind == VK_GLOBAL);
@@ -1130,8 +1239,11 @@ void codegen(Program *p, FILE *f) {
         for (int k = 0; k < s->slots.len; k++) buf_printf(&b_vmtt, "  %s;\n", slot_type(s->slots.items[k].intro, sfmt("v%d", k)));
         buf_put(&b_vmtt, "};\n");
         buf_printf(&b_globals, "extern struct VMT%d VMTI%d;\n", s->id, s->id);
-        buf_printf(&b_vmti, "struct VMT%d VMTI%d = {\n  { %s, \"%s\", sizeof(struct S%d), D%d },\n", s->id, s->id,
-                   s->parent && s->parent->has_vmt ? sfmt("&VMTI%d", s->parent->id) : "NULL", s->name, s->id, s->id);
+        int cl = needs_clone(s);
+        if (cl) gen_clonefix(s);
+        buf_printf(&b_vmti, "struct VMT%d VMTI%d = {\n  { %s, \"%s\", sizeof(struct S%d), D%d, %s },\n", s->id, s->id,
+                   s->parent && s->parent->has_vmt ? sfmt("&VMTI%d", s->parent->id) : "NULL", s->name, s->id, s->id,
+                   cl ? sfmt("K%d", s->id) : "0");
         /* drop function: frees the fields that own an object (runs after Destroy) */
         buf_printf(&b_protos, "static void D%d(void *o);\n", s->id);
         Buf db = {0}; /* nested drop functions are emitted first */
@@ -1169,15 +1281,18 @@ void codegen(Program *p, FILE *f) {
     /* prototypes and bodies */
     for (int i = 0; i < p->routines.len; i++) {
         Routine *r = p->routines.items[i];
-        if (r->is_abstract) continue;
+        if (r->is_abstract || r->is_auto) continue;
         buf_printf(&b_protos, "static %s;\n", sig(r, 0));
     }
     for (int i = 0; i < p->routines.len; i++) {
         Routine *r = p->routines.items[i];
-        if (r->is_abstract) continue;
+        if (r->is_abstract || r->is_auto) continue;
         buf_put(&b_funcs, "static ");
         gen_routine(r);
     }
+    for (int i = 0; i < p->structs.len; i++)
+        for (int k = 0; k < p->structs.items[i]->methods.len; k++)
+            if (p->structs.items[i]->methods.items[k]->is_auto) gen_auto_clone(p->structs.items[i]->methods.items[k]);
     /* main */
     Buf mb = {0};
     out = &mb;

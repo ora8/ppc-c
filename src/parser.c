@@ -304,7 +304,7 @@ static int accept_borrowed(void) {
 }
 
 static const char *DIRECTIVES[] = {"virtual", "override", "abstract", "overload", "reintroduce",
-                                   "static", "inline", "cdecl", "forward", "register", NULL};
+                                   "static", "inline", "cdecl", "forward", "register", "auto", NULL};
 
 static int is_directive(void) {
     if (CUR.kind != TK_IDENT) return 0;
@@ -314,7 +314,7 @@ static int is_directive(void) {
 }
 
 /* directives after a routine header: virtual; override; abstract; forward; const; */
-static void parse_directives(int *virt, int *abs, int *fwd, int *cnst) {
+static void parse_directives(int *virt, int *abs, int *fwd, int *cnst, int *autog) {
     for (;;) {
         if (is_kw("const") && T.items[P + 1].kind == TK_SYM && STREQ(T.items[P + 1].s, ";")) {
             next(); /* const;  -- method does not change Self / routine has no side effects */
@@ -329,6 +329,10 @@ static void parse_directives(int *virt, int *abs, int *fwd, int *cnst) {
         else if (STREQ(d, "override")) *virt = VIRT_OVERRIDE;
         else if (STREQ(d, "abstract")) *abs = 1;
         else if (STREQ(d, "forward")) *fwd = 1;
+        else if (STREQ(d, "auto")) {
+            if (!autog) error_at(pos(), "'auto' belongs to the declaration in the class or record ('function Clone: T; const; auto;')");
+            *autog = 1;
+        }
         expect_sym(";");
     }
 }
@@ -459,7 +463,7 @@ static StructDecl *parse_struct(int kind) {
             }
             expect_sym(";");
             int fwd = 0;
-            parse_directives(&m.virt, &m.is_abstract, &fwd, &m.is_const);
+            parse_directives(&m.virt, &m.is_abstract, &fwd, &m.is_const, &m.is_auto);
             vpush(sd->methods, m);
             continue;
         }
@@ -614,7 +618,7 @@ static RoutineDecl *parse_routine(void) {
     }
     expect_sym(";");
     int virt = 0, abs = 0;
-    parse_directives(&virt, &abs, &d->forward, &d->is_const);
+    parse_directives(&virt, &abs, &d->forward, &d->is_const, NULL);
     if (d->forward) return d;
     if (is_ident("external")) error_at(pos(), "external routines are not supported");
     d->body = parse_block();

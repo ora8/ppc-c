@@ -8,7 +8,8 @@
 #include <time.h>
 
 typedef struct { unsigned char s[256]; } PStr; /* ShortString: s[0] = length */
-struct __VMTHdr { void *parent; const char *name; size_t size; void (*drop)(void *); }; /* drop: frees the owning fields */
+struct __VMTHdr { void *parent; const char *name; size_t size; void (*drop)(void *); void (*clonefix)(void *); };
+/* drop: frees the owning fields; clonefix: after copying an object, replaces its owned objects by clones */
 
 static void __rt_error(int code, const char *msg) {
     fflush(stdout);

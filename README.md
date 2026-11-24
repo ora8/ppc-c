@@ -48,7 +48,7 @@ make test       # Testsuite (Ausgaben, Borrow-/Optional-/const-/result-Fehler, C
   `WriteLn`, `Write`, `ReadLn`, `Read`, `Length`, `Ord`, `Chr`, `Inc`, `Dec`,
   `TObject`, `Create`, `Destroy`, `Free`, `ClassName`, `Self`, `Result`, `Exit`, `Break`, `Continue` usw.
 * Direktiven/Modifizierer klein: `virtual`, `override`, `abstract`, `forward`, `private`,
-  `public`, `property … read … write …`, `optional`, `some`, `none`, `default`, `result`, `ok`, `error`, `try`.
+  `public`, `property … read … write …`, `optional`, `some`, `none`, `default`, `result`, `ok`, `error`, `try`, `auto`.
 
 ## Klassen
 
@@ -160,6 +160,44 @@ end;                           { a, q und z geben ihre Objekte hier frei }
   ändern das Original.
 * Objekte, die Felder solcher Typen haben, geben sie mit sich frei; ein unbenutztes
   Funktionsergebnis wird sofort freigegeben.
+
+### Kopieren: `Clone`
+
+Zahlen, Strings, Aufzählungen und Records/Arrays **ohne** Objekte werden bei `b := a` kopiert.
+Alles, was Objekte besitzt, wird **verschoben**. Eine Kopie davon gibt es nur ausdrücklich mit
+`Clone` (wie `.clone()` in Rust) – geschrieben von Hand oder vom Compiler mit `; auto;`
+(wie `#[derive(Clone)]`):
+
+```pascal
+type
+  TPerson = class
+    Name: String;
+    Adresse: optional TAdresse;              { besitzt: wird mitgeklont }
+    Chef: var optional TPerson;              { Referenz: zeigt weiter auf denselben Chef }
+    function Clone: TPerson; const; virtual; auto;
+  end;
+  TMitarbeiter = class(TPerson)              { erbt Clone; seine Felder werden mitkopiert }
+    Buero: optional TAdresse;
+  end;
+  TPaar = record
+    A, B: optional TAdresse;
+    function Clone: TPaar; const; auto;
+  end;
+…
+vao kopie := anna.Clone;                     { neues Objekt, kopie besitzt es }
+var p: TPerson := mitarbeiter;
+vao k := p.Clone;                            { ein TMitarbeiter mit allen Feldern }
+val q := paar.Clone;
+```
+
+* Der erzeugte `Clone` kopiert alle Werte, klont jedes besitzende Feld (auch in Arrays und
+  Records) mit dessen eigenem `Clone` und lässt `var`-Felder auf dasselbe Objekt zeigen.
+* Bei Klassen kopiert er das **ganze Objekt seiner tatsächlichen Klasse** – auch Nachfahren, die
+  `Clone` nur erben. Hat ein besitzendes Feld (auch in einem Nachfahren) einen Typ ohne `Clone`,
+  meldet der Compiler das.
+* Kein Konstruktor läuft; das Ergebnis ist ein neuer Besitz, den der Aufrufer übernimmt.
+* Form: `function Clone: T; const; auto;` (bei Klassen auch mit `virtual`; das Ergebnis darf eine
+  Vorfahrklasse sein). Ein selbst geschriebener `Clone` ist eine gewöhnliche const-Methode.
 
 ### Heapwerte: Werte in `vao`
 
