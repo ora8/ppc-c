@@ -88,6 +88,25 @@ begin
 end;                                { Stack: k.Destroy wird automatisch aufgerufen }
 ```
 
+**Erzeugen direkt bei der Deklaration:** Statt eines Typs darf `Typ.Konstruktor(...)` stehen.
+Ein Heapobjekt wird dann sofort erzeugt, ein Stackobjekt sofort konstruiert – es ist also nie
+„leer“:
+
+```pascal
+procedure P(n: Integer);
+val
+  s: TFoo.Create(n);          { Stackobjekt, sofort konstruiert }
+  t: TFoo.Leer;               { anderer Konstruktor, ohne Argumente }
+var
+  h: TFoo.Create(n * 10);     { Heapobjekt, sofort erzeugt (≙ var h: TFoo = TFoo.Create(n * 10)) }
+  I: Integer.Create(n + 1);   { Heapwert }
+```
+
+Die Argumente dürfen beliebige Ausdrücke mit Variablen sein. Sie werden **einmal** ausgewertet,
+wenn die Deklaration ausgeführt wird: beim Eintritt in die Routine bzw. in den Block (siehe
+„Blöcke“). Spätere Änderungen der Variablen ändern das Objekt nicht mehr; wer einen Wert aus
+dem Programmablauf braucht, deklariert das Objekt in einem Block an der passenden Stelle.
+
 * Klasse, Methoden, Vererbung und VMT sind identisch – nur der Speicherort unterscheidet sich.
 * **Stackobjekte** werden mit `k.Create(...)` konstruiert. Der Compiler verlangt das vor der
   ersten Benutzung (auf jedem Pfad) und genau einmal. Am Blockende wird `Destroy`

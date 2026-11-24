@@ -52,6 +52,7 @@ static void stmts(StmtVec *v);
 static Type *infer_type(Expr *r, Pos p, const char *name);
 static void settle_var(Var *v, Type *t, Expr *src, Pos p);
 static void check_settled(Var **vars, int n);
+static void ctor_init(StmtVec *dst, Var *v, Expr *ctor, int heap);
 
 /* ============================================================== types */
 
@@ -1943,6 +1944,37 @@ static void add_init(StmtVec *dst, Var *v, Expr *init) {
     vpush(*dst, s);
 }
 
+/* 'x: TFoo.Create(args)': heap variables are created, stack objects constructed in place */
+static void ctor_init(StmtVec *dst, Var *v, Expr *ctor, int heap) {
+    Pos p = ctor->pos;
+    if (heap) {
+        add_init(dst, v, ctor);
+        return;
+    }
+    if (!v->is_stack)
+        error_at(p, "only objects can be constructed in a declaration; for a value write '%s: %s = ...'", v->name,
+                 type_name(v->type));
+    /* rewrite 'TFoo.Create(args)' into 'x.Create(args)' */
+    Expr *m = ctor->kind == E_CALL ? ctor->a : ctor;
+    Expr *nm = new_expr(E_MEMBER, m->pos);
+    nm->a = new_expr(E_IDENT, m->a->pos);
+    nm->a->id.name = v->name;
+    nm->a->id.pos = m->a->pos;
+    nm->id = m->id;
+    Expr *call = nm;
+    if (ctor->kind == E_CALL) {
+        call = new_expr(E_CALL, ctor->pos);
+        call->a = nm;
+        call->args = ctor->args;
+    }
+    Expr *c = ex(call);
+    if (c->kind != E_RCALL || c->rt->kind != RK_CTOR)
+        error_at(p, "\"%s\" is not a constructor of \"%s\"", m->id.name, type_name(v->type));
+    Stmt *s = new_stmt(S_CALL, p);
+    s->a = c;
+    vpush(*dst, s);
+}
+
 /* type of a variable declared without ': Type', taken from the value assigned to it */
 static Type *infer_type(Expr *r, Pos p, const char *name) {
     if (r->kind == E_TYPEREF || r->type == t_void) error_at(p, "cannot infer the type of '%s' from this expression", name);
@@ -2235,7 +2267,9 @@ static void decls(Block *b, int has_frame) {
                     if (cur) vpush(cur->locals, v);
                     else vpush(prog->globals, v);
                     add_sym(SY_VAR, id->name, id->pos)->var = v;
-                    if (vd->init) add_init((cur || in_block) ? local_init : &prog->init, v, vd->init);
+                    StmtVec *dst = (cur || in_block) ? local_init : &prog->init;
+                    if (vd->init) add_init(dst, v, vd->init);
+                    if (vd->ctor) ctor_init(dst, v, vd->ctor, vd->is_heap);
                 }
             }
             break;

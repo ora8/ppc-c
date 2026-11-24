@@ -1,0 +1,6 @@
+P: s.V = 2, t.V = -1, h.V = 20, I = 3
+  Destroy 20
+  Destroy -1
+  Destroy 2
+Block: b.V = 7
+  Destroy 7

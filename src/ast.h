@@ -101,7 +101,8 @@ typedef struct {
     TypeExpr *ty;
     Expr *init;
     int borrowed;
-    int is_heap; /* declared in a 'heap' section */
+    int is_heap; /* declared in a 'var' section */
+    Expr *ctor;  /* 'x: TFoo.Create(args)': created/constructed at the declaration */
 } VarDecl;
 
 typedef struct {

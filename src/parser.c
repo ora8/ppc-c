@@ -367,6 +367,31 @@ static int is_routine_kw(void) {
     return is_kw("procedure") || is_kw("function") || is_kw("constructor") || is_kw("destructor");
 }
 
+static Expr *parse_postfix(void);
+
+/* 'TFoo.Create(args)' in place of a type: the variable is created at its declaration */
+static int ctor_decl_ahead(void) {
+    return CUR.kind == TK_IDENT && T.items[P + 1].kind == TK_SYM && STREQ(T.items[P + 1].s, ".") &&
+           T.items[P + 2].kind == TK_IDENT;
+}
+
+static void parse_decl_type(VarDecl *v) {
+    if (ctor_decl_ahead()) {
+        Pos tp = pos();
+        Expr *c = parse_postfix();
+        Expr *m = c->kind == E_CALL ? c->a : c;
+        if (m->kind != E_MEMBER || m->a->kind != E_IDENT) error_at(tp, "'Type.Constructor(...)' expected");
+        TypeExpr *t = NEW(TypeExpr);
+        t->kind = TE_NAMED;
+        t->pos = tp;
+        t->name = m->a->id;
+        v->ty = t;
+        v->ctor = c;
+        return;
+    }
+    v->ty = parse_type();
+}
+
 static StructDecl *parse_struct(int kind) {
     StructDecl *sd = NEW(StructDecl);
     sd->kind = kind;
@@ -583,9 +608,10 @@ static void parse_decls(Block *blk) {
                 v.names = ident_list();
                 if (accept_sym(":")) { /* without ': Type' the first assignment decides the type */
                     v.borrowed = accept_borrowed();
-                    v.ty = parse_type();
+                    parse_decl_type(&v);
                 }
                 if (accept_sym("=")) v.init = parse_init();
+                if (v.ctor && v.init) error_at(pos(), "use either 'x: T.Create(...)' or 'x: T = ...', not both");
                 expect_sym(";");
                 vpush(d->vars, v);
             }
@@ -602,10 +628,11 @@ static void parse_decls(Block *blk) {
                 if (accept_sym(":")) {
                     if (is_ident("borrowed"))
                         error_at(pos(), "a 'var' section declares heap objects (owners); borrowed references belong into 'val'");
-                    v.ty = parse_type();
+                    parse_decl_type(&v);
                 }
                 v.is_heap = 1;
                 if (accept_sym("=")) v.init = parse_init();
+                if (v.ctor && v.init) error_at(pos(), "use either 'x: T.Create(...)' or 'x: T = ...', not both");
                 expect_sym(";");
                 vpush(d->vars, v);
             }
