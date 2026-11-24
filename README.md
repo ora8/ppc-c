@@ -539,7 +539,7 @@ if kunden.Suche('Anna') is some k then WriteLn(k.Name);    { k ist ein TKunde }
 ```
 
 * Generische Typen werden auf Programmebene deklariert; generisch sein können Records, Klassen,
-  Funktionen und Prozeduren. Einschränkungen (`T: Comparable`) kommen in der nächsten Stufe.
+  Funktionen und Prozeduren.
 
 **Generische Funktionen und Prozeduren:**
 
@@ -569,6 +569,30 @@ val p := Paar('x', 42);                       { TPaar<Char, Integer> }
   `cannot infer 'T' of "Max": it is "Integer" from one argument and "Char" from another`.
 * Jede Instanz wird einzeln geprüft: `Max` mit einem Record ohne `>` ergibt
   `incompatible types in comparison: "TP" and "TP" (in Max<TP>)`. Rekursion funktioniert.
+
+**Einschränkungen** legen fest, welche Typen eingesetzt werden dürfen (wie in Delphi: Einschränkungen
+eines Parameters mit `,`, Parametergruppen mit `;`):
+
+```pascal
+function Max<T: Comparable>(a, b: T): T;
+function Gleich<T: Equatable>(a, b: T): Boolean;
+function Doppel<T: Clone>(x: T): T;           { x.Clone }
+type
+  TPaar<K: Comparable; V> = record … end;     { K eingeschränkt, V frei }
+  TZoo<T: TTier> = class … end;               { T muss TTier oder ein Nachfahre sein }
+```
+
+| Einschränkung | erlaubte Typen |
+|---|---|
+| `class` | Klassen |
+| `TBasis` (ein Klassenname) | `TBasis` und Nachfahren |
+| `Copy` | Werte ohne Objekte (Zahlen, Strings, Aufzählungen, einfache Records/Arrays) |
+| `Clone` | Klassen und Records mit `Clone`, Arrays davon |
+| `Equatable` (`=`, `<>`) | Zahlen, Char, Boolean, Strings, Aufzählungen, Klassen (gleiches Objekt) |
+| `Comparable` (`<`, `>` …) | Zahlen, Char, Boolean, Strings, Aufzählungen |
+
+Passt ein Typ nicht, meldet der Compiler das schon beim Aufruf bzw. bei der Instanz:
+`"TK" does not satisfy 'T: Comparable' (required by Max<T>)`.
 * Jede Instanz wird mit den eingesetzten Typen geprüft. Ein Fehler im generischen Code nennt die
   Instanz: `operator not applicable to "TK" and "TK" (in TBox<TK>.Doppelt)`. Auch der Borrow
   Checker prüft jede Instanz.

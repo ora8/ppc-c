@@ -21,6 +21,7 @@ typedef struct {
     VEC(char *) keys;
     VEC(Instance) insts;
     VEC(RoutineDecl *) impls; /* method implementations, parsed again per instance */
+    ConsVec cons;             /* constraints per type parameter */
     int is_routine;           /* generic function/procedure: Max<T> */
     RoutineDecl *rdecl;       /* its first parse (parameter types for inference) */
     VEC(Routine *) rts;       /* routine instances, parallel to keys */
@@ -72,6 +73,8 @@ typedef struct {
     char *key;
 } PendingBody;
 static const char *inst_cname; /* C name of the generic routine instance being declared */
+static void check_constraints(Generic *g, Type **args, Pos p);
+static void validate_constraints(Generic *g);
 static VEC(PendingBody) pending_bodies;
 static int var_counter, routine_counter, struct_counter, enum_counter, with_counter;
 static StmtVec *local_init;
@@ -914,6 +917,7 @@ static Type *instantiate(Generic *g, Type **args, int n, Pos p) {
     if (n != g->params.len)
         error_at(p, "\"%s\" has %d type parameter%s, but %d type argument%s given", g->name, g->params.len,
                  g->params.len == 1 ? "" : "s", n, n == 1 ? " is" : "s are");
+    check_constraints(g, args, p);
     Buf kb = {0};
     buf_printf(&kb, "%s<", g->name);
     for (int i = 0; i < n; i++) buf_printf(&kb, "%s%s", i ? ", " : "", type_name(args[i]));
@@ -966,6 +970,7 @@ static Routine *instantiate_routine(Generic *g, Type **args, int n, Pos p) {
     if (n != g->params.len)
         error_at(p, "\"%s\" has %d type parameter%s, but %d type argument%s given", g->name, g->params.len,
                  g->params.len == 1 ? "" : "s", n, n == 1 ? " is" : "s are");
+    check_constraints(g, args, p);
     Buf kb = {0};
     buf_printf(&kb, "%s<", g->name);
     for (int i = 0; i < n; i++) buf_printf(&kb, "%s%s", i ? ", " : "", type_name(args[i]));
@@ -1096,6 +1101,60 @@ static void run_pending_body(int k) {
         inst_cls = NULL;
         leave_generic(ss, sc, sl);
     }
+}
+
+static int find_member(Struct *st, const char *name, Field **f, Routine **m, Prop **p);
+
+/* ---- constraints: T: class | Copy | Clone | Equatable | Comparable | TBasis ---- */
+static const char *BUILTIN_CONS[] = {"class", "Copy", "Clone", "Equatable", "Comparable", NULL};
+static int builtin_cons(const char *c) {
+    for (int i = 0; BUILTIN_CONS[i]; i++)
+        if (STREQ(BUILTIN_CONS[i], c)) return 1;
+    return 0;
+}
+static void validate_constraints(Generic *g) {
+    for (int i = 0; i < g->cons.len; i++)
+        for (int k = 0; k < g->cons.items[i].len; k++) {
+            Ident *c = &g->cons.items[i].items[k];
+            if (builtin_cons(c->name)) continue;
+            Look L = lookup(c->name);
+            if (L.kind != LK_SYM || L.sym->kind != SY_TYPE || L.sym->type->kind != T_CLASS)
+                error_at(c->pos, "unknown constraint '%s': use class, Copy, Clone, Equatable, Comparable or the name of a class",
+                         c->name);
+        }
+}
+static int has_clone(Type *t) {
+    if (t->kind == T_CLASS || t->kind == T_RECORD) {
+        Field *f;
+        Routine *m;
+        Prop *pr;
+        return find_member(t->st, "Clone", &f, &m, &pr) && m && m->kind == RK_FUNC && !m->params.len;
+    }
+    if (t->kind == T_ARRAY) return (is_ref_type(t->base) || has_owned(t->base)) ? has_clone(t->base) : 1;
+    return 0;
+}
+static int satisfies(Type *t, const char *c) {
+    if (STREQ(c, "class")) return t->kind == T_CLASS;
+    if (STREQ(c, "Copy")) return t->kind != T_CLASS && !is_ref_type(t) && !has_owned(t);
+    if (STREQ(c, "Clone")) return has_clone(t);
+    if (STREQ(c, "Equatable")) return is_ordinal(t) || t->kind == T_REAL || t->kind == T_STR || t->kind == T_CLASS;
+    if (STREQ(c, "Comparable")) return is_ordinal(t) || t->kind == T_REAL || t->kind == T_STR;
+    Look L = lookup(c); /* a class: the type argument must be it or a descendant */
+    if (L.kind != LK_SYM || L.sym->kind != SY_TYPE) return 0;
+    return t->kind == T_CLASS && struct_descends(t->st, L.sym->type->st);
+}
+static void check_constraints(Generic *g, Type **args, Pos p) {
+    for (int i = 0; i < g->cons.len && i < g->params.len; i++)
+        for (int k = 0; k < g->cons.items[i].len; k++) {
+            const char *c = g->cons.items[i].items[k].name;
+            if (satisfies(args[i], c)) continue;
+            Buf b = {0};
+            buf_printf(&b, "%s<", g->name);
+            for (int j = 0; j < g->params.len; j++) buf_printf(&b, "%s%s", j ? ", " : "", g->params.items[j].name);
+            buf_put(&b, ">");
+            error_at(p, "\"%s\" does not satisfy '%s: %s' (required by %s)", type_name(args[i]), g->params.items[i].name, c,
+                     buf_str(&b));
+        }
 }
 
 static Type *resolve_type_inner(TypeExpr *te) {
@@ -2821,6 +2880,8 @@ static void routine_decl(RoutineDecl *d) {
         g->pos = d->name.pos;
         g->is_routine = 1;
         g->rdecl = d;
+        g->cons = d->tcons;
+        validate_constraints(g);
         add_sym(SY_GENERIC, d->name.name, d->name.pos)->gen = g;
         return;
     }
@@ -3044,6 +3105,7 @@ static void decl1(Decl *d, int has_frame) {
                 g->toks = td->toks;
                 g->tok = td->tok_start;
                 g->pos = td->name.pos;
+                g->cons = td->tcons;
                 add_sym(SY_GENERIC, td->name.name, td->name.pos)->gen = g;
             }
             /* pass 1: pre-register records/objects/classes for forward references */
@@ -3080,6 +3142,8 @@ static void decl1(Decl *d, int has_frame) {
                 }
                 add_sym(SY_TYPE, td->name.name, td->name.pos)->type = t;
             }
+            for (int i = 0; i < d->types.len; i++) /* constraints may name classes of this section */
+                if (d->types.items[i].tparams.len) validate_constraints(find_local(d->types.items[i].name.name)->gen);
             for (int i = 0; i < d->types.len; i++) {
                 if (d->types.items[i].tparams.len) continue;
                 Sym *s = find_local(d->types.items[i].name.name);

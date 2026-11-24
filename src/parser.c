@@ -287,6 +287,7 @@ static Stmt *parse_stmt(void);
 static TypeExpr *parse_type(void);
 static TypeExpr *parse_type_core(void);
 static TypeExprVec parse_targs(void);
+static void parse_tparams(IdentVec *names, ConsVec *cons);
 static Block *parse_block(void);
 static void parse_decls(Block *blk);
 
@@ -539,6 +540,30 @@ static TypeExpr *parse_type(void) {
 }
 
 static int generic_args_ahead(void);
+/* <T>, <A, B>, <T: Comparable>, <K: Comparable; V>, <T: Clone, Comparable> */
+static void parse_tparams(IdentVec *names, ConsVec *cons) {
+    expect_sym("<");
+    for (;;) {
+        IdentVec group = ident_list();
+        IdentVec c = {0};
+        if (accept_sym(":"))
+            do {
+                if (is_kw("class")) {
+                    Ident k = {xstrdup("class"), pos()};
+                    next();
+                    vpush(c, k);
+                } else
+                    vpush(c, ident());
+            } while (accept_sym(","));
+        for (int i = 0; i < group.len; i++) {
+            vpush(*names, group.items[i]);
+            vpush(*cons, c);
+        }
+        if (!accept_sym(";")) break;
+    }
+    expect_sym(">");
+}
+
 static TypeExprVec parse_targs(void) {
     TypeExprVec v = {0};
     expect_sym("<");
@@ -625,13 +650,17 @@ static RoutineDecl *parse_routine(void) {
     d->is_classm = last_classm;
     d->name = ident();
     if (is_sym("<")) { /* method of a generic type: procedure TListe<T>.Add */
-        next();
-        d->cls_tparams = ident_list();
-        expect_sym(">");
-        if (!is_sym(".")) { /* generic routine: function Max<T>(a, b: T): T */
+        ConsVec cons = {0};
+        parse_tparams(&d->cls_tparams, &cons);
+        if (!is_sym(".")) { /* generic routine: function Max<T: Comparable>(a, b: T): T */
             d->tparams = d->cls_tparams;
+            d->tcons = cons;
             d->cls_tparams = (IdentVec){0};
-        }
+        } else
+            for (int i = 0; i < cons.len; i++)
+                if (cons.items[i].len)
+                    error_at(cons.items[i].items[0].pos, "constraints belong to the declaration of the type, not to its methods: 'procedure %s<...>.%s'",
+                             d->name.name, T.items[P + 1].s);
     }
     if (accept_sym(".")) {
         d->cls = d->name;
@@ -680,10 +709,7 @@ static int parse_decl1(Block *blk) {
             while (CUR.kind == TK_IDENT) {
                 TypeDecl t = {0};
                 t.name = ident();
-                if (accept_sym("<")) { /* generic type: TListe<T> = class ... end */
-                    t.tparams = ident_list();
-                    expect_sym(">");
-                }
+                if (is_sym("<")) parse_tparams(&t.tparams, &t.tcons); /* generic type: TListe<T> = class ... end */
                 expect_sym("=");
                 t.toks = cur_toks;
                 t.tok_start = P;

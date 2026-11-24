@@ -1,6 +1,6 @@
 # Design: Generics für ppc
 
-Status: **abgenommen** (alle Vorschläge aus Abschnitt 8 angenommen). Stufe 1 (generische Records und Klassen) und Stufe 2 (generische Funktionen und Prozeduren) sind gebaut.
+Status: **abgenommen** (alle Vorschläge aus Abschnitt 8 angenommen). Stufe 1 (generische Records und Klassen), Stufe 2 (generische Funktionen und Prozeduren) und Stufe 3 (Einschränkungen) sind gebaut.
 
 ## 1. Ziel
 
@@ -83,9 +83,9 @@ Alles andere muss angekündigt werden:
 | `T: Equatable` | `=`, `<>` | Zahlen, Strings, Char, Boolean, Aufzählungen |
 | `T: Comparable` | zusätzlich `<`, `<=`, `>`, `>=` | Zahlen, Strings, Char, Aufzählungen |
 
-Mehrere Einschränkungen: `T: Clone, Comparable`. Die Prüfung der Einschränkungen passiert bei
+Mehrere Einschränkungen: `T: Clone, Comparable`; Parametergruppen mit Einschränkungen werden wie in Delphi mit `;` getrennt: `TMap<K: Comparable; V>`. Die Prüfung der Einschränkungen passiert bei
 jeder Instanziierung: `TListe<TKunde>` mit `T: Comparable` ergibt
-`TKunde does not satisfy 'Comparable' (required by TListe<T>)`.
+`"TKunde" does not satisfy 'T: Comparable' (required by TListe<T>)`.
 
 ## 4. Besitz und Borrow Checker
 

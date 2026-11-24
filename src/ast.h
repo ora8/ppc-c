@@ -25,6 +25,7 @@ typedef struct {
     Pos pos;
 } Ident;
 typedef VEC(Ident) IdentVec;
+typedef VEC(IdentVec) ConsVec; /* per type parameter: its constraints (Comparable, Clone, class, TBasis, ...) */
 
 /* ------------------------------------------------------------------ syntax */
 
@@ -104,6 +105,7 @@ typedef struct {
     Ident name;
     TypeExpr *ty;
     IdentVec tparams; /* generic type: TListe<T> = ... */
+    ConsVec tcons;
     void *toks;       /* generic type: tokens to parse it again for each instance */
     int tok_start;
 } TypeDecl;
@@ -132,6 +134,7 @@ typedef struct {
     Pos pos;
     IdentVec cls_tparams; /* method of a generic type: procedure TListe<T>.Add */
     IdentVec tparams;     /* generic routine: function Max<T>(a, b: T): T */
+    ConsVec tcons;
     void *toks;           /* tokens to parse the routine again for each instance */
     int tok_start;
 } RoutineDecl;
