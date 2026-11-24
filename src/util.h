@@ -51,6 +51,10 @@ const char *buf_str(Buf *b);
 extern const char *g_filename;
 extern int g_warnings;
 extern const char *g_err_context; /* e.g. the generic instance being checked */
+#include <setjmp.h>
+extern jmp_buf *g_recover; /* error recovery point: error_at jumps back here instead of stopping */
+extern int g_errors;
+#define MAX_ERRORS 20
 _Noreturn void error_at(Pos p, const char *fmt, ...);
 void warning_at(Pos p, const char *fmt, ...);
 void note_at(Pos p, const char *fmt, ...);

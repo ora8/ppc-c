@@ -40,6 +40,27 @@ make test       # Testsuite (Ausgaben, Borrow-/Optional-/Stackobjekt-/const-/res
 ./ppc --cc clang -O3 x.pas    # anderer C-Compiler / Optimierung
 ```
 
+## Fehlermeldungen
+
+Der Compiler bricht nicht beim ersten Fehler ab, sondern meldet möglichst alle auf einmal:
+
+```
+prog.pas(4,15) Error: ')' expected but number 1 found
+prog.pas(6,8) Error: expression expected but ':=' found
+prog.pas(15,6) Error: expression expected but 'then' found
+prog.pas: 3 syntax error(s), compilation aborted
+```
+
+* **Syntaxfehler:** Nach einem Fehler überspringt der Parser die kaputte Anweisung bis zum
+  nächsten `;` bzw. zum Ende des Blocks (bei einer Deklaration bis zu ihrem Ende, bei einer
+  Routine samt Rumpf) und liest danach weiter.
+* **Typfehler:** Ist der Text syntaktisch in Ordnung, prüft der Compiler jede Anweisung und jede
+  Deklaration für sich; eine fehlerhafte wird übersprungen. Ist die Deklaration einer Variablen
+  kaputt, werden ihre späteren Benutzungen nicht noch einmal gemeldet.
+* **Borrow Checker:** meldet ebenfalls alle gefundenen Fehler (er läuft nur, wenn es keine
+  Syntax- oder Typfehler gibt).
+* Nach 20 Fehlern hört der Compiler auf (`too many errors (20), stopping`).
+
 ## Groß-/Kleinschreibung
 
 * Schlüsselwörter werden **klein** geschrieben: `program begin end if then class val var vao …`

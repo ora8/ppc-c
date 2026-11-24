@@ -87,7 +87,15 @@ int main(int argc, char **argv) {
     char *pname;
     Pos end_pos;
     Block *prog_block = parse_program(src, &pname, &end_pos);
+    if (g_errors) {
+        fprintf(stderr, "%s: %d syntax error(s), compilation aborted\n", input, g_errors);
+        return 1;
+    }
     Program *prog = sema_program(prelude, prog_block, pname);
+    if (g_errors) {
+        fprintf(stderr, "%s: %d error(s), compilation aborted\n", input, g_errors);
+        return 1;
+    }
     prog->end_pos = end_pos;
 
     g_borrow_check = borrow;

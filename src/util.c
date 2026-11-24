@@ -80,11 +80,18 @@ void verror_at(const char *kind, Pos p, const char *fmt, va_list ap) {
     fputc('\n', stderr);
 }
 const char *g_err_context;
+jmp_buf *g_recover;
+int g_errors;
 _Noreturn void error_at(Pos p, const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
     verror_at("Error", p, fmt, ap);
     va_end(ap);
+    if (++g_errors >= MAX_ERRORS) {
+        fprintf(stderr, "%s: too many errors (%d), stopping\n", g_filename, g_errors);
+        exit(1);
+    }
+    if (g_recover) longjmp(*g_recover, 1); /* report the next errors too */
     exit(1);
 }
 void warning_at(Pos p, const char *fmt, ...) {

@@ -60,6 +60,7 @@ static int level;
 static int loop_depth;
 static int in_prelude;
 static struct Scope *gscope;   /* program scope: generic instances are made there */
+static VEC(char *) broken_names; /* variables whose declaration had an error: their uses are not reported again */
 static Struct *inst_cls;       /* method body of a generic instance being checked */
 static int generic_depth;      /* > 0 while a generic instance is made or checked */
 typedef struct {
@@ -86,6 +87,8 @@ static Expr *ex(Expr *e);
 static Type *resolve_type(TypeExpr *te);
 static void decls(Block *b, int has_frame);
 static void stmts(StmtVec *v);
+static void decl1(Decl *d, int has_frame);
+static void decls_tail(Block *b);
 static Type *infer_type(Expr *r, Pos p, const char *name);
 static void settle_var(Var *v, Type *t, Expr *src, Pos p);
 static void check_settled(Var **vars, int n);
@@ -1069,8 +1072,8 @@ static Routine *infer_routine(Generic *g, ExprVec *args, Pos p) {
                      g->params.items[i].name, g->name, g->name);
     return instantiate_routine(g, b, g->params.len, p);
 }
-static void run_pending_bodies(void) {
-    for (int k = 0; k < pending_bodies.len; k++) {
+static void run_pending_body(int k) {
+    {
         PendingBody pb = pending_bodies.items[k];
         Scope *ss;
         Routine *sc;
@@ -1082,7 +1085,7 @@ static void run_pending_bodies(void) {
             routine_body(pb.rt, pb.rd);
             g_err_context = NULL;
             leave_generic(ss, sc, sl);
-            continue;
+            return;
         }
         enter_generic(pb.g, pb.in.args, &ss, &sc, &sl);
         RoutineDecl *d = reparse_routine(pb.impl->toks, pb.impl->tok_start);
@@ -1093,7 +1096,6 @@ static void run_pending_bodies(void) {
         inst_cls = NULL;
         leave_generic(ss, sc, sl);
     }
-    pending_bodies.len = 0;
 }
 
 static Type *resolve_type_inner(TypeExpr *te) {
@@ -1477,6 +1479,8 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
         if (L.kind == LK_NONE) {
             int bi = builtin_id(name);
             if (bi) return builtin(bi, args, p);
+            for (int i = 0; i < broken_names.len; i++)
+                if (STREQ(broken_names.items[i], name) && g_recover) longjmp(*g_recover, 1); /* already reported */
             error_at(p, "identifier not found \"%s\"", name);
         }
         if (L.kind == LK_MEMBER) return member_ref(L.base ? var_expr(L.base, p) : NULL, &L, args, p, name);
@@ -2688,8 +2692,58 @@ static void stmt(Stmt *s) {
     }
 }
 
+/* ---- error recovery: after an error the statement/declaration is skipped and checking goes on ---- */
+#define RECOVER_BEGIN                                                                                                  \
+    {                                                                                                                  \
+        SemaState rec_st = save_state();                                                                               \
+        jmp_buf rec_jb, *rec_prev = g_recover;                                                                         \
+        g_recover = &rec_jb;                                                                                           \
+        if (setjmp(rec_jb) == 0) {
+#define RECOVER_FAIL(code)                                                                                             \
+        } else {                                                                                                       \
+            restore_state(&rec_st);                                                                                    \
+            code;                                                                                                      \
+        }                                                                                                              \
+        g_recover = rec_prev;                                                                                          \
+    }
+#define RECOVER_END                                                                                                    \
+        } else                                                                                                         \
+            restore_state(&rec_st);                                                                                    \
+        g_recover = rec_prev;                                                                                          \
+    }
+typedef struct {
+    Scope *scope;
+    Routine *cur;
+    int level, loop_depth, in_block, generic_depth;
+    StmtVec *local_init;
+    const char *err_context, *inst_cname;
+    Struct *inst_cls;
+    Expr *try_site;
+} SemaState;
+static SemaState save_state(void) {
+    SemaState st = {scope, cur, level, loop_depth, in_block, generic_depth, local_init, g_err_context, inst_cname, inst_cls, try_site};
+    return st;
+}
+static void restore_state(SemaState *st) {
+    scope = st->scope;
+    cur = st->cur;
+    level = st->level;
+    loop_depth = st->loop_depth;
+    in_block = st->in_block;
+    generic_depth = st->generic_depth;
+    local_init = st->local_init;
+    g_err_context = st->err_context;
+    inst_cname = st->inst_cname;
+    inst_cls = st->inst_cls;
+    try_site = st->try_site;
+}
+
 static void stmts(StmtVec *v) {
-    for (int i = 0; i < v->len; i++) stmt(v->items[i]);
+    for (int i = 0; i < v->len; i++) {
+        RECOVER_BEGIN
+        stmt(v->items[i]);
+        RECOVER_END
+    }
 }
 
 /* ============================================================== declarations */
@@ -2933,7 +2987,15 @@ static void routine_body(Routine *rt, RoutineDecl *d) {
 
 static void decls(Block *b, int has_frame) {
     for (int di = 0; di < b->decls.len; di++) {
-        Decl *d = b->decls.items[di];
+        RECOVER_BEGIN
+        decl1(b->decls.items[di], has_frame);
+        RECOVER_END
+    }
+    decls_tail(b);
+}
+
+static void decl1(Decl *d, int has_frame) {
+    {
         switch (d->kind) {
         case D_CONST:
             for (int i = 0; i < d->consts.len; i++) {
@@ -3029,6 +3091,7 @@ static void decls(Block *b, int has_frame) {
         case D_VAR:
             for (int i = 0; i < d->vars.len; i++) {
                 VarDecl *vd = &d->vars.items[i];
+                RECOVER_BEGIN
                 Pos dpos = vd->names.items[0].pos;
                 const char *vn = vd->names.items[0].name, *sec = vd->is_heap ? "vao" : vd->borrowed ? "var" : "val";
                 if (!vd->init) {
@@ -3159,11 +3222,16 @@ static void decls(Block *b, int has_frame) {
                     }
                     v->is_const = is_const;
                 }
+                RECOVER_FAIL(for (int k = 0; k < vd->names.len; k++) vpush(broken_names, vd->names.items[k].name))
             }
             break;
         case D_ROUTINE: routine_decl(d->rt); break;
         }
     }
+}
+
+static void decls_tail(Block *b) {
+    (void)b;
     for (int i = 0; i < scope->syms.len; i++) {
         Sym *s = scope->syms.items[i];
         if (s->kind == SY_ROUTINE && s->rt->forward && !s->rt->defined)
@@ -3225,7 +3293,12 @@ Program *sema_program(Block *prelude, Block *pb, const char *name) {
     gscope = push_scope();
     decls(pb, 0);
     stmts(&pb->body);
-    run_pending_bodies();
+    for (int k = 0; k < pending_bodies.len; k++) { /* bodies of generic instances (may add more) */
+        RECOVER_BEGIN
+        run_pending_body(k);
+        RECOVER_END
+    }
+    pending_bodies.len = 0;
     check_settled(prog->globals.items, prog->globals.len);
     prog->body = pb->body;
 

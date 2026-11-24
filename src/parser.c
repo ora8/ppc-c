@@ -657,9 +657,10 @@ static RoutineDecl *parse_routine(void) {
 }
 
 static int one_decl; /* 'while val i := 0; ...': exactly one declaration */
-static void parse_decls(Block *blk) {
-    for (;;) {
-        if (one_decl && blk->decls.len) break;
+/* one declaration section (or routine); 0 when the declarations are over */
+static int parse_decl1(Block *blk) {
+    {
+        if (one_decl && blk->decls.len) return 0;
         if (!const_routine_ahead() && accept_kw("const")) {
             Decl *d = NEW(Decl);
             d->kind = D_CONST;
@@ -721,22 +722,96 @@ static void parse_decls(Block *blk) {
             d->rt = parse_routine();
             vpush(blk->decls, d);
         } else
-            break;
+            return 0;
+    }
+    return 1;
+}
+
+static int nest_open(void) {
+    return is_kw("begin") || is_kw("case") || is_kw("record") || is_kw("repeat") || is_kw("class") || is_kw("try");
+}
+
+/* after a syntax error in a declaration: skip to its ';' (a routine together with its body) */
+static void sync_decl(int routine) {
+    int depth = 0;
+    while (CUR.kind != TK_EOF) {
+        if (nest_open() && !(is_kw("class") && T.items[P + 1].kind == TK_KW &&
+                             (STREQ(T.items[P + 1].s, "function") || STREQ(T.items[P + 1].s, "procedure"))))
+            depth++;
+        else if (is_kw("end") || is_kw("until")) {
+            if (depth > 0) depth--;
+            if (depth == 0 && routine) { /* end of the routine body */
+                next();
+                accept_sym(";");
+                return;
+            }
+        } else if (depth == 0 && is_sym(";")) {
+            next();
+            if (!routine || !(is_kw("val") || is_kw("var") || is_kw("vao") || is_kw("const") || is_kw("type") ||
+                              is_kw("begin")))
+                return;
+            continue; /* the routine's own declarations and body follow */
+        }
+        next();
+    }
+}
+
+static void parse_decls(Block *blk) {
+    for (;;) {
+        int routine = is_routine_kw();
+        jmp_buf jb, *prev = g_recover;
+        g_recover = &jb;
+        if (setjmp(jb)) { /* syntax error: report it, skip the declaration, go on */
+            g_recover = prev;
+            sync_decl(routine);
+            continue;
+        }
+        int more = parse_decl1(blk);
+        g_recover = prev;
+        if (!more) break;
     }
 }
 
 /* ------------------------------------------------------------- statements */
 
+/* after a syntax error in a statement: skip to the next ';' or to the end of the statement list */
+static void sync_stmt(void) {
+    int depth = 0;
+    while (CUR.kind != TK_EOF) {
+        if (nest_open()) depth++;
+        else if (is_kw("end") || is_kw("until")) {
+            if (depth == 0) return;
+            depth--;
+        } else if (depth == 0 && is_sym(";"))
+            return;
+        next();
+    }
+}
+
 static StmtVec parse_stmt_list(const char *term) {
-    StmtVec v = {0};
+    StmtVec *v = NEW(StmtVec); /* not a local: it must survive a longjmp */
     for (;;) {
+        jmp_buf jb, *prev = g_recover;
+        g_recover = &jb;
+        if (setjmp(jb)) { /* syntax error: report it, skip the statement, go on */
+            g_recover = prev;
+            sync_stmt();
+            if (accept_sym(";")) continue;
+            break;
+        }
         Stmt *s = parse_stmt();
-        if (s->kind != S_EMPTY) vpush(v, s);
-        if (accept_sym(";")) continue;
-        if (is_kw(term)) break;
+        if (s->kind != S_EMPTY) vpush(*v, s);
+        if (accept_sym(";")) {
+            g_recover = prev;
+            continue;
+        }
+        if (is_kw(term)) {
+            g_recover = prev;
+            break;
+        }
         error_at(pos(), "';' expected but %s found", describe());
     }
-    return v;
+    return *v;
 }
 
 static Stmt *parse_stmt(void) {
