@@ -192,6 +192,20 @@ static char *var_aux(Var *v, const char *suffix) {
 
 static char *agg_drop(Type *t, const char *lv);
 
+/* function results that own objects must be stored: these are the places that take them */
+static VEC(Expr *) taken_temps;
+static void take_temp(Expr *e) {
+    while (e->kind == E_CONV) e = e->a;
+    vpush(taken_temps, e);
+    if (e->kind == E_LIST || e->kind == E_RECLIT)
+        for (int i = 0; i < e->args.len; i++) take_temp(e->args.items[i]);
+}
+static int is_taken(Expr *e) {
+    for (int i = 0; i < taken_temps.len; i++)
+        if (taken_temps.items[i] == e) return 1;
+    return 0;
+}
+
 /* code that frees an owned reference */
 static char *drop_code(Type *t, const char *x) {
     if (t->kind == T_CLASS) return sfmt("%s((struct S%d*)(%s))", tobject_free->cname, tobject_free->owner->id, x);
@@ -834,7 +848,11 @@ static char *gx(Expr *e) {
         if (t->kind == T_RECORD) return sfmt("(*(%s*)&%s)", ctype(t), gx(e->a));
         return sfmt("((%s)(%s))", ctype(t), gx(e->a));
     }
-    case E_RCALL: return gcall(e);
+    case E_RCALL:
+        if (has_owned(e->type) && !is_taken(e))
+            error_at(e->pos, "the result of '%s' owns objects and would never be freed here: store it in a variable first ('val r := %s(...)')",
+                     e->rt->name, e->rt->name);
+        return gcall(e);
     case E_BUILTIN: return gbuiltin(e);
     default: error_at(e->pos, "internal error: unresolved expression (kind %d)", e->kind);
     }
@@ -868,6 +886,7 @@ static void stack_destroy(Var **vars, int n) {
 
 /* assignment; owning places free their old value, a moved-from owner variable becomes empty */
 static void gassign(Expr *lhs, Expr *rhs) {
+    take_temp(rhs);
     char *l = gx(lhs), *r = gx(rhs);
     if (has_owned(lhs->type)) { /* a value that owns objects moves: empty the source, free the old value */
         int id = ++tmpc;
@@ -950,6 +969,7 @@ static void gs(Stmt *s) {
         return;
     case S_CALL:
         if (s->a->kind == E_RCALL && has_owned(s->a->type)) { /* unused value that owns objects */
+            take_temp(s->a);
             int id = ++tmpc;
             line("{ %s __d%d = %s; %s; }", ctype(s->a->type), id, gx(s->a), agg_drop(s->a->type, sfmt("__d%d", id)));
             return;

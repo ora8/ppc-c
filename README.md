@@ -159,7 +159,9 @@ end;                           { a, q und z geben ihre Objekte hier frei }
 * Als Parameter werden sie nur lesend ausgeliehen (per Referenz, wie `T const`); `var`-Parameter
   ändern das Original.
 * Objekte, die Felder solcher Typen haben, geben sie mit sich frei; ein unbenutztes
-  Funktionsergebnis wird sofort freigegeben.
+  Funktionsergebnis (`Mach(9);`) wird sofort freigegeben.
+* Ein solches Funktionsergebnis muss gespeichert werden, bevor man es benutzt: `Mach(1).Info`
+  oder `Zeige(Mach(2))` sind Fehler (sonst würde es nie freigegeben) – `val r := Mach(1)` schreiben.
 
 ### Kopieren: `Clone`
 
