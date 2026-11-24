@@ -205,6 +205,7 @@ static TokVec tokenize(const char *src) {
 
 static TokVec T;
 static int P;
+static TokVec *cur_toks; /* the token array T belongs to (kept for parsing generics again) */
 
 #define CUR (T.items[P])
 static Pos pos(void) { return CUR.pos; }
@@ -285,6 +286,7 @@ static Expr *parse_postfix(void);
 static Stmt *parse_stmt(void);
 static TypeExpr *parse_type(void);
 static TypeExpr *parse_type_core(void);
+static TypeExprVec parse_targs(void);
 static Block *parse_block(void);
 static void parse_decls(Block *blk);
 
@@ -435,6 +437,7 @@ static StructDecl *parse_struct(int kind) {
     if (kind == SK_CLASS && accept_sym("(")) {
         sd->parent = ident();
         sd->has_parent = 1;
+        if (is_sym("<")) sd->parent_targs = parse_targs();
         if (is_sym(",")) error_at(pos(), "interfaces are not supported");
         expect_sym(")");
     }
@@ -535,8 +538,24 @@ static TypeExpr *parse_type(void) {
     return t;
 }
 
+static int generic_args_ahead(void);
+static TypeExprVec parse_targs(void) {
+    TypeExprVec v = {0};
+    expect_sym("<");
+    vpush(v, parse_type());
+    while (accept_sym(",")) vpush(v, parse_type());
+    expect_sym(">");
+    return v;
+}
+
 static TypeExpr *parse_type_core(void) {
     Pos p = pos();
+    if (CUR.kind == TK_IDENT && T.items[P + 1].kind == TK_SYM && STREQ(T.items[P + 1].s, "<")) {
+        TypeExpr *t = new_te(TE_NAMED, p); /* generic instance: TListe<TKunde> */
+        t->name = ident();
+        t->targs = parse_targs();
+        return t;
+    }
     if (is_sym("^"))
         error_at(p, "pointer types are not supported: use a class (objects are owned by 'vao' variables, referenced by 'var' variables)");
     accept_kw("packed");
@@ -599,10 +618,18 @@ static Expr *parse_init(void) { return parse_expr(); }
 
 static RoutineDecl *parse_routine(void) {
     RoutineDecl *d = NEW(RoutineDecl);
+    d->toks = cur_toks;
+    d->tok_start = P;
     d->pos = pos();
     d->kind = routine_kind();
     d->is_classm = last_classm;
     d->name = ident();
+    if (is_sym("<")) { /* method of a generic type: procedure TListe<T>.Add */
+        next();
+        d->cls_tparams = ident_list();
+        expect_sym(">");
+        if (!is_sym(".")) error_at(pos(), "generic functions and procedures ('%s<T>') are not supported yet: only records and classes can be generic", d->name.name);
+    }
     if (accept_sym(".")) {
         d->cls = d->name;
         d->has_cls = 1;
@@ -649,7 +676,13 @@ static void parse_decls(Block *blk) {
             while (CUR.kind == TK_IDENT) {
                 TypeDecl t = {0};
                 t.name = ident();
+                if (accept_sym("<")) { /* generic type: TListe<T> = class ... end */
+                    t.tparams = ident_list();
+                    expect_sym(">");
+                }
                 expect_sym("=");
+                t.toks = cur_toks;
+                t.tok_start = P;
                 t.ty = parse_type();
                 expect_sym(";");
                 vpush(d->types, t);
@@ -1020,6 +1053,7 @@ static Expr *parse_primary(void) {
     case TK_IDENT:
         e = new_expr(E_IDENT, p);
         e->id = ident();
+        if (generic_args_ahead()) e->targs = parse_targs(); /* TListe<TKunde>.Create */
         return e;
     default: break;
     }
@@ -1125,6 +1159,8 @@ static Block *parse_block(void) {
 
 Block *parse_program(const char *src, char **name, Pos *end_pos) {
     T = tokenize(src);
+    cur_toks = NEW(TokVec);
+    *cur_toks = T;
     P = 0;
     *name = xstrdup("main");
     if (accept_kw("program")) {
@@ -1149,8 +1185,58 @@ Block *parse_program(const char *src, char **name, Pos *end_pos) {
     return b;
 }
 
+/* after an identifier: '<' types '>' followed by '.' or '(' -- type arguments, not a comparison */
+static int generic_args_ahead(void) {
+    if (!(CUR.kind == TK_SYM && STREQ(CUR.s, "<"))) return 0;
+    int depth = 0;
+    for (int i = P; i < T.len; i++) {
+        Token *t = &T.items[i];
+        if (t->kind == TK_SYM && STREQ(t->s, "<")) depth++;
+        else if (t->kind == TK_SYM && STREQ(t->s, ">")) {
+            if (--depth == 0) {
+                Token *n = &T.items[i + 1 < T.len ? i + 1 : i];
+                return n->kind == TK_SYM && (STREQ(n->s, ".") || STREQ(n->s, "("));
+            }
+        } else if (t->kind == TK_SYM && STREQ(t->s, ",")) {
+        } else if (t->kind == TK_IDENT || (t->kind == TK_KW && (STREQ(t->s, "optional") || STREQ(t->s, "result") || STREQ(t->s, "of")))) {
+        } else
+            return 0;
+    }
+    return 0;
+}
+
+/* parse a generic type or method again (one fresh syntax tree per instance) */
+TypeExpr *reparse_type(void *toks, int start) {
+    TokVec st = T;
+    int sp = P;
+    TokVec *sc = cur_toks;
+    T = *(TokVec *)toks;
+    cur_toks = toks;
+    P = start;
+    TypeExpr *t = parse_type();
+    T = st;
+    P = sp;
+    cur_toks = sc;
+    return t;
+}
+RoutineDecl *reparse_routine(void *toks, int start) {
+    TokVec st = T;
+    int sp = P;
+    TokVec *sc = cur_toks;
+    T = *(TokVec *)toks;
+    cur_toks = toks;
+    P = start;
+    RoutineDecl *d = parse_routine();
+    T = st;
+    P = sp;
+    cur_toks = sc;
+    return d;
+}
+
 Block *parse_decls_only(const char *src) {
     T = tokenize(src);
+    cur_toks = NEW(TokVec);
+    *cur_toks = T;
     P = 0;
     Block *b = NEW(Block);
     parse_decls(b);

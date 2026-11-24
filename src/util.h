@@ -50,6 +50,7 @@ const char *buf_str(Buf *b);
 /* diagnostics */
 extern const char *g_filename;
 extern int g_warnings;
+extern const char *g_err_context; /* e.g. the generic instance being checked */
 _Noreturn void error_at(Pos p, const char *fmt, ...);
 void warning_at(Pos p, const char *fmt, ...);
 void note_at(Pos p, const char *fmt, ...);

@@ -478,6 +478,54 @@ begin
 * `Self` ist in const-Methoden nur lesbar; darum kann eine const-Methode nur
   `var … const`-Referenzen auf ihre Felder herausgeben.
 
+## Generische Typen: `TListe<T>`
+
+Records und Klassen können Typparameter haben (Stufe 1 des Designs in
+[docs/generics.md](docs/generics.md)). Für jede benutzte Typkombination erzeugt der Compiler eine
+eigene Instanz – geprüft beim Übersetzen und ohne Kosten zur Laufzeit:
+
+```pascal
+type
+  TPaar<A, B> = record
+    Erstes: A;
+    Zweites: B;
+  end;
+  TListe<T> = class
+    Elemente: array[1..10] of optional T;
+    Anzahl: Integer;
+    procedure Add(vao x: T);
+    function Hole(i: Integer): var optional T;
+  end;
+  TKnoten<T> = class
+    Wert: T;
+    Next: optional TKnoten<T>;               { rekursiv }
+  end;
+  TKundenListe = class(TListe<TKunde>)       { erbt von einer Instanz }
+    function Suche(N: String const): var optional TKunde;
+  end;
+
+procedure TListe<T>.Add(vao x: T);          { Methoden wiederholen <T> }
+begin
+  Inc(Anzahl);
+  Elemente[Anzahl] := x;                     { Move, auch wenn T ein Objekt ist }
+end;
+…
+val p: TPaar<String, Integer> := (Erstes: 'Anna'; Zweites: 30);
+vao zahlen := TListe<Integer>.Create;
+vao kunden := TKundenListe.Create;
+kunden.Add(TKunde.Create('Anna'));
+if kunden.Suche('Anna') is some k then WriteLn(k.Name);    { k ist ein TKunde }
+```
+
+* Generische Typen werden auf Programmebene deklariert; nur Records und Klassen können generisch
+  sein. Generische Funktionen und Einschränkungen (`T: Comparable`) kommen in den nächsten Stufen.
+* Jede Instanz wird mit den eingesetzten Typen geprüft. Ein Fehler im generischen Code nennt die
+  Instanz: `operator not applicable to "TK" and "TK" (in TBox<TK>.Doppelt)`. Auch der Borrow
+  Checker prüft jede Instanz.
+* Für ein Wert-`T` ist `vao x: T` eine gewöhnliche Übergabe und ein `var`-Ergebnis eine Kopie;
+  für ein Objekt-`T` gelten die üblichen Regeln für Besitz und Ausleihen.
+* `ClassName` liefert den Namen der Instanz, z. B. `'TListe<TKunde>'`.
+
 ## Records mit Methoden
 
 Records sind **Werte**: `b := a` kopiert, Wertparameter und Funktionsergebnisse sind Kopien,

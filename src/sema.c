@@ -5,10 +5,28 @@
 #include <ctype.h>
 #include <limits.h>
 
-typedef enum { SY_VAR, SY_CONST, SY_TYPE, SY_ROUTINE } SymKind;
+typedef enum { SY_VAR, SY_CONST, SY_TYPE, SY_ROUTINE, SY_GENERIC } SymKind;
+
+/* a generic type: parsed again for every instance (monomorphization) */
+typedef struct {
+    Struct *st;
+    Type **args;
+} Instance;
+typedef struct {
+    char *name;
+    IdentVec params;
+    void *toks;
+    int tok;
+    Pos pos;
+    VEC(char *) keys;
+    VEC(Instance) insts;
+    VEC(RoutineDecl *) impls; /* method implementations, parsed again per instance */
+} Generic;
+
 typedef struct {
     SymKind kind;
     char *name;
+    Generic *gen;
     Var *var;
     Type *type;
     Expr *cval;
@@ -38,6 +56,15 @@ static Routine *cur;
 static int level;
 static int loop_depth;
 static int in_prelude;
+static struct Scope *gscope;   /* program scope: generic instances are made there */
+static Struct *inst_cls;       /* method body of a generic instance being checked */
+static int generic_depth;      /* > 0 while a generic instance is made or checked */
+typedef struct {
+    Generic *g;
+    Instance in;
+    RoutineDecl *impl;
+} PendingBody;
+static VEC(PendingBody) pending_bodies;
 static int var_counter, routine_counter, struct_counter, enum_counter, with_counter;
 static StmtVec *local_init;
 static int in_block; /* inside a block statement with its own declarations */
@@ -704,8 +731,12 @@ static void add_fields(Struct *s, FieldDeclVec *fields) {
         Type *t = resolve_type(fd->ty);
         check_complete(t, fd->ty->pos);
         if (s->kind == SK_RECORD) require_nilable(t, fd->ty->pos, "record field");
-        if (fd->borrowed && !is_owning_type(t))
-            error_at(fd->ty->pos, "a 'var' field (reference without ownership) needs a class type, not \"%s\"", type_name(t));
+        int fborrowed = fd->borrowed;
+        if (fborrowed && !is_owning_type(t)) {
+            if (!generic_depth)
+                error_at(fd->ty->pos, "a 'var' field (reference without ownership) needs a class type, not \"%s\"", type_name(t));
+            fborrowed = 0; /* generic instance with a value type: the field holds the value */
+        }
         if (t->readonly && t->kind != T_CLASS)
             error_at(fd->ty->pos, "fields cannot be 'const' (make the whole variable const: 'val x: T const := ...')");
         for (int k = 0; k < fd->names.len; k++) {
@@ -717,7 +748,7 @@ static void add_fields(Struct *s, FieldDeclVec *fields) {
             f->name = id->name;
             f->cname = sfmt("f_%s", id->name);
             f->type = t;
-            f->borrowed = fd->borrowed;
+            f->borrowed = fborrowed;
             f->owner = s;
             vpush(s->fields, f);
         }
@@ -845,10 +876,103 @@ static Type *resolve_type(TypeExpr *te) {
     return o;
 }
 
+static void define_record(Struct *s, TypeExpr *te);
+static void define_struct(Struct *s, StructDecl *sd);
+
+/* bind the type parameters of g in a new scope at program level */
+static Scope *enter_generic(Generic *g, Type **args, Scope **saved_scope, Routine **saved_cur, int *saved_level) {
+    *saved_scope = scope;
+    *saved_cur = cur;
+    *saved_level = level;
+    scope = gscope;
+    cur = NULL;
+    level = 0;
+    generic_depth++;
+    Scope *s = push_scope();
+    for (int i = 0; i < g->params.len; i++) add_sym(SY_TYPE, g->params.items[i].name, g->params.items[i].pos)->type = args[i];
+    return s;
+}
+static void leave_generic(Scope *saved_scope, Routine *saved_cur, int saved_level) {
+    generic_depth--;
+    scope = saved_scope;
+    cur = saved_cur;
+    level = saved_level;
+}
+
+/* TListe<TKunde>: the instance of a generic type for these type arguments (made once) */
+static Type *instantiate(Generic *g, Type **args, int n, Pos p) {
+    if (n != g->params.len)
+        error_at(p, "\"%s\" has %d type parameter%s, but %d type argument%s given", g->name, g->params.len,
+                 g->params.len == 1 ? "" : "s", n, n == 1 ? " is" : "s are");
+    Buf kb = {0};
+    buf_printf(&kb, "%s<", g->name);
+    for (int i = 0; i < n; i++) buf_printf(&kb, "%s%s", i ? ", " : "", type_name(args[i]));
+    buf_put(&kb, ">");
+    char *key = xstrdup(buf_str(&kb));
+    for (int i = 0; i < g->keys.len; i++)
+        if (STREQ(g->keys.items[i], key)) return g->insts.items[i].st->type;
+    static int depth;
+    if (++depth > 50) error_at(p, "generic instances nested too deeply (%s)", key);
+    Scope *ss;
+    Routine *sc;
+    int sl;
+    enter_generic(g, args, &ss, &sc, &sl);
+    const char *save_ctx = g_err_context;
+    g_err_context = key;
+    TypeExpr *te = reparse_type(g->toks, g->tok);
+    int sk = te->kind == TE_RECORD ? SK_RECORD : te->sd->kind;
+    Struct *st = new_struct(key, sk, g->pos);
+    Instance in = {st, (Type **)xcalloc(n ? n : 1, sizeof(Type *))};
+    for (int i = 0; i < n; i++) in.args[i] = args[i];
+    vpush(g->keys, key);
+    vpush(g->insts, in); /* registered before it is defined: recursive uses (optional TKnoten<T>) find it */
+    if (te->kind == TE_RECORD) define_record(st, te);
+    else define_struct(st, te->sd);
+    g_err_context = save_ctx;
+    leave_generic(ss, sc, sl);
+    for (int i = 0; i < g->impls.len; i++) {
+        PendingBody pb = {g, in, g->impls.items[i]};
+        vpush(pending_bodies, pb);
+    }
+    depth--;
+    return st->type;
+}
+
+static Type *generic_type(Look *L, Ident name, TypeExprVec *targs, Pos p) {
+    if (L->kind != LK_SYM || L->sym->kind != SY_GENERIC)
+        error_at(p, "\"%s\" is not a generic type", name.name);
+    Type **args = (Type **)xcalloc(targs->len ? targs->len : 1, sizeof(Type *));
+    for (int i = 0; i < targs->len; i++) args[i] = resolve_type(targs->items[i]);
+    return instantiate(L->sym->gen, args, targs->len, p);
+}
+
+/* method bodies of generic instances: checked with the type arguments filled in */
+static void routine_decl(RoutineDecl *d);
+static void run_pending_bodies(void) {
+    for (int k = 0; k < pending_bodies.len; k++) {
+        PendingBody pb = pending_bodies.items[k];
+        Scope *ss;
+        Routine *sc;
+        int sl;
+        enter_generic(pb.g, pb.in.args, &ss, &sc, &sl);
+        RoutineDecl *d = reparse_routine(pb.impl->toks, pb.impl->tok_start);
+        inst_cls = pb.in.st;
+        g_err_context = sfmt("%s.%s", pb.in.st->name, d->name.name);
+        routine_decl(d);
+        g_err_context = NULL;
+        inst_cls = NULL;
+        leave_generic(ss, sc, sl);
+    }
+    pending_bodies.len = 0;
+}
+
 static Type *resolve_type_inner(TypeExpr *te) {
     switch (te->kind) {
     case TE_NAMED: {
         Look L = lookup(te->name.name);
+        if (te->targs.len) return generic_type(&L, te->name, &te->targs, te->pos);
+        if (L.kind == LK_SYM && L.sym->kind == SY_GENERIC)
+            error_at(te->pos, "\"%s\" is generic: give its type arguments, e.g. '%s<Integer>'", te->name.name, te->name.name);
         if (L.kind != LK_SYM || L.sym->kind != SY_TYPE)
             error_at(te->pos, "type identifier expected, \"%s\" is %s", te->name.name,
                      L.kind == LK_NONE ? "unknown" : "not a type");
@@ -936,8 +1060,13 @@ static void build_params(Routine *rt, ParamGroupVec *pg) {
         int mode = g->mode;
         if (t->readonly && t->kind != T_CLASS && mode == PM_VALUE) mode = PM_CONSTREF; /* read-only, no copy */
         if (mode == PM_VALUE && has_owned(t)) mode = PM_CONSTREF; /* owns objects: borrowed read-only, not copied */
-        if (g->mode == PM_OWNED && !is_owning_type(t))
-            error_at(g->ty->pos, "'vao' parameters (taking ownership) need a class type");
+        if (g->mode == PM_OWNED && !is_owning_type(t)) {
+            if (!generic_depth) error_at(g->ty->pos, "'vao' parameters (taking ownership) need a class type");
+            if (has_owned(t))
+                error_at(g->ty->pos, "a 'vao' parameter of type \"%s\" (a value that owns objects) is not supported in generic code yet",
+                         type_name(t));
+            mode = PM_VALUE; /* generic instance with a plain value: an ordinary copy */
+        }
         for (int k = 0; k < g->names.len; k++) {
             Param p = {g->names.items[k].name, t, mode, NULL};
             vpush(rt->params, p);
@@ -977,7 +1106,12 @@ static int find_slot(Struct *s, const char *name) {
 
 static void define_struct(Struct *s, StructDecl *sd) {
     Struct *par = NULL;
-    if (sd->has_parent) {
+    if (sd->has_parent && sd->parent_targs.len) { /* class(TListe<TKunde>) */
+        Look L = lookup(sd->parent.name);
+        Type *pt = generic_type(&L, sd->parent, &sd->parent_targs, sd->parent.pos);
+        if (pt->kind != T_CLASS) error_at(sd->parent.pos, "\"%s\" is not a class type", type_name(pt));
+        par = pt->st;
+    } else if (sd->has_parent) {
         Look L = lookup(sd->parent.name);
         if (L.kind != LK_SYM || L.sym->kind != SY_TYPE || L.sym->type->kind != T_CLASS)
             error_at(sd->parent.pos, "\"%s\" is not a class type", sd->parent.name);
@@ -1023,8 +1157,10 @@ static void define_struct(Struct *s, StructDecl *sd) {
         if (md->ret) r->ret = resolve_type(md->ret);
         r->ret_borrowed = md->ret_borrowed;
         auto_rules(md, s, r);
-        if (md->ret_borrowed && !is_owning_type(r->ret))
-            error_at(md->name.pos, "a 'var' result (reference without ownership) needs a class type");
+        if (md->ret_borrowed && !is_owning_type(r->ret)) {
+            if (!generic_depth) error_at(md->name.pos, "a 'var' result (reference without ownership) needs a class type");
+            r->ret_borrowed = 0; /* generic instance with a value type: the result is a copy */
+        }
         r->virt = md->virt;
         r->is_abstract = md->is_abstract;
         if (md->kind == RK_CTOR && md->virt != VIRT_NONE)
@@ -1214,8 +1350,18 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
             error_at(p, "identifier not found \"%s\"", name);
         }
         if (L.kind == LK_MEMBER) return member_ref(L.base ? var_expr(L.base, p) : NULL, &L, args, p, name);
+        if (e->targs.len) { /* TListe<TKunde> as a type: cast or type reference */
+            Type *gt = generic_type(&L, e->id, &e->targs, p);
+            if (args) return cast_expr(gt, args, p);
+            Expr *t = new_expr(E_TYPEREF, p);
+            t->ctype = gt;
+            t->type = gt;
+            return t;
+        }
         Sym *s = L.sym;
         switch (s->kind) {
+        case SY_GENERIC:
+            error_at(p, "\"%s\" is generic: give its type arguments, e.g. '%s<Integer>'", name, name);
         case SY_VAR:
             if (args) error_at(p, "\"%s\" is a variable and cannot be called", name);
             if (s->var->pending)
@@ -1249,6 +1395,13 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
         const char *name = e->id.name;
         if (e->a->kind == E_IDENT) {
             Look L = lookup(e->a->id.name);
+            Sym gsym = {0};
+            if (e->a->targs.len) { /* TListe<TKunde>.Create(...) */
+                gsym.kind = SY_TYPE;
+                gsym.type = generic_type(&L, e->a->id, &e->a->targs, e->a->pos);
+                L.kind = LK_SYM;
+                L.sym = &gsym;
+            }
             if (L.kind == LK_SYM && L.sym->kind == SY_VAR && L.sym->var->is_box && STREQ(name, "Free")) {
                 if (args && args->len) error_at(p, "Free takes no arguments");
                 Expr *f = new_expr(E_BUILTIN, p);
@@ -2467,13 +2620,33 @@ static void check_settled(Var **vars, int n) {
 
 static void routine_decl(RoutineDecl *d) {
     Routine *rt = NULL;
-    if (d->has_cls) {
+    if (d->has_cls && d->cls_tparams.len && !inst_cls) { /* procedure TListe<T>.Add: kept for every instance */
         if (cur) error_at(d->pos, "method implementations must be at program level");
         Look L = lookup(d->cls.name);
-        if (L.kind != LK_SYM || L.sym->kind != SY_TYPE ||
-            (L.sym->type->kind != T_CLASS && L.sym->type->kind != T_RECORD))
-            error_at(d->cls.pos, "\"%s\" is not a class or record type", d->cls.name);
-        Struct *st = L.sym->type->st;
+        if (L.kind != LK_SYM || L.sym->kind != SY_GENERIC) error_at(d->cls.pos, "\"%s\" is not a generic type", d->cls.name);
+        Generic *g = L.sym->gen;
+        if (d->cls_tparams.len != g->params.len)
+            error_at(d->cls.pos, "\"%s\" has %d type parameter%s", g->name, g->params.len, g->params.len == 1 ? "" : "s");
+        vpush(g->impls, d);
+        for (int i = 0; i < g->insts.len; i++) { /* instances made before this implementation was seen */
+            PendingBody pb = {g, g->insts.items[i], d};
+            vpush(pending_bodies, pb);
+        }
+        return;
+    }
+    if (d->has_cls) {
+        if (cur) error_at(d->pos, "method implementations must be at program level");
+        Struct *st;
+        if (inst_cls) st = inst_cls;
+        else {
+            Look L = lookup(d->cls.name);
+            if (L.kind == LK_SYM && L.sym->kind == SY_GENERIC)
+                error_at(d->cls.pos, "\"%s\" is generic: write 'procedure %s<...>.%s'", d->cls.name, d->cls.name, d->name.name);
+            if (L.kind != LK_SYM || L.sym->kind != SY_TYPE ||
+                (L.sym->type->kind != T_CLASS && L.sym->type->kind != T_RECORD))
+                error_at(d->cls.pos, "\"%s\" is not a class or record type", d->cls.name);
+            st = L.sym->type->st;
+        }
         for (int i = 0; i < st->methods.len; i++)
             if (STREQ(st->methods.items[i]->name, d->name.name)) rt = st->methods.items[i];
         if (!rt) error_at(d->name.pos, "method \"%s\" is not declared in \"%s\"", d->name.name, st->name);
@@ -2644,9 +2817,25 @@ static void decls(Block *b, int has_frame) {
             }
             break;
         case D_TYPE: {
+            /* generic types are only remembered; every instance is made on first use */
+            for (int i = 0; i < d->types.len; i++) {
+                TypeDecl *td = &d->types.items[i];
+                if (!td->tparams.len) continue;
+                if (cur || in_block) error_at(td->name.pos, "generic types must be declared at program level");
+                if (td->ty->kind != TE_STRUCT && td->ty->kind != TE_RECORD)
+                    error_at(td->name.pos, "only records and classes can be generic");
+                Generic *g = NEW(Generic);
+                g->name = td->name.name;
+                g->params = td->tparams;
+                g->toks = td->toks;
+                g->tok = td->tok_start;
+                g->pos = td->name.pos;
+                add_sym(SY_GENERIC, td->name.name, td->name.pos)->gen = g;
+            }
             /* pass 1: pre-register records/objects/classes for forward references */
             for (int i = 0; i < d->types.len; i++) {
                 TypeDecl *td = &d->types.items[i];
+                if (td->tparams.len) continue;
                 TEKind k = td->ty->kind;
                 if (k != TE_STRUCT && k != TE_CLASSFWD && k != TE_RECORD) continue;
                 Sym *exs = find_local(td->name.name);
@@ -2661,6 +2850,7 @@ static void decls(Block *b, int has_frame) {
             /* pass 2: define */
             for (int i = 0; i < d->types.len; i++) {
                 TypeDecl *td = &d->types.items[i];
+                if (td->tparams.len) continue;
                 TEKind k = td->ty->kind;
                 if (k == TE_CLASSFWD) continue;
                 if (k == TE_STRUCT || k == TE_RECORD) {
@@ -2677,6 +2867,7 @@ static void decls(Block *b, int has_frame) {
                 add_sym(SY_TYPE, td->name.name, td->name.pos)->type = t;
             }
             for (int i = 0; i < d->types.len; i++) {
+                if (d->types.items[i].tparams.len) continue;
                 Sym *s = find_local(d->types.items[i].name.name);
                 if (s && s->kind == SY_TYPE && s->type->st && !s->type->st->defined)
                     error_at(d->types.items[i].name.pos, "forward class \"%s\" is never defined", s->name);
@@ -2879,9 +3070,10 @@ Program *sema_program(Block *prelude, Block *pb, const char *name) {
     decls(prelude, 0);
     in_prelude = 0;
 
-    push_scope();
+    gscope = push_scope();
     decls(pb, 0);
     stmts(&pb->body);
+    run_pending_bodies();
     check_settled(prog->globals.items, prog->globals.len);
     prog->body = pb->body;
 

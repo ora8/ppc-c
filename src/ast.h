@@ -11,6 +11,7 @@ typedef struct Var Var;
 typedef struct Expr Expr;
 typedef struct Stmt Stmt;
 typedef struct TypeExpr TypeExpr;
+typedef VEC(TypeExpr *) TypeExprVec;
 typedef struct EnumInfo EnumInfo;
 typedef struct Block Block;
 typedef struct Field Field;
@@ -70,6 +71,7 @@ typedef struct {
     int kind; /* SK_CLASS */
     Ident parent;
     int has_parent;
+    TypeExprVec parent_targs; /* class(TListe<TKunde>) */
     FieldDeclVec fields;
     VEC(MethodDecl) methods;
     VEC(PropDecl) props;
@@ -88,6 +90,7 @@ struct TypeExpr {
     IdentVec enums;           /* TE_ENUM */
     FieldDeclVec fields;      /* TE_RECORD */
     StructDecl *sd;           /* TE_STRUCT */
+    TypeExprVec targs;        /* TE_NAMED: type arguments of a generic type, TListe<TKunde> */
     int nilable;              /* 'optional' modifier */
     int readonly;             /* 'const T': read-only object reference */
 };
@@ -100,6 +103,9 @@ typedef struct {
 typedef struct {
     Ident name;
     TypeExpr *ty;
+    IdentVec tparams; /* generic type: TListe<T> = ... */
+    void *toks;       /* generic type: tokens to parse it again for each instance */
+    int tok_start;
 } TypeDecl;
 typedef struct {
     IdentVec names;
@@ -124,6 +130,9 @@ typedef struct {
     int is_classm; /* class function / class procedure */
     Block *body;
     Pos pos;
+    IdentVec cls_tparams; /* method of a generic type: procedure TListe<T>.Add */
+    void *toks;           /* tokens to parse the routine again for each instance */
+    int tok_start;
 } RoutineDecl;
 
 typedef enum { D_CONST, D_TYPE, D_VAR, D_ROUTINE } DeclKind;
@@ -177,6 +186,7 @@ struct Expr {
     char *sval;
     int slen;
     Ident id;
+    TypeExprVec targs; /* E_IDENT: type arguments, TListe<TKunde>.Create */
     int has_id;
     int in_range; /* E_INDEX: constant index, checked at compile time */
     Expr *a, *b, *c;
@@ -376,6 +386,8 @@ enum {
 /* parser.c */
 Block *parse_program(const char *src, char **name, Pos *end_pos);
 Block *parse_decls_only(const char *src);
+TypeExpr *reparse_type(void *toks, int start);
+RoutineDecl *reparse_routine(void *toks, int start);
 Expr *new_expr(ExprKind k, Pos p);
 Stmt *new_stmt(StmtKind k, Pos p);
 
