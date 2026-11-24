@@ -96,6 +96,15 @@ val p := TPunkt.Ursprung;
 Neben `const` und `type` gibt es drei Variablenabschnitte. **Jede Variable wird bei der
 Deklaration mit `:=` initialisiert**; der Typ darf fehlen, dann kommt er aus dem Initialisierer.
 
+| | was die Variable enthält | besitzt? | gibt frei? | Rust | C++ |
+|---|---|---|---|---|---|
+| **`val`** | den **Wert selbst** (Zahl, String, Record, Array, Stackobjekt) | ja | am Blockende (Stackobjekt: `Destroy`) | `let x: T` | `T x` |
+| **`vao`** | eine **besitzende Referenz** auf ein Objekt oder einen Wert auf dem Heap | ja | am Ende des Bereichs | `Box<T>` | `std::unique_ptr<T>` |
+| **`var`** | eine **gewöhnliche Referenz** auf etwas, das jemand anderem gehört | nein | nie | `&mut T` (`T const`: `&T`) | `T&` (`T const`: `const T&`) |
+
+Für Parameter gilt dasselbe Schema: `vao x: TFoo` übernimmt den Besitz, `var x: T` ist eine
+änderbare Referenz, `x: T` leiht ein Objekt aus bzw. kopiert einen einfachen Wert.
+
 | Deklaration | Bedeutung |
 |---|---|
 | `val i := 5;` / `val i: Integer := 5;` | **Wert** (Zahlen, Strings, Records, Arrays, `optional`-Werte) |
