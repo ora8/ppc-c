@@ -520,6 +520,7 @@ typedef struct {
 } Src;
 
 static void use_expr(Expr *e, State *s);
+static void exit_checks(State *s, Pos p);
 static void use_lvalue(Expr *e, State *s);
 static void refine(Expr *c, int truth, State *s);
 static Src eval_src(Expr *e, State *s);
@@ -768,6 +769,13 @@ static void use_expr(Expr *e, State *s) {
         return;
     }
     case E_FMT: use_expr(e->a, s); use_expr(e->b, s); use_expr(e->c, s); return;
+    case E_OK: case E_ERR: use_expr(e->a, s); return;
+    case E_TRY: { /* a failed result leaves the routine here */
+        use_expr(e->a, s);
+        State out = st_copy(s);
+        exit_checks(&out, e->pos);
+        return;
+    }
     case E_LIST: case E_RECLIT:
         for (int i = 0; i < e->args.len; i++) use_expr(e->args.items[i], s);
         return;

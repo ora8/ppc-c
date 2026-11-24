@@ -15,6 +15,8 @@ Besonderheiten:
 * **Keine Zeiger und kein nil:** Es gibt kein `^`, `@`, `New`, `Dispose` und kein `nil`.
   Werte, die fehlen können, haben den Typ **`optional T`** (wie `Option<T>` in Rust bzw.
   `std::optional<T>` in C++) und müssen vor der Benutzung ausgepackt werden.
+* **Keine Exceptions:** Fehler sind Rückgabewerte vom Typ **`result T`** (wie `Result<T, E>` in
+  Rust), weitergegeben mit `try`.
 * **`T const`** macht Variablen, Parameter und Objekt-Referenzen unveränderlich;
   `; const;` kennzeichnet Methoden, die `Self` nicht ändern.
 * **Klassenmethoden** (`class function`), **Records mit Methoden**, Record- und Array-Literale.
@@ -23,7 +25,7 @@ Besonderheiten:
 
 ```bash
 make            # erzeugt ./ppc
-make test       # Testsuite (Ausgaben, Borrow-/Optional-/const-Fehler, Compile-Fehler)
+make test       # Testsuite (Ausgaben, Borrow-/Optional-/const-/result-Fehler, Compile-Fehler)
 ```
 
 ```bash
@@ -46,7 +48,7 @@ make test       # Testsuite (Ausgaben, Borrow-/Optional-/const-Fehler, Compile-F
   `WriteLn`, `Write`, `ReadLn`, `Read`, `Length`, `Ord`, `Chr`, `Inc`, `Dec`,
   `TObject`, `Create`, `Destroy`, `Free`, `ClassName`, `Self`, `Result`, `Exit`, `Break`, `Continue` usw.
 * Direktiven/Modifizierer klein: `virtual`, `override`, `abstract`, `forward`, `private`,
-  `public`, `property … read … write …`, `optional`, `some`, `none`, `default`.
+  `public`, `property … read … write …`, `optional`, `some`, `none`, `default`, `result`, `ok`, `error`, `try`.
 
 ## Klassen
 
@@ -509,6 +511,61 @@ Runtime error 210: nil pointer dereference at programm.pas(42,7)
 
 Ein fehlgeschlagener Speicherwunsch (`Create`) endet mit `Runtime error 203: heap overflow`.
 
+## Fehlerbehandlung: `result T`
+
+Es gibt keine Exceptions. Eine Funktion, die fehlschlagen kann, liefert **`result T`** – einen
+Wert vom Typ `T` *oder* einen Fehler, wie `Result<T, E>` in Rust. Der Fehler ist ein `String`;
+mit `result T of E` ist er vom Typ `E` (z. B. eine Aufzählung). `result` ohne `T` (bzw.
+`result of E`) meldet nur Erfolg oder Fehler, wie `Result<(), E>`.
+
+```pascal
+type TFehler = (DurchNull, ZuGross);
+
+function Teile(a, b: Integer): result Integer;
+begin
+  if b = 0 then Result := error('Division durch 0')
+  else Result := a div b;                      { ein Wert ist automatisch ok(...) }
+end;
+
+function Pruefe(n: Integer): result of TFehler;
+begin
+  if n > 100 then Result := error(ZuGross) else Result := ok;
+end;
+
+function Rechne(a, b, c: Integer): result Integer;
+begin
+  val q := try Teile(a, b);                    { Fehler: Rechne liefert ihn sofort zurück }
+  begin
+    Result := try Teile(q, c);
+  end;
+end;
+…
+case Teile(1, 0) of                            { match }
+  ok v:    WriteLn('Wert ', v);
+  error e: WriteLn('Fehler: ', e);
+end;
+if r is ok v then WriteLn(v);                  { if let Ok(v) = r }
+if Pruefe(5) is ok then …;                     { result ohne Wert }
+WriteLn(Teile(7, 0).ValueOr(-1));              { unwrap_or }
+if r.IsError then …;                           { is_err; auch r.IsOk }
+```
+
+* **Erzeugen:** `ok(v)`, `ok` (ohne Wert), `error(e)`; ein Wert vom Typ `T` wird automatisch
+  zu `ok(...)`, Literale und `default` (= `ok` mit dem Nullwert) passen sich an.
+* **Auspacken:** `case r of ok v: … error e: … end` (auch mit `else`; der Ausdruck wird nur einmal
+  ausgewertet), `r is ok v` / `r is error e` in `if`- und `while`-Bedingungen, `r.ValueOr(d)`,
+  `r.IsOk`, `r.IsError`. Ein `result` direkt als Wert zu benutzen ist ein Fehler – er kann nicht
+  versehentlich übergangen werden.
+* **Weitergeben mit `try`** (wie `?` in Rust): `try r` liefert den Wert eines erfolgreichen
+  Ergebnisses; bei einem Fehler endet die Funktion sofort und gibt den Fehler zurück. Besitzer
+  (`vao`) werden dabei wie bei `Exit` freigegeben. `try` steht als ganze Anweisung
+  (`try Speichere(x);`), als Wert einer Zuweisung oder als Initialisierer und nur in Funktionen,
+  die selbst ein `result` mit demselben Fehlertyp liefern.
+* Wert und Fehler sind Werte (Zahlen, Strings, Aufzählungen, Records, Arrays); Objekte in einem
+  `result` werden noch nicht unterstützt.
+* Intern ist ein `result` ein kleines Struct aus Fehler-Flag, Wert und Fehler – ohne Kosten,
+  solange kein Fehler auftritt.
+
 ## Unterstützte Sprache
 
 * `program`, `uses` (ignoriert), `const` (auch typisierte Konstanten und Array-Initialisierer),
@@ -529,11 +586,11 @@ Ein fehlgeschlagener Speicherwunsch (`Create`) endet mit `Runtime error 203: hea
   `FloatToStr`, `Str`, `SetLength`, `Ord`, `Chr`, `Succ`, `Pred`, `Inc`, `Dec`, `Odd`, `Abs`, `Sqr`,
   `Sqrt`, `Sin`, `Cos`, `ArcTan`, `Exp`, `Ln`, `Trunc`, `Round`, `Frac`, `Int`, `High`, `Low`,
   `SizeOf`, `Random`, `Randomize`, `Halt`, `Assigned`, `FreeAndNil`, `Take`;
-  bei `optional`: `HasValue`, `ValueOr`
+  bei `optional`: `HasValue`, `ValueOr`; bei `result`: `IsOk`, `IsError`, `ValueOr`
 
 Nicht unterstützt: `nil` (ersetzt durch `optional`/`none`), Zeiger (`^`, `@`, `New`, `Dispose`,
 `Pointer` – ersetzt durch Objekte, `var`-Referenzen und `var`-Parameter), `object`-Typen (ersetzt durch `class`), Units, Mengentypen (außer Mengen-Literalen bei `in`), dynamische/offene
-Arrays, Exceptions (`try`/`raise`), Interfaces, Überladen, Prozedurtypen,
+Arrays, Exceptions (ersetzt durch `result T` und `try`), Interfaces, Überladen, Prozedurtypen,
 varianten Records, `goto`, Datei-I/O.
 
 ## Aufbau

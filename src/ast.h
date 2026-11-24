@@ -74,14 +74,15 @@ typedef struct {
     VEC(PropDecl) props;
 } StructDecl;
 
-typedef enum { TE_NAMED, TE_PTR, TE_ARRAY, TE_SUBRANGE, TE_ENUM, TE_RECORD, TE_STRUCT, TE_CLASSFWD, TE_STR } TEKind;
+typedef enum { TE_NAMED, TE_PTR, TE_ARRAY, TE_SUBRANGE, TE_ENUM, TE_RECORD, TE_STRUCT, TE_CLASSFWD, TE_STR, TE_RESULT } TEKind;
 
 struct TypeExpr {
     TEKind kind;
     Pos pos;
     Ident name;               /* TE_NAMED, TE_PTR target */
     VEC(TypeExpr *) ranges;   /* TE_ARRAY */
-    TypeExpr *elem;           /* TE_ARRAY */
+    TypeExpr *elem;           /* TE_ARRAY, TE_RESULT value type (NULL: no value) */
+    TypeExpr *errt;           /* TE_RESULT error type (NULL: String) */
     Expr *lo, *hi;            /* TE_SUBRANGE */
     IdentVec enums;           /* TE_ENUM */
     FieldDeclVec fields;      /* TE_RECORD */
@@ -155,7 +156,10 @@ typedef enum {
     E_ISSOME,  /* a is some id: unpacks an optional into the new variable var */
     E_SOMEPAT, /* 'some id' as a case label */
     E_RECLIT,  /* record literal (F: v; G: w): fnames, args */
-    E_DEFAULT  /* 'default': the zero value of the expected type */
+    E_DEFAULT, /* 'default': the zero value of the expected type */
+    E_OK,      /* ok(v) / ok: a successful result */
+    E_ERR,     /* error(e): a failed result */
+    E_TRY      /* try r: the value of a successful result, else return its error */
 } ExprKind;
 
 enum { OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_IDIV, OP_MOD, OP_AND, OP_OR, OP_XOR, OP_SHL, OP_SHR,
@@ -221,13 +225,14 @@ struct Stmt {
 
 /* ------------------------------------------------------------- semantics */
 
-typedef enum { T_VOID, T_INT, T_BOOL, T_CHAR, T_REAL, T_STR, T_PTR, T_ARRAY, T_RECORD, T_CLASS, T_OPT, T_LIT, T_ENUM, T_NIL } TypeKind;
+typedef enum { T_VOID, T_INT, T_BOOL, T_CHAR, T_REAL, T_STR, T_PTR, T_ARRAY, T_RECORD, T_CLASS, T_OPT, T_RES, T_LIT, T_ENUM, T_NIL } TypeKind;
 enum { IK_I8, IK_U8, IK_I16, IK_U16, IK_I32, IK_U32, IK_I64 };
 
 struct Type {
     TypeKind kind;
     int ik;
-    Type *base;  /* T_PTR target (NULL = untyped Pointer), T_ARRAY element */
+    Type *base;  /* T_PTR target (NULL = untyped Pointer), T_ARRAY element, T_OPT/T_RES value (T_RES: NULL = none) */
+    Type *err;   /* T_RES error type */
     long long lo, hi;
     Type *index; /* T_ARRAY index type */
     Struct *st;
@@ -361,7 +366,7 @@ enum {
     BI_INSERT, BI_INTTOSTR, BI_STRTOINT, BI_FLOATTOSTR, BI_STR, BI_UPCASE, BI_UPPERCASE,
     BI_LOWERCASE, BI_CONCAT, BI_HALT, BI_RANDOM, BI_RANDOMIZE, BI_ASSIGNED, BI_NEW, BI_DISPOSE,
     BI_FREEANDNIL, BI_TAKE, BI_SETLENGTH, BI_CLASSNAME, BI_PI, BI_EXIT, BI_BREAK, BI_CONTINUE,
-    BI_HASVALUE, BI_VALUEOR, BI_BOXNEW, BI_BOXFREE
+    BI_HASVALUE, BI_VALUEOR, BI_BOXNEW, BI_BOXFREE, BI_ISOK, BI_ISERROR
 };
 
 /* parser.c */

@@ -46,6 +46,7 @@ static Type *t_void, *t_int, *t_i64, *t_i8, *t_u8, *t_i16, *t_u16, *t_u32, *t_bo
     *t_real, *t_str, *t_ptr, *t_nil, *t_lit;
 
 static Expr *value(Expr *e);
+static Expr *try_expr(Expr *e);
 static Expr *ex(Expr *e);
 static Type *resolve_type(TypeExpr *te);
 static void decls(Block *b, int has_frame);
@@ -73,6 +74,11 @@ static Type *ptr_to(Type *b) {
     return t;
 }
 
+static const char *res_name(Type *base, Type *err) {
+    const char *b = base ? sfmt("result %s", type_name(base)) : "result";
+    return err->kind == T_STR ? b : sfmt("%s of %s", b, type_name(err));
+}
+
 const char *type_name(Type *t) {
     if (!t) return "?";
     if (t->name) return t->name;
@@ -89,6 +95,7 @@ const char *type_name(Type *t) {
     case T_RECORD: case T_CLASS: return t->st->name;
     case T_ENUM: return t->en->name;
     case T_OPT: return sfmt("optional %s", type_name(t->base));
+    case T_RES: return res_name(t->base, t->err);
     case T_LIT: return "literal";
     }
     return "?";
@@ -136,6 +143,9 @@ static int same_type(Type *a, Type *b) {
     case T_RECORD: case T_CLASS: return a->st == b->st;
     case T_ENUM: return a->en == b->en;
     case T_OPT: return same_type(a->base, b->base);
+    case T_RES:
+        if (!a->base || !b->base) return !a->base && !b->base && same_type(a->err, b->err);
+        return same_type(a->base, b->base) && same_type(a->err, b->err);
     default: return 1;
     }
 }
@@ -185,6 +195,10 @@ static int assign_compat(Type *to, Type *from) {
         if (from->kind == T_NIL) return 2;
         return assign_compat(to->base, from) ? 2 : 0;
     }
+    if (to->kind == T_RES) { /* a value of T is a successful result */
+        if (from->kind == T_RES) return same_type(to, from);
+        return to->base && assign_compat(to->base, from) ? 2 : 0;
+    }
     if (same_type(to, from)) return 1;
     switch (to->kind) {
     case T_INT: return from->kind == T_INT;
@@ -222,7 +236,24 @@ static Expr *literal_to(Expr *e, Type *to, const char *ctx) {
         e->type = to;
         return e;
     }
+    if (e->kind == E_OK || e->kind == E_ERR) {
+        if (to->kind != T_RES)
+            error_at(e->pos, "'%s' makes a result, but \"%s\" is expected in %s", e->kind == E_OK ? "ok" : "error",
+                     type_name(to), ctx);
+        if (e->kind == E_ERR) e->a = coerce(value(e->a), to->err, "error(...)");
+        else if (to->base) {
+            if (!e->a) error_at(e->pos, "'ok' needs a value for \"%s\": 'ok(v)'", type_name(to));
+            e->a = coerce(value(e->a), to->base, "ok(...)");
+        } else if (e->a)
+            error_at(e->pos, "\"%s\" has no value: write 'ok' without an argument", type_name(to));
+        e->type = to;
+        return e;
+    }
     if (to->kind == T_OPT) return coerce(literal_to(e, to->base, ctx), to, ctx);
+    if (to->kind == T_RES) {
+        if (!to->base) error_at(e->pos, "\"%s\" has no value: use 'ok' or 'error(...)'", type_name(to));
+        return coerce(literal_to(e, to->base, ctx), to, ctx);
+    }
     if (e->kind == E_LIST) {
         if (to->kind != T_ARRAY) error_at(e->pos, "an array literal cannot be used as \"%s\" in %s", type_name(to), ctx);
         long long n = to->hi - to->lo + 1;
@@ -261,6 +292,16 @@ static Expr *coerce(Expr *e, Type *to, const char *ctx) {
     if (!c && is_optional(e->type) && !is_optional(to))
         error_at(e->pos, "optional value of type \"%s\" cannot be used as \"%s\" in %s; unpack it first: 'if x is some v then ...'",
                  type_name(e->type), type_name(to), ctx);
+    if (!c && e->type->kind == T_RES)
+        error_at(e->pos, "result of type \"%s\" cannot be used as \"%s\" in %s; unpack it first: 'if r is ok v then ...', 'case r of ok v: ...; error e: ... end' or 'try r'",
+                 type_name(e->type), type_name(to), ctx);
+    if (c && to->kind == T_RES && e->type->kind != T_RES) {
+        Expr *inner = coerce(e, to->base, ctx);
+        Expr *w = new_expr(E_CONV, e->pos);
+        w->a = inner;
+        w->type = to;
+        return w;
+    }
     if (c && to->kind == T_OPT && e->type->kind != T_OPT && e->type->kind != T_NIL) {
         Expr *inner = coerce(e, to->base, ctx); /* e.g. Integer -> optional Real */
         Expr *w = new_expr(E_CONV, e->pos);
@@ -785,6 +826,25 @@ static Type *resolve_type_inner(TypeExpr *te) {
         return ptr_to(L.sym->type);
     }
     case TE_STR: return t_str;
+    case TE_RESULT: {
+        Type *b = te->elem ? resolve_type(te->elem) : NULL;
+        Type *er = te->errt ? resolve_type(te->errt) : t_str;
+        Type *parts[2] = {b, er};
+        for (int i = 0; i < 2; i++) {
+            Type *x = parts[i];
+            if (!x) continue;
+            if (is_owning_type(x) || x->kind == T_CLASS)
+                error_at(te->pos, "a result holds values: \"%s\" is an object (objects in results are not supported yet)",
+                         type_name(x));
+            if (x->kind == T_RES) error_at(te->pos, "result of result is not allowed");
+            if (x->kind == T_VOID) error_at(te->pos, "invalid result type");
+        }
+        if (b) check_complete(b, te->elem->pos);
+        Type *r = new_type(T_RES, res_name(b, er));
+        r->base = b;
+        r->err = er;
+        return r;
+    }
     case TE_ARRAY: {
         Type *elem = resolve_type(te->elem);
         check_complete(elem, te->elem->pos);
@@ -1190,6 +1250,17 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
         }
         Expr *base = autoderef(value(e->a));
         Type *bt = base->type;
+        if (bt->kind == T_RES) {
+            ExprVec a2 = {0};
+            vpush(a2, base);
+            if (args)
+                for (int i = 0; i < args->len; i++) vpush(a2, args->items[i]);
+            if (STREQ(name, "IsOk")) return builtin(BI_ISOK, &a2, p);
+            if (STREQ(name, "IsError")) return builtin(BI_ISERROR, &a2, p);
+            if (STREQ(name, "ValueOr")) return builtin(BI_VALUEOR, &a2, p);
+            error_at(p, "'%s' is a result (%s): unpack it first, e.g. 'if r is ok v then ...' (members: IsOk, IsError, ValueOr)",
+                     base->kind == E_VAR ? base->var->name : "x", type_name(bt));
+        }
         if (is_optional(bt)) {
             if (STREQ(name, "HasValue") || STREQ(name, "ValueOr")) {
                 ExprVec a2 = {0};
@@ -1392,8 +1463,12 @@ static Expr *ex(Expr *e) {
         e->type = t_bool;
         return e;
     }
-    case E_ISSOME: error_at(e->pos, "'is some' is only allowed in if/while conditions (alone or combined with 'and')");
-    case E_SOMEPAT: error_at(e->pos, "'some x' is only allowed as a case label for an optional selector");
+    case E_ISSOME:
+        error_at(e->pos, "'is %s' is only allowed in if/while conditions (alone or combined with 'and')",
+                 e->op == 0 ? "some" : e->op == 1 ? "ok" : "error");
+    case E_SOMEPAT:
+        error_at(e->pos, "'%s' is only allowed as a case label for an %s selector",
+                 e->op == 0 ? "some x" : e->op == 1 ? "ok v" : "error e", e->op == 0 ? "optional" : "result");
     case E_IS: case E_AS: {
         e->a = value(e->a);
         if (e->a->type->kind != T_CLASS) error_at(e->pos, "class instance expected before 'is'/'as'");
@@ -1409,8 +1484,34 @@ static Expr *ex(Expr *e) {
     case E_LIST: case E_RECLIT: case E_DEFAULT:
         e->type = t_lit; /* typed later from the target (coerce) */
         return e;
+    case E_OK: case E_ERR:
+        if (e->type && e->type->kind == T_RES) return e;
+        e->type = t_lit;
+        return e;
+    case E_TRY: return try_expr(e);
     default: return e; /* already resolved */
     }
+}
+
+/* 'try r': the value of a successful result; a failed one ends the function with its error */
+static Expr *try_site;
+static Expr *try_expr(Expr *e) {
+    if (e->type && e->type->kind != T_LIT && e->a->type) return e;
+    if (e != try_site)
+        error_at(e->pos, "'try' is only allowed as a whole statement, as the value of an assignment or as an initializer");
+    try_site = NULL;
+    e->a = value(e->a);
+    Type *t = e->a->type;
+    if (t->kind != T_RES) error_at(e->a->pos, "'try' needs a result, not \"%s\"", type_name(t));
+    Type *rt = cur && cur->result ? cur->result->type : NULL;
+    if (!rt || rt->kind != T_RES)
+        error_at(e->pos, "'try' passes the error to the caller, so it needs a function that returns a result ('function F: result T%s')",
+                 t->err->kind == T_STR ? "" : sfmt(" of %s", type_name(t->err)));
+    if (!same_type(rt->err, t->err))
+        error_at(e->pos, "'try' cannot pass an error of type \"%s\" on from a function whose errors are \"%s\"",
+                 type_name(t->err), type_name(rt->err));
+    e->type = t->base ? t->base : t_void;
+    return e;
 }
 
 static Expr *value(Expr *e) {
@@ -1679,6 +1780,12 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
         NARGS(0, 1);
         if (n) vpush(e->args, value(A(0)));
         return e;
+    case BI_ISOK: case BI_ISERROR: {
+        NARGS(1, 1);
+        vpush(e->args, A(0));
+        e->type = t_bool;
+        return e;
+    }
     case BI_HASVALUE: {
         NARGS(1, 1);
         vpush(e->args, A(0));
@@ -1687,7 +1794,9 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
     }
     case BI_VALUEOR: {
         NARGS(2, 2);
-        if (A(0)->type->kind != T_OPT)
+        if (A(0)->type->kind == T_RES && !A(0)->type->base)
+            error_at(p, "\"%s\" has no value, ValueOr is not available", type_name(A(0)->type));
+        if (A(0)->type->kind != T_OPT && A(0)->type->kind != T_RES)
             error_at(p, "ValueOr is only available for optional values, not for optional objects (use 'is some')");
         vpush(e->args, A(0));
         vpush(e->args, coerce(value(A(1)), A(0)->type->base, "ValueOr"));
@@ -1762,15 +1871,31 @@ static int scope_has_frame(void) { return cur ? cur->has_frame : 0; }
 static Expr *bind_some(Expr *e) {
     e->a = value(e->a);
     Type *t = e->a->type;
-    if (!is_optional(t)) error_at(e->pos, "\"%s\" is not optional, 'is some' needs an optional value", type_name(t));
-    Var *k = new_var(e->id.name, unwrapped(t), cur ? VK_LOCAL : VK_GLOBAL, e->id.pos);
+    Type *kt;
+    if (e->op) { /* r is ok v / r is error e */
+        const char *pat = e->op == 1 ? "ok" : "error";
+        if (t->kind != T_RES) error_at(e->pos, "\"%s\" is not a result, 'is %s' needs a result value", type_name(t), pat);
+        kt = e->op == 1 ? t->base : t->err;
+        if (e->op == 1 && !kt && e->has_id)
+            error_at(e->id.pos, "\"%s\" has no value: write 'is ok' without a name", type_name(t));
+        if (e->op == 1 && kt && !e->has_id) error_at(e->pos, "name the value: 'is ok v'");
+        e->type = t_bool;
+        if (!e->has_id) {
+            e->var = NULL;
+            return e;
+        }
+    } else {
+        if (!is_optional(t)) error_at(e->pos, "\"%s\" is not optional, 'is some' needs an optional value", type_name(t));
+        kt = unwrapped(t);
+    }
+    Var *k = new_var(e->id.name, kt, cur ? VK_LOCAL : VK_GLOBAL, e->id.pos);
     k->cname = sfmt("B%d_%s", k->id, e->id.name);
     k->is_global = !cur;
     k->level = level;
     k->in_frame = scope_has_frame();
     /* unpacking a place borrows its content; unpacking a fresh owned object takes ownership */
     k->borrowed = t->kind == T_CLASS && !is_owning_temp(e->a);
-    k->is_const = k->borrowed || t->kind == T_OPT;
+    k->is_const = k->borrowed || t->kind == T_OPT || t->kind == T_RES;
     if (cur) vpush(cur->locals, k);
     else vpush(prog->globals, k);
     add_sym(SY_VAR, e->id.name, e->id.pos)->var = k;
@@ -1802,6 +1927,7 @@ static Expr *cond(Expr *e) {
 
 static void assign(Stmt *s) {
     Expr *l = s->a;
+    if (s->b->kind == E_TRY) try_site = s->b;
     if (l->kind == E_IDENT) {
         Look P = lookup(l->id.name);
         if (P.kind == LK_SYM && P.sym->kind == SY_VAR && P.sym->var->pending) { /* first assignment decides the type */
@@ -1901,6 +2027,11 @@ static void stmt(Stmt *s) {
     case S_ASSIGN: assign(s); return;
     case S_CALL: {
         Expr *c = s->a;
+        if (c->kind == E_TRY) {
+            try_site = c;
+            s->a = ex(c); /* the value (if any) is dropped */
+            return;
+        }
         Ident *nm = NULL;
         ExprVec *cargs = NULL;
         if (c->kind == E_IDENT) nm = &c->id;
@@ -1998,6 +2129,65 @@ static void stmt(Stmt *s) {
     case S_CASE: {
         s->a = value(s->a);
         Type *t = s->a->type;
+        if (t->kind == T_RES) {
+            /* case r of ok v: A; error e: B end  ==>  tmp := r; if tmp is ok v then A else if tmp is error e then B */
+            Expr *okp = NULL, *errp = NULL;
+            Stmt *ok_body = NULL, *err_body = NULL;
+            for (int i = 0; i < s->arms.len; i++) {
+                CaseArm *arm = &s->arms.items[i];
+                Expr *l = arm->lo.len == 1 && !arm->hi.items[0] ? arm->lo.items[0] : NULL;
+                if (!l || l->kind != E_SOMEPAT || l->op == 0 || (l->op == 1 && okp) || (l->op == 2 && errp))
+                    error_at(arm->body->pos, "result case arms are 'ok v:' and 'error e:' (each at most once)");
+                if (l->op == 1) { okp = l; ok_body = arm->body; }
+                else { errp = l; err_body = arm->body; }
+            }
+            if (s->has_else) {
+                if (okp && errp) error_at(s->pos, "'else' is unreachable: both 'ok' and 'error' are handled");
+                Stmt *c = new_stmt(S_COMPOUND, s->pos);
+                c->body = s->else_;
+                if (!okp) ok_body = c;
+                else err_body = c;
+            }
+            /* the selector is evaluated once, into a hidden variable */
+            Var *tv = new_var(sfmt("__case%d", s->pos.line), t, cur ? VK_LOCAL : VK_GLOBAL, s->pos);
+            tv->cname = sfmt("C%d_res", tv->id);
+            tv->is_global = !cur;
+            tv->level = level;
+            tv->in_frame = scope_has_frame();
+            if (cur) vpush(cur->locals, tv);
+            else vpush(prog->globals, tv);
+            Stmt *as = new_stmt(S_ASSIGN, s->pos);
+            as->a = var_expr(tv, s->pos);
+            as->b = s->a;
+            Expr *iso = new_expr(E_ISSOME, s->pos);
+            iso->op = 1;
+            iso->a = var_expr(tv, s->pos);
+            if (okp && okp->has_id) { iso->id = okp->id; iso->has_id = 1; }
+            else if (t->base) { iso->id = (Ident){sfmt("__ok%d", s->pos.line), s->pos}; iso->has_id = 1; }
+            Stmt *n = new_stmt(S_IF, s->pos);
+            n->a = iso;
+            n->s1 = ok_body ? ok_body : new_stmt(S_EMPTY, s->pos);
+            if (err_body) {
+                if (errp) {
+                    Expr *ise = new_expr(E_ISSOME, s->pos);
+                    ise->op = 2;
+                    ise->a = var_expr(tv, s->pos);
+                    ise->id = errp->id;
+                    ise->has_id = 1;
+                    Stmt *n2 = new_stmt(S_IF, s->pos);
+                    n2->a = ise;
+                    n2->s1 = err_body;
+                    n->s2 = n2;
+                } else
+                    n->s2 = err_body;
+            }
+            Stmt *c = new_stmt(S_COMPOUND, s->pos);
+            vpush(c->body, as);
+            vpush(c->body, n);
+            *s = *c;
+            stmt(s);
+            return;
+        }
         if (is_optional(t)) {
             /* case opt of some x: ...; none: ... end  ==>  if opt is some x then ... else ... */
             Stmt *some_body = NULL, *none_body = NULL;
@@ -2419,6 +2609,7 @@ static void decls(Block *b, int has_frame) {
                     t = resolve_type(vd->ty);
                     check_complete(t, vd->ty->pos);
                 } else {
+                    if (vd->init->kind == E_TRY) try_site = vd->init;
                     r = value(vd->init);
                     t = infer_type(r, vd->init->pos, vn);
                 }
@@ -2461,8 +2652,10 @@ static void decls(Block *b, int has_frame) {
                         bs->a = var_expr(v, id->pos);
                         bs->b = src;
                         vpush(*dst, bs);
-                    } else
+                    } else {
+                        if (!r && vd->init->kind == E_TRY) try_site = vd->init;
                         add_init(dst, v, r ? r : vd->init);
+                    }
                     v->is_const = is_const;
                 }
             }

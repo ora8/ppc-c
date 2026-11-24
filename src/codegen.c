@@ -101,6 +101,20 @@ static char *ctype(Type *t) {
     case T_ENUM: return "int32_t";
     case T_NIL: return "void*";
     case T_LIT: return "void";
+    case T_RES: { /* result: struct { err; value; error } (zero = ok with the zero value) */
+        char *elem = t->base ? ctype(t->base) : NULL, *et = ctype(t->err);
+        char *key = sfmt("res|%s|%s", elem ? elem : "", et);
+        for (int i = 0; i < arrs.len; i++)
+            if (STREQ(arrs.items[i].key, key)) return sfmt("struct %s", arrs.items[i].name);
+        if (t->base && t->base->kind == T_RECORD) ensure_struct(t->base->st);
+        if (t->err->kind == T_RECORD) ensure_struct(t->err->st);
+        ArrDef d = {key, sfmt("R%d", arrs.len + 1)};
+        vpush(arrs, d);
+        buf_printf(&b_fwd, "struct %s;\n", d.name);
+        if (elem) buf_printf(&b_types, "struct %s { uint8_t err; %s v; %s e; };\n", d.name, elem, et);
+        else buf_printf(&b_types, "struct %s { uint8_t err; %s e; };\n", d.name, et);
+        return sfmt("struct %s", d.name);
+    }
     case T_OPT: { /* value optional: struct { has; value } (like std::optional) */
         char *elem = ctype(t->base);
         char *key = sfmt("opt|%s", elem);
@@ -453,8 +467,12 @@ static char *gbuiltin(Expr *e) {
         return sfmt("((%s*)__ppc_alloc(sizeof(%s)))", ct, ct);
     }
     case BI_BOXFREE: return sfmt("(__ppc_free(%s), %s = 0)", G(0), G(0));
+    case BI_ISOK: return sfmt("(!(%s).err)", G(0));
+    case BI_ISERROR: return sfmt("((%s).err != 0)", G(0));
     case BI_VALUEOR: {
         int id = ++tmpc;
+        if (A->items[0]->type->kind == T_RES)
+            return sfmt("({ %s __o%d = %s; __o%d.err ? (%s) : __o%d.v; })", ctype(A->items[0]->type), id, G(0), id, G(1), id);
         return sfmt("({ %s __o%d = %s; __o%d.has ? __o%d.v : (%s); })", ctype(A->items[0]->type), id, G(0), id, id, G(1));
     }
     case BI_NEW: {
@@ -590,6 +608,17 @@ static char *gx(Expr *e) {
     }
     case E_IS: return sfmt("__is((void*)(%s), &VMTI%d)", gx(e->a), e->ctype->st->id);
     case E_AS: return sfmt("((struct S%d*)__as((void*)(%s), &VMTI%d))", e->ctype->st->id, gx(e->a), e->ctype->st->id);
+    case E_OK:
+        if (e->a) return sfmt("((%s){.err = 0, .v = %s})", ctype(e->type), gx(e->a));
+        return sfmt("((%s){.err = 0})", ctype(e->type));
+    case E_ERR: return sfmt("((%s){.err = 1, .e = %s})", ctype(e->type), gx(e->a));
+    case E_TRY: { /* failed: the function returns the error; else the value */
+        int id = ++tmpc;
+        Type *rt = e->a->type;
+        char *res = var_ref(cur->result);
+        return sfmt("({ %s __t%d = %s; if (__t%d.err) { %s.err = 1; %s.e = __t%d.e; goto __exit; } %s; })", ctype(rt), id,
+                    gx(e->a), id, res, res, id, rt->base ? sfmt("__t%d.v", id) : "(void)0");
+    }
     case E_DEFAULT: /* zero value of the target type */
         if (e->type->kind == T_CLASS) return "((void*)0)";
         return sfmt("((%s){0})", ctype(e->type));
@@ -615,6 +644,12 @@ static char *gx(Expr *e) {
     }
     case E_ISSOME: {
         Var *k = e->var;
+        if (e->a->type->kind == T_RES) { /* r is ok v / r is error e */
+            if (!k) return sfmt("(%s(%s).err)", e->op == 1 ? "!" : "", gx(e->a));
+            int id = ++tmpc;
+            return sfmt("({ %s __s%d = %s; %s__s%d.err ? (%s = __s%d.%s, 1) : 0; })", ctype(e->a->type), id, gx(e->a),
+                        e->op == 1 ? "!" : "", id, var_ref(k), id, e->op == 1 ? "v" : "e");
+        }
         if (e->a->type->kind == T_OPT) {
             int id = ++tmpc;
             return sfmt("({ %s __s%d = %s; __s%d.has ? (%s = __s%d.v, 1) : 0; })", ctype(e->a->type), id, gx(e->a), id,
@@ -626,6 +661,7 @@ static char *gx(Expr *e) {
     }
     case E_CONV: {
         Type *to = e->type, *from = e->a->type;
+        if (to->kind == T_RES) return sfmt("((%s){.err = 0, .v = %s})", ctype(to), gx(e->a));
         if (to->kind == T_OPT) {
             if (from->kind == T_NIL) return sfmt("((%s){0})", ctype(to));
             return sfmt("((%s){1, %s})", ctype(to), gx(e->a));

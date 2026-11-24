@@ -21,7 +21,7 @@ static const char *KEYWORDS[] = {
     "inherited", "interface", "is", "label", "mod", "nil", "none", "some", "optional", "not", "object", "of", "or", "packed",
     "procedure", "program", "property", "record", "repeat", "set", "shl", "shr", "then", "to",
     "type", "unit", "until", "uses", "var", "while", "with", "xor", "try", "except", "finally",
-    "raise", "val", "vao", "default", NULL};
+    "raise", "val", "vao", "default", "result", "ok", "error", NULL};
 
 static const char *SYMS[] = {":=", "<=", ">=", "<>", "..", "+", "-", "*", "/", "=", "<", ">", "(",
                              ")", "[", "]", ",", ";", ":", ".", "^", "@", NULL};
@@ -501,6 +501,20 @@ static StructDecl *parse_struct(int kind) {
 
 static TypeExpr *parse_type(void) {
     Pos p = pos();
+    if (accept_kw("result")) { /* result T [of E]: a value or an error (like Result<T, E> in Rust) */
+        TypeExpr *t = NEW(TypeExpr);
+        t->kind = TE_RESULT;
+        t->pos = p;
+        if (!is_kw("of") && !(CUR.kind == TK_SYM && (STREQ(CUR.s, ";") || STREQ(CUR.s, ")") || STREQ(CUR.s, ":="))) &&
+            !is_kw("const"))
+            t->elem = parse_type();
+        if (accept_kw("of")) t->errt = parse_type();
+        if (is_kw("const") && T.items[P + 1].kind != TK_IDENT) {
+            next();
+            t->readonly = 1;
+        }
+        return t;
+    }
     if (accept_kw("optional")) {
         TypeExpr *t = parse_type();
         if (t->nilable) error_at(p, "optional of optional is not allowed");
@@ -749,10 +763,14 @@ static Stmt *parse_stmt(void) {
             if (is_kw("end")) break;
             CaseArm arm = {0};
             for (;;) {
-                if (is_kw("some")) { /* some x: pattern for optional selectors */
+                if (is_kw("some") || is_kw("ok") || is_kw("error")) { /* some x / ok v / error e: unpacking patterns */
                     Expr *sp = new_expr(E_SOMEPAT, pos());
+                    sp->op = is_kw("some") ? 0 : is_kw("ok") ? 1 : 2;
                     next();
-                    sp->id = ident();
+                    if (sp->op != 1 || CUR.kind == TK_IDENT) {
+                        sp->id = ident();
+                        sp->has_id = 1;
+                    }
                     vpush(arm.lo, sp);
                 } else
                     vpush(arm.lo, parse_expr());
@@ -778,7 +796,14 @@ static Stmt *parse_stmt(void) {
         s->s1 = parse_stmt();
         return s;
     }
-    if (is_kw("try") || is_kw("raise")) error_at(p, "exceptions (try/raise) are not supported");
+    if (is_kw("raise")) error_at(p, "exceptions are not supported: return a 'result T' and pass errors on with 'try'");
+    if (accept_kw("try")) { /* try P(x); : stop with the error of a failed result */
+        Stmt *s = new_stmt(S_CALL, p);
+        Expr *e = new_expr(E_TRY, p);
+        e->a = parse_postfix();
+        s->a = e;
+        return s;
+    }
     if (is_kw("goto")) error_at(p, "goto is not supported");
     Expr *lhs = parse_postfix();
     if (accept_sym(":=")) {
@@ -824,12 +849,17 @@ static Expr *parse_expr(void) {
         e->b = parse_simple();
         return e;
     }
-    if (is_kw("is") && T.items[P + 1].kind == TK_KW && STREQ(T.items[P + 1].s, "some")) {
-        next();
+    if (is_kw("is") && T.items[P + 1].kind == TK_KW &&
+        (STREQ(T.items[P + 1].s, "some") || STREQ(T.items[P + 1].s, "ok") || STREQ(T.items[P + 1].s, "error"))) {
         next();
         Expr *e = new_expr(E_ISSOME, p);
+        e->op = is_kw("some") ? 0 : is_kw("ok") ? 1 : 2;
+        next();
         e->a = l;
-        e->id = ident();
+        if (e->op != 1 || CUR.kind == TK_IDENT) {
+            e->id = ident();
+            e->has_id = 1;
+        }
         return e;
     }
     if (accept_kw("is")) {
@@ -970,6 +1000,21 @@ static Expr *parse_primary(void) {
     if (accept_kw("none")) return new_expr(E_NIL, p);
     if (is_kw("nil")) error_at(p, "'nil' does not exist: optional values are empty with 'none'");
     if (accept_kw("default")) return new_expr(E_DEFAULT, p);
+    if (is_kw("ok") || is_kw("error")) { /* ok(v), ok, error(e) */
+        Expr *e = new_expr(is_kw("ok") ? E_OK : E_ERR, p);
+        next();
+        if (e->kind == E_ERR || (CUR.kind == TK_SYM && STREQ(CUR.s, "("))) {
+            expect_sym("(");
+            e->a = parse_expr();
+            expect_sym(")");
+        }
+        return e;
+    }
+    if (accept_kw("try")) { /* try r: unpack a result or return its error */
+        Expr *e = new_expr(E_TRY, p);
+        e->a = parse_postfix();
+        return e;
+    }
     if (accept_sym("(")) {
         if (CUR.kind == TK_IDENT && T.items[P + 1].kind == TK_SYM && STREQ(T.items[P + 1].s, ":")) {
             /* record literal (X: 1; Y: 2) */
