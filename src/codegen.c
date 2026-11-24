@@ -190,10 +190,56 @@ static char *var_aux(Var *v, const char *suffix) {
 
 /* ---- automatic freeing (like dropping a Box in Rust) ---- */
 
+static char *agg_drop(Type *t, const char *lv);
+
 /* code that frees an owned reference */
 static char *drop_code(Type *t, const char *x) {
     if (t->kind == T_CLASS) return sfmt("%s((struct S%d*)(%s))", tobject_free->cname, tobject_free->owner->id, x);
+    if (t->kind == T_PTR && has_owned(t->base)) /* heap value that owns objects: free them first */
+        return sfmt("(%s, __ppc_free(%s))", agg_drop(t->base, sfmt("*(%s)", x)), x);
     return sfmt("__ppc_free(%s)", x);
+}
+
+/* arrays, records and optional values that own objects: a drop function per type */
+static VEC(char *) adrop_keys;
+static VEC(char *) adrop_names;
+static char *agg_drop_fn(Type *t) {
+    char *ct = ctype(t);
+    for (int i = 0; i < adrop_keys.len; i++)
+        if (STREQ(adrop_keys.items[i], ct)) return adrop_names.items[i];
+    char *name = sfmt("X%d", adrop_keys.len + 1);
+    vpush(adrop_keys, ct);
+    vpush(adrop_names, name);
+    buf_printf(&b_protos, "static void %s(%s *p);\n", name, ct);
+    Buf b = {0};
+    buf_printf(&b, "static void %s(%s *p) {\n", name, ct);
+    if (t->kind == T_ARRAY) {
+        long long n = t->hi - t->lo + 1;
+        buf_printf(&b, "  for (long i = 0; i < %lld; i++) {\n", n);
+        if (is_ref_type(t->base))
+            buf_printf(&b, "    if (p->a[i]) { %s; p->a[i] = 0; }\n", drop_code(t->base, "p->a[i]"));
+        else
+            buf_printf(&b, "    %s;\n", agg_drop(t->base, "p->a[i]"));
+        buf_put(&b, "  }\n");
+    } else if (t->kind == T_OPT) {
+        buf_printf(&b, "  if (p->has) { %s; p->has = 0; }\n", agg_drop(t->base, "p->v"));
+    } else {
+        for (int k = 0; k < t->st->fields.len; k++) {
+            Field *f = t->st->fields.items[k];
+            char *x = sfmt("p->%s", f->cname);
+            if (is_ref_type(f->type) && !f->borrowed) buf_printf(&b, "  if (%s) { %s; %s = 0; }\n", x, drop_code(f->type, x), x);
+            else if (has_owned(f->type)) buf_printf(&b, "  %s;\n", agg_drop(f->type, x));
+        }
+    }
+    buf_put(&b, "}\n");
+    buf_put(&b_drops, buf_str(&b));
+    return name;
+}
+static char *agg_drop(Type *t, const char *lv) { return sfmt("%s(&(%s))", agg_drop_fn(t), lv); }
+
+/* value variable that owns the objects inside it */
+static int agg_owner_var(Var *v) {
+    return has_owned(v->type) && !v->is_ref && !v->no_drop && (v->vkind == VK_LOCAL || v->vkind == VK_GLOBAL);
 }
 
 /* variable that owns what it refers to (and frees it at the end of its scope) */
@@ -706,13 +752,29 @@ static void stack_destroy(Var **vars, int n) {
         } else if (owner_var(v) && v->vkind != VK_RESULT && !v->is_ref) {
             char *x = var_ref(v);
             line("if (%s) { %s; %s = 0; }", x, drop_code(v->type, x), x);
-        }
+        } else if (agg_owner_var(v))
+            line("%s;", agg_drop(v->type, var_ref(v)));
     }
 }
 
 /* assignment; owning places free their old value, a moved-from owner variable becomes empty */
 static void gassign(Expr *lhs, Expr *rhs) {
     char *l = gx(lhs), *r = gx(rhs);
+    if (has_owned(lhs->type)) { /* a value that owns objects moves: empty the source, free the old value */
+        int id = ++tmpc;
+        char *ct = ctype(lhs->type);
+        Expr *src = rhs;
+        while (src->kind == E_CONV) src = src->a;
+        Buf b = {0};
+        buf_printf(&b, "{ %s __n%d = %s; ", ct, id, r);
+        if (cg_lvalue(src)) {
+            char *sx = gx(src);
+            buf_printf(&b, "memset(&(%s), 0, sizeof(%s)); ", sx, sx);
+        }
+        buf_printf(&b, "%s __o%d = %s; %s = __n%d; %s; }", ct, id, l, l, id, agg_drop(lhs->type, sfmt("__o%d", id)));
+        line("%s", buf_str(&b));
+        return;
+    }
     if (!owning_place(lhs)) {
         line("%s = %s;", l, r);
         return;
@@ -752,7 +814,8 @@ static void gs(Stmt *s) {
             Var *v = s->a->a->var;
             char *x = var_ref(v), *ct = ctype(v->type->base);
             line("if (!%s) %s = (%s*)__ppc_alloc(sizeof(%s));", x, x, ct, ct);
-            line("*%s = %s;", x, gx(s->b));
+            if (has_owned(v->type->base)) gassign(s->a, s->b);
+            else line("*%s = %s;", x, gx(s->b));
             return;
         }
         gassign(s->a, s->b);
@@ -777,6 +840,11 @@ static void gs(Stmt *s) {
         line("}");
         return;
     case S_CALL:
+        if (s->a->kind == E_RCALL && has_owned(s->a->type)) { /* unused value that owns objects */
+            int id = ++tmpc;
+            line("{ %s __d%d = %s; %s; }", ctype(s->a->type), id, gx(s->a), agg_drop(s->a->type, sfmt("__d%d", id)));
+            return;
+        }
         if (is_owning_temp(s->a)) { /* an owned result nobody takes is freed right away */
             int id = ++tmpc;
             line("{ %s __d%d = %s; if (__d%d) %s; }", ctype(s->a->type), id, gx(s->a), id,
@@ -1066,14 +1134,17 @@ void codegen(Program *p, FILE *f) {
                    s->parent && s->parent->has_vmt ? sfmt("&VMTI%d", s->parent->id) : "NULL", s->name, s->id, s->id);
         /* drop function: frees the fields that own an object (runs after Destroy) */
         buf_printf(&b_protos, "static void D%d(void *o);\n", s->id);
-        buf_printf(&b_drops, "static void D%d(void *o) {\n  struct S%d *s = (struct S%d*)o; (void)s;\n", s->id, s->id, s->id);
+        Buf db = {0}; /* nested drop functions are emitted first */
+        buf_printf(&db, "static void D%d(void *o) {\n  struct S%d *s = (struct S%d*)o; (void)s;\n", s->id, s->id, s->id);
         for (int k = 0; k < s->fields.len; k++) {
             Field *f = s->fields.items[k];
-            if (!is_ref_type(f->type) || f->borrowed) continue;
             char *x = sfmt("s->%s", f->cname);
-            buf_printf(&b_drops, "  if (%s) { %s; %s = 0; }\n", x, drop_code(f->type, x), x);
+            if (has_owned(f->type)) buf_printf(&db, "  %s;\n", agg_drop(f->type, x));
+            if (!is_ref_type(f->type) || f->borrowed) continue;
+            buf_printf(&db, "  if (%s) { %s; %s = 0; }\n", x, drop_code(f->type, x), x);
         }
-        buf_put(&b_drops, "}\n");
+        buf_put(&db, "}\n");
+        buf_put(&b_drops, buf_str(&db));
         for (int k = 0; k < s->slots.len; k++) {
             Slot *sl = &s->slots.items[k];
             char *cast = slot_type(sl->intro, NULL);

@@ -304,6 +304,7 @@ struct Var {
     int pending;  /* declared without a type: the first assignment decides it */
     int decl_heap; /* declared in a 'vao' section (owning) */
     int is_alias;  /* 'var x: T := y' for a value type: x refers to y */
+    int no_drop;   /* copy that does not own (unpacked binding): never freed */
     Routine *owner;
     int id;
     Pos pos;
@@ -385,6 +386,7 @@ const char *type_name(Type *t);
 int borrow_check(Program *p);
 extern int g_borrow_check, g_nil_check;
 int is_ref_type(Type *t);
+int has_owned(Type *t);
 int is_owning_temp(Expr *e);
 
 /* codegen.c */

@@ -134,6 +134,6 @@ begin
     if a is some x then Write(x.Name, ' ');
   end;
   WriteLn;
-  for i := 1 to 2 do pets[i].Free;
+
   WriteLn('Ende');
 end.

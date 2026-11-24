@@ -25,7 +25,7 @@ constructor TPerson.Create(AName: String const);
 begin inherited Create; Name := AName; end;
 
 destructor TPerson.Destroy;
-begin Next.Free; inherited Destroy; end;
+begin inherited Destroy; end;                 { Next wird automatisch freigegeben }
 
 procedure TBuch.Neu(vao P: TPerson);
 begin
@@ -51,7 +51,7 @@ begin
 end;
 
 destructor TBuch.Destroy;
-begin Erste.Free; inherited Destroy; end;
+begin inherited Destroy; end;                 { Erste (und die Kette) automatisch }
 
 procedure Zeige(B: TBuch);               { Wertparameter = Ausleihe, darf nicht freigeben }
 var p: optional TPerson := none;
@@ -81,8 +81,5 @@ begin
 
   weg := buch.Entnimm;                   { Besitz kommt zurueck }
   if weg is some w then WriteLn('entnommen: ', w.Name);
-  weg.Free;                              { Besitzer gibt frei }
   Zeige(buch);
-
-  buch.Free;                             { gibt alle restlichen Personen frei }
-end.
+end.                                     { buch, anna und weg werden hier freigegeben }

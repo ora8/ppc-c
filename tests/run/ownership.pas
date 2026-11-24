@@ -20,8 +20,7 @@ begin inherited Create; Value := V; end;
 
 destructor TItem.Destroy;
 begin
-  Next.Free;                     { Kette rekursiv freigeben }
-  inherited Destroy;
+  inherited Destroy;             { Next (und damit die ganze Kette) wird automatisch freigegeben }
 end;
 
 procedure TList.Push(vao Item: TItem);
@@ -53,7 +52,6 @@ end;
 
 destructor TList.Destroy;
 begin
-  Head.Free;
   inherited Destroy;
 end;
 
@@ -101,9 +99,7 @@ begin
   if found is some f then WriteLn('gefunden: ', f.Value);
   popped := list.PopFront;
   if popped is some q then WriteLn('entnommen: ', q.Value);
-  popped.Free;
   PrintList(list);
-  list.Free;
 
   
                          { Ausleihe von v }

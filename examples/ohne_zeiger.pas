@@ -12,7 +12,6 @@ type
     Wert: Integer;
     Next: optional TKnoten;             { besitzt den Nachfolger; none = Listenende }
     constructor Create(W: Integer);
-    destructor Destroy; override;
   end;
 
   TListe = class
@@ -23,7 +22,6 @@ type
     function Summe: Integer;
     function Position(W: Integer): optional Integer;
     procedure Zeige;
-    destructor Destroy; override;
   end;
 
   { ---------------------------------------------------- 2. Baum }
@@ -31,7 +29,6 @@ type
     Wert: Integer;
     Links, Rechts: optional TBaum;      { besitzt die Teilbaeume }
     constructor Create(W: Integer);
-    destructor Destroy; override;
     procedure Einfuegen(W: Integer);
     function Enthaelt(W: Integer): Boolean;
     procedure InOrder;
@@ -46,7 +43,6 @@ type
 
 { ======================================================= TKnoten / TListe }
 constructor TKnoten.Create(W: Integer); begin inherited Create; Wert := W; end;
-destructor TKnoten.Destroy; begin Next.Free; inherited Destroy; end;
 
 procedure TListe.Vorne(W: Integer);
 vao
@@ -105,11 +101,9 @@ begin
   WriteLn('(', Anzahl, ' Elemente, Summe ', Summe, ')');
 end;
 
-destructor TListe.Destroy; begin Kopf.Free; inherited Destroy; end;
 
 { ======================================================= TBaum }
 constructor TBaum.Create(W: Integer); begin inherited Create; Wert := W; end;
-destructor TBaum.Destroy; begin Links.Free; Rechts.Free; inherited Destroy; end;
 
 procedure TBaum.Einfuegen(W: Integer);
 begin
@@ -180,7 +174,6 @@ begin
     none: WriteLn('99 nicht gefunden');
   end;
   WriteLn('Position von 50 oder 0: ', liste.Position(50).ValueOr(0));
-  liste.Free;                           { gibt alle Knoten frei (Destroy-Kette) }
 
   WriteLn('--- 2. binaerer Suchbaum ---');
   
@@ -188,7 +181,6 @@ begin
   baum.Einfuegen(40); baum.Einfuegen(60); baum.Einfuegen(80); baum.Einfuegen(35);
   Write('sortiert: '); baum.InOrder; WriteLn;
   WriteLn('enthaelt 40: ', baum.Enthaelt(40), ', enthaelt 45: ', baum.Enthaelt(45), ', Hoehe: ', baum.Hoehe);
-  baum.Free;
 
   WriteLn('--- 3. var-Parameter statt Zeiger ---');
   a := 1; b := 2;

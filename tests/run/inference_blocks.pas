@@ -17,7 +17,6 @@ val
 begin
   I := I * 2;
   WriteLn('I = ', I, ', N = ', N:0:1, ', S = ', S);
-  I.Free;
 end;
 
 val
@@ -37,8 +36,7 @@ begin
     j := i + k;
     
     WriteLn('im Block: j = ', j, ', s.V = ', s.V, ', h.V = ', h.V);
-    h.Free;
-  end;                        { s wird hier abgebaut }
+  end;                        { s und h werden hier freigegeben }
   WriteLn('nach dem Block');
   while i < 2 do
     val q := i * 100;

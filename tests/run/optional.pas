@@ -5,7 +5,6 @@ type
     Wert: Integer;
     Next: optional TKnoten;
     constructor Create(W: Integer);
-    destructor Destroy; override;
   end;
   TEintrag = record
     Name: String;
@@ -13,7 +12,6 @@ type
   end;
 
 constructor TKnoten.Create(W: Integer); begin inherited Create; Wert := W; end;
-destructor TKnoten.Destroy; begin Next.Free; inherited Destroy; end;
 
 function Wurzel(x: Real): optional Real;
 begin
@@ -102,6 +100,5 @@ begin
   WriteLn;
   if Take(liste) is some erster then begin   { Take liefert den Besitz }
     WriteLn('entnommen: ', erster.Wert, ', liste leer: ', liste = none);
-    erster.Free;
   end;
 end.

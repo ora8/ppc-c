@@ -77,7 +77,7 @@ begin
   repeat Inc(i, 2) until i >= 7;
   WriteLn('repeat: ', i);
   i := 0;
-  while True do begin
+  loop begin
     Inc(i);
     if i = 3 then Continue;
     if i > 5 then Break;

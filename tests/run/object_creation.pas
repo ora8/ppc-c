@@ -19,9 +19,7 @@ vao
   I: Integer := n + 1;          { besitzter Heapwert }
 begin
   WriteLn('P: s.V = ', s.V, ', t.V = ', t.V, ', h.V = ', h.V, ', I = ', I);
-  h.Free;
-  I.Free;
-end;
+end;                            { s, t, h und I werden hier freigegeben }
 
 val
   a := 3;

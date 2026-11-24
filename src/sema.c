@@ -47,6 +47,7 @@ static Type *t_void, *t_int, *t_i64, *t_i8, *t_u8, *t_i16, *t_u16, *t_u32, *t_bo
 
 static Expr *value(Expr *e);
 static Expr *try_expr(Expr *e);
+static void move_check(Expr *src, const char *ctx);
 static Expr *ex(Expr *e);
 static Type *resolve_type(TypeExpr *te);
 static void decls(Block *b, int has_frame);
@@ -111,6 +112,21 @@ static int is_ptrlike(Type *t) { return t->kind == T_PTR || t->kind == T_CLASS |
 
 /* owning types: class instances and typed pointers (borrow checker) */
 int is_ref_type(Type *t) { return t && (t->kind == T_CLASS || (t->kind == T_PTR && t->base)); }
+/* a value (array, record, optional value) that owns objects in its elements or fields */
+int has_owned(Type *t) {
+    if (!t) return 0;
+    switch (t->kind) {
+    case T_ARRAY: return is_ref_type(t->base) || has_owned(t->base);
+    case T_OPT: return has_owned(t->base);
+    case T_RECORD:
+        for (int i = 0; i < t->st->fields.len; i++) {
+            Field *f = t->st->fields.items[i];
+            if ((is_ref_type(f->type) && !f->borrowed) || has_owned(f->type)) return 1;
+        }
+        return 0;
+    default: return 0;
+    }
+}
 /* an expression that yields a freshly owned object nobody holds yet */
 int is_owning_temp(Expr *e) {
     while (e->kind == E_CONV || e->kind == E_CAST || e->kind == E_AS) e = e->a;
@@ -899,6 +915,7 @@ static void build_params(Routine *rt, ParamGroupVec *pg) {
         Type *t = resolve_type(g->ty);
         int mode = g->mode;
         if (t->readonly && t->kind != T_CLASS && mode == PM_VALUE) mode = PM_CONSTREF; /* read-only, no copy */
+        if (mode == PM_VALUE && has_owned(t)) mode = PM_CONSTREF; /* owns objects: borrowed read-only, not copied */
         if (g->mode == PM_OWNED && !is_owning_type(t))
             error_at(g->ty->pos, "'vao' parameters (taking ownership) need a class type");
         for (int k = 0; k < g->names.len; k++) {
@@ -1896,6 +1913,7 @@ static Expr *bind_some(Expr *e) {
     /* unpacking a place borrows its content; unpacking a fresh owned object takes ownership */
     k->borrowed = t->kind == T_CLASS && !is_owning_temp(e->a);
     k->is_const = k->borrowed || t->kind == T_OPT || t->kind == T_RES;
+    k->no_drop = t->kind == T_OPT; /* a copy of the value: the original keeps owning */
     if (cur) vpush(cur->locals, k);
     else vpush(prog->globals, k);
     add_sym(SY_VAR, e->id.name, e->id.pos)->var = k;
@@ -1923,6 +1941,37 @@ static Expr *cond(Expr *e) {
     Expr *v = value(e);
     if (v->type->kind != T_BOOL) error_at(e->pos, "Boolean expression expected, got \"%s\"", type_name(v->type));
     return v;
+}
+
+static int has_call(Expr *e) {
+    if (!e) return 0;
+    if (e->kind == E_RCALL || e->kind == E_BUILTIN) return 1;
+    if (has_call(e->a) || has_call(e->b)) return 1;
+    for (int i = 0; i < e->args.len; i++)
+        if (has_call(e->args.items[i])) return 1;
+    return 0;
+}
+
+/* storing a value that owns objects moves it: the source place is emptied afterwards */
+static void move_check(Expr *src, const char *ctx) {
+    if (!src || !has_owned(src->type)) return;
+    Expr *e = src;
+    while (e->kind == E_CONV) e = e->a;
+    if (e->kind == E_LIST || e->kind == E_RECLIT) {
+        for (int i = 0; i < e->args.len; i++) {
+            Expr *x = e->args.items[i];
+            while (x->kind == E_CONV) x = x->a;
+            if (has_owned(x->type) && is_lvalue(x))
+                error_at(x->pos, "a value that owns objects cannot be copied into a literal; build it in place");
+        }
+        return;
+    }
+    if (!is_lvalue(e)) return; /* fresh value (function result, literal): nothing to empty */
+    Var *rv = root_var(e);
+    if (rooted_const(e) || (rv && (rv->no_drop || rv->is_const)))
+        error_at(e->pos, "'%s' owns objects and cannot be copied (%s); only its owner can move it away",
+                 const_root_name(e), ctx);
+    if (has_call(e)) error_at(e->pos, "moving a value that owns objects needs a plain place (no calls in it)");
 }
 
 static void assign(Stmt *s) {
@@ -2024,7 +2073,10 @@ normal:
 static void stmt(Stmt *s) {
     switch (s->kind) {
     case S_EMPTY: case S_BREAK: case S_CONTINUE: return;
-    case S_ASSIGN: assign(s); return;
+    case S_ASSIGN:
+        assign(s);
+        if (s->kind == S_ASSIGN) move_check(s->b, "assignment");
+        return;
     case S_CALL: {
         Expr *c = s->a;
         if (c->kind == E_TRY) {
@@ -2054,6 +2106,7 @@ static void stmt(Stmt *s) {
                     if (cargs->len > 1) error_at(s->pos, "too many arguments for Exit");
                     if (!cur || !cur->result) error_at(s->pos, "Exit with a value is only allowed in functions");
                     s->a = coerce(value(cargs->items[0]), cur->result->type, "Exit");
+                    move_check(s->a, "Exit");
                 }
                 return;
             }
@@ -2318,6 +2371,7 @@ static void add_init(StmtVec *dst, Var *v, Expr *init) {
         s->a = var_expr(v, init->pos);
         s->b = coerce(r, v->type, "initializer");
     }
+    move_check(s->b, "initializer");
     vpush(*dst, s);
 }
 

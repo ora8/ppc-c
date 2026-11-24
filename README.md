@@ -135,6 +135,32 @@ end;                                  { k wird hier freigegeben, r nicht }
   „Borrow Checker“).
 * `var` bei Parametern (`procedure P(var x: Integer)`) bedeutet wie immer Übergabe per Referenz.
 
+### Arrays und Records, die Objekte besitzen
+
+Ein Array oder Record mit besitzenden Elementen bzw. Feldern (`array[1..9] of optional TK`,
+`record L: optional TK; end`) besitzt diese Objekte – auch in einer `val`-Variablen:
+
+```pascal
+val
+  a: array[1..2] of optional TK := default;
+  q: TPaar := default;
+  z: TPaar := default;
+begin
+  a[1] := TK.Create(1);        { das Objekt gehört jetzt dem Array }
+  q := Mach(4);
+  z := q;                      { Move wie in Rust: q ist danach leer (alle Felder none) }
+  q := Mach(5);                { altes q wird freigegeben }
+end;                           { a, q und z geben ihre Objekte hier frei }
+```
+
+* Solche Werte werden **nie kopiert**, sondern verschoben: Zuweisung und Initialisierung leeren
+  die Quelle. Aus Konstanten, `is some`-Bindungen und Parametern kann man nicht verschieben, und
+  sie dürfen nicht in ein Literal kopiert werden.
+* Als Parameter werden sie nur lesend ausgeliehen (per Referenz, wie `T const`); `var`-Parameter
+  ändern das Original.
+* Objekte, die Felder solcher Typen haben, geben sie mit sich frei; ein unbenutztes
+  Funktionsergebnis wird sofort freigegeben.
+
 ### Heapwerte: Werte in `vao`
 
 Auch Zahlen, Strings, Records und Arrays können einem Besitzer auf dem Heap gehören (wie
@@ -184,6 +210,18 @@ end;
 
 * Aus `none` und `default` lässt sich kein Typ ableiten (`val x: optional T := none` schreiben).
 * `for val i := 1 to n do …` deklariert die Schleifenvariable direkt in der Schleife.
+* `while val i := 0; i < n do …` deklariert eine Variable für die ganze `while`-Schleife: Sie wird
+  **einmal** vor der ersten Prüfung angelegt, behält ihren Wert über die Durchläufe und ist nach
+  der Schleife nicht mehr sichtbar (auch mit `var` und `vao`; ein `vao` wird nach der Schleife
+  freigegeben):
+
+  ```pascal
+  while val i := 0; i < 3 do
+  begin
+    Write(i, ' ');
+    Inc(i);
+  end;
+  ```
 
 **Blöcke mit eigenen Variablen:** Vor einem verschachtelten `begin … end` dürfen `val`-,
 `var`-, `vao`- und `const`-Abschnitte stehen. Sie bilden einen eigenen Gültigkeitsbereich – auch
@@ -424,7 +462,8 @@ Beispiel: [tests/run/ownership.pas](tests/run/ownership.pas), Fehlerbeispiele in
 Grenzen der Analyse: Sie arbeitet pro Routine. Felder und Dereferenzierungen werden nicht
 einzeln verfolgt (nur ihre Pfade, um Ausleihen ungültig zu machen); die Lebensdauer von
 `var`-Feldern wird nicht geprüft; globale Besitzer werden nur im Hauptprogramm verfolgt;
-das Kopieren von Records, die Besitzer enthalten, wird nicht als Move behandelt.
+das Verschieben ganzer Arrays/Records, die Objekte besitzen, wird zur Laufzeit durch Leeren
+der Quelle abgesichert, nicht im Checker verfolgt.
 
 ## Optionale Werte: `optional T`
 

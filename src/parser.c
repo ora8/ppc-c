@@ -622,8 +622,10 @@ static RoutineDecl *parse_routine(void) {
     return d;
 }
 
+static int one_decl; /* 'while val i := 0; ...': exactly one declaration */
 static void parse_decls(Block *blk) {
     for (;;) {
+        if (one_decl && blk->decls.len) break;
         if (!const_routine_ahead() && accept_kw("const")) {
             Decl *d = NEW(Decl);
             d->kind = D_CONST;
@@ -667,6 +669,7 @@ static void parse_decls(Block *blk) {
                 if (accept_sym(":=")) v.init = parse_init();
                 expect_sym(";");
                 vpush(d->vars, v);
+                if (one_decl) break;
             }
             if (!d->vars.len) error_at(pos(), "identifier expected in %s section", kw);
             vpush(blk->decls, d);
@@ -724,6 +727,20 @@ static Stmt *parse_stmt(void) {
         return s;
     }
     if (accept_kw("while")) {
+        if (is_kw("val") || is_kw("var") || is_kw("vao")) {
+            /* while val i := 0; i < n do ...: i is declared once and lives as long as the loop */
+            Stmt *b = new_stmt(S_BLOCK, p);
+            b->blk = NEW(Block);
+            one_decl = 1;
+            parse_decls(b->blk);
+            one_decl = 0;
+            Stmt *s = new_stmt(S_WHILE, p);
+            s->a = parse_expr();
+            expect_kw("do");
+            s->s1 = parse_stmt();
+            vpush(b->blk->body, s);
+            return b;
+        }
         Stmt *s = new_stmt(S_WHILE, p);
         s->a = parse_expr();
         expect_kw("do");

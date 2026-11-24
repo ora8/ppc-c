@@ -83,7 +83,6 @@ begin
   acc.Balance := 100;
   acc.Apply(3);
   WriteLn('Kontostand: ', acc.Balance, ' Log: ', acc.FLog);
-  acc.Free;
 
   for d := Mon to Sun do WriteLn(d, ': ', Describe(d), ' ord=', Ord(d));
   WriteLn('Succ(Mon)=', Succ(Mon), ' High=', High(TDay));
@@ -91,7 +90,6 @@ begin
   
   with p do begin A := 1; B := 2; Name := 'rec'; end;
   WriteLn(p.Name, ' ', p.A + p.B, ' ', p.B);
-  p.Free;
 
   arr[1] := 3; arr[2] := 1; arr[3] := -4; arr[4] := 1; arr[5] := -5;
   WriteLn('erstes negatives an Index ', FirstNeg(arr));
