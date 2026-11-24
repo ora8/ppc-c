@@ -317,9 +317,8 @@ begin
   `borrowed const`-Referenzen auf ihre Felder herausgeben).
 * `x.Free` auf einem nur lesbaren *Besitzer* (`const h = TFoo.Create`) bleibt erlaubt.
 
-Grenze: Wie bei Rust gibt es viele lesende Ausleihen gleichzeitig; anders als Rust verbietet
-ppc aber nicht, das Objekt über den Besitzer oder eine änderbare Ausleihe zu ändern, solange
-eine lesende Ausleihe existiert.
+Wie in Rust gelten dabei die **Ausleihregeln** (siehe „Borrow Checker“): Solange eine
+lesende Ausleihe noch benutzt wird, darf das Objekt nicht geändert werden.
 
 ## Records mit Methoden
 
@@ -396,6 +395,20 @@ Regeln (Verstöße sind **Fehler**, die Übersetzung bricht ab):
   Lokales zurückgeben.
 * Dieselbe Variable darf in einem Aufruf nicht zweimal übergeben werden, wenn einer der
   Parameter `var`/`out` ist (`Swap(x, x)`).
+* **Ausleihregeln wie in Rust:** Zu jedem Zeitpunkt gibt es entweder **beliebig viele lesende**
+  (`borrowed const`) **oder genau eine änderbare** (`borrowed`) Ausleihe eines Objekts:
+  - Solange eine lesende Ausleihe noch benutzt wird, darf das Objekt nicht geändert werden –
+    weder über den Besitzer (Feldzuweisung, nicht-const Methode, `var`-Argument) noch über
+    eine andere Ausleihe.
+  - Solange eine änderbare Ausleihe noch benutzt wird, darf das Objekt auf keinem anderen Weg
+    benutzt (auch nicht gelesen) oder erneut ausgeliehen werden.
+  - Wie bei Rusts *non-lexical lifetimes* endet eine Ausleihe mit ihrer **letzten Benutzung**:
+    ein Konflikt ist nur ein Fehler, wenn die Ausleihe danach noch benutzt wird. Die Meldung
+    nennt die Stelle des Konflikts:
+    `borrowed reference 'l' is used here, but 'a' was changed at line 12 while 'l' was borrowing it`.
+  - Die Regeln gelten **feldgenau**: eine Ausleihe von `a.Links` verträgt Änderungen an
+    `a.Rechts`. Ausleihen, die aus einer anderen abgeleitet sind (`p is some k`, `k.Next`),
+    sind mit dieser verträglich.
 * Aus einem Feld kann man nicht einfach herausverschieben (`n := h.Next`) – dafür gibt es `Take`.
 * `var`-Parameter dürfen beim Verlassen der Routine nicht freigegeben/verschoben zurückbleiben.
 

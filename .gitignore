@@ -3,3 +3,5 @@ build/
 tests/run/*.c
 examples/*
 !examples/*.pas
+samples/*
+!samples/*.pas

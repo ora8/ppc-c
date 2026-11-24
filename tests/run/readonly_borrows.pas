@@ -51,6 +51,7 @@ begin
   begin
     WriteLn('k: ', k.Info);
   end;
-  anna.Geburtstag;                          { ueber den Besitzer weiterhin aenderbar }
-  WriteLn('leser nach Geburtstag: ', leser.Info);
+  WriteLn('leser zuletzt: ', leser.Info);   { letzte Benutzung von leser }
+  anna.Geburtstag;                          { erlaubt: leser wird danach nicht mehr benutzt }
+  WriteLn('anna nach Geburtstag: ', anna.Info);
 end.

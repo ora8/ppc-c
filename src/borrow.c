@@ -23,7 +23,7 @@
 #include "ast.h"
 
 enum { O_NULL = 1, O_OWNED = 2, O_MOVED = 4, O_FREED = 8, O_UNK = 16 };
-enum { B_VALID = 1, B_DANGLING = 2 };
+enum { B_VALID = 1, B_DANGLING = 2, B_CONFLICT = 4 }; /* B_CONFLICT: aliasing rule broken while borrowed */
 enum { TV_OWNER, TV_BORROW };
 enum { N_UNINIT = 1, N_NIL = 2, N_NN = 4 }; /* nil analysis: never allocated / nil / non-nil */
 
@@ -318,7 +318,64 @@ static void check_var_use(Var *v, Pos p, State *s) {
         int maybe = s->bor[i] & B_VALID;
         berror(p, "borrowed reference '%s' is used after its owner %s%s", v->name, maybe ? "may have been invalidated: " : "",
                s->why[i] ? s->why[i] : "was invalidated");
+    } else if (s->bor[i] & B_CONFLICT) {
+        berror(p, "borrowed reference '%s' is used here, but %s", v->name, s->why[i] ? s->why[i] : "its object was used otherwise");
     }
+}
+
+/* ---- aliasing rules (like Rust): many read-only borrows OR one changeable borrow ----
+ * A borrow conflicts when its object is changed (read-only and changeable borrows) or used
+ * another way (changeable borrows) while it is still alive. Like Rust's non-lexical lifetimes
+ * the conflict is only an error if the borrow is used afterwards. */
+static int in_base; /* >0 while the container part of a place expression is being evaluated */
+
+enum { ACC_READ, ACC_WRITE, ACC_BORROW_MUT, ACC_BORROW_CONST };
+static void access_path(State *s, const char *path, Var *ex1, Var *ex2, int kind, Pos p, const char *desc) {
+    int write = kind == ACC_WRITE || kind == ACC_BORROW_MUT;
+    if (!s->reach || !path) return;
+    for (int i = 0; i < tv.len; i++) {
+        if (tv.items[i].kind != TV_BORROW) continue;
+        Var *v = tv.items[i].v;
+        if (v == ex1 || v == ex2) continue;
+        int shared = v->type->readonly;
+        if (!write && shared) continue; /* reading is compatible with read-only borrows */
+        for (int k = 0; k < s->org[i].len; k++) {
+            Origin *o = &s->org[i].items[k];
+            if (!o->path || !paths_overlap(o->path, path)) continue;
+            if (o->root == v) continue;
+            if (!(s->bor[i] & B_CONFLICT)) { /* report the first conflict */
+                if (kind == ACC_WRITE)
+                    s->why[i] = sfmt("'%s' was changed at line %d while '%s' was borrowing it%s", desc, p.line, v->name,
+                                     shared ? " (a read-only borrow forbids changes)" : "");
+                else if (kind == ACC_BORROW_MUT)
+                    s->why[i] = sfmt("'%s' was borrowed again as changeable at line %d while '%s' was borrowing it", desc, p.line,
+                                     v->name);
+                else if (kind == ACC_BORROW_CONST)
+                    s->why[i] = sfmt("'%s' was borrowed at line %d while '%s' held a changeable borrow of it", desc, p.line,
+                                     v->name);
+                else
+                    s->why[i] = sfmt("'%s' was used at line %d while '%s' held a changeable borrow of it (borrow it as 'const' to share it)",
+                                     desc, p.line, v->name);
+            }
+            s->bor[i] = (unsigned char)((s->bor[i] & ~B_VALID) | B_CONFLICT);
+            break;
+        }
+    }
+}
+
+/* the place e is read (write = 0) or changed (write = 1); ex: borrow doing the access itself */
+static void access_expr(Expr *e, State *s, int write, Var *ex) {
+    if (!s->reach) return;
+    Var *root = NULL;
+    char *path = path_of(e, &root);
+    if (!path || !root) return;
+    int i = slot(root);
+    if (i >= 0 && tv.items[i].kind == TV_BORROW) { /* through a borrow: its objects are accessed */
+        for (int k = 0; k < s->org[i].len; k++)
+            access_path(s, s->org[i].items[k].path, root, ex, write, e->pos, desc_of(e));
+        return;
+    }
+    access_path(s, path, ex, NULL, write, e->pos, desc_of(e));
 }
 
 /* ============================================================== nil analysis */
@@ -458,6 +515,7 @@ typedef struct {
     char *desc;
     Var *root;
     int borrowed_place;
+    Var *via;      /* the source is reached through this borrow (re-borrow) */
     int temp_base; /* place inside a temporary object */
 } Src;
 
@@ -507,19 +565,28 @@ static void use_lvalue(Expr *e, State *s) {
         }
         return;
     case E_FIELD:
+        in_base++;
         if (e->a->type->kind == T_CLASS) {
             use_expr(e->a, s);
             deref_check(e->a, s, e->pos);
         } else
             use_lvalue(e->a, s);
+        in_base--;
+        if (!in_base) access_expr(e, s, 0, NULL);
         return;
     case E_INDEX:
+        in_base++;
         use_lvalue(e->a, s);
+        in_base--;
         use_expr(e->args.items[0], s);
+        if (!in_base) access_expr(e, s, 0, NULL);
         return;
     case E_DEREF:
+        in_base++;
         use_expr(e->a, s);
+        in_base--;
         deref_check(e->a, s, e->pos);
+        if (!in_base) access_expr(e, s, 0, NULL);
         return;
     case E_CAST: case E_CONV: use_lvalue(e->a, s); return;
     default: use_expr(e, s); return;
@@ -597,8 +664,11 @@ static void builtin_effects(Expr *e, State *s) {
         for (int i = 0; i < A->len; i++) {
             Expr *a = A->items[i];
             if (a->kind == E_VAR || a->kind == E_FIELD || a->kind == E_INDEX || a->kind == E_DEREF) {
-                if (i == 0 || e->bi == BI_READ || e->bi == BI_READLN) use_lvalue(a, s);
-                else use_expr(a, s);
+                if (i == 0 || e->bi == BI_READ || e->bi == BI_READLN) {
+                    use_lvalue(a, s);
+                    access_expr(a, s, 1, NULL);
+                } else
+                    use_expr(a, s);
             } else
                 use_expr(a, s);
         }
@@ -606,6 +676,7 @@ static void builtin_effects(Expr *e, State *s) {
     case BI_INSERT:
         use_expr(A->items[0], s);
         use_lvalue(A->items[1], s);
+        access_expr(A->items[1], s, 1, NULL);
         use_expr(A->items[2], s);
         return;
     case BI_STR:
@@ -638,8 +709,11 @@ static void use_expr(Expr *e, State *s) {
         if (e->var->vkind == VK_WITH) {
             Alias *a = find_alias(e->var);
             if (a && a->root) check_var_use(a->root, e->pos, s);
-        } else
+            if (a && !in_base) access_path(s, a->path, NULL, NULL, 0, e->pos, a->desc);
+        } else {
             check_var_use(e->var, e->pos, s);
+            if (!in_base) access_expr(e, s, 0, NULL);
+        }
         return;
     case E_FIELD: use_lvalue(e, s); return;
     case E_INDEX: use_lvalue(e, s); return;
@@ -742,7 +816,9 @@ static Src eval_src(Expr *e, State *s) {
             return r;
         }
         check_var_use(v, e->pos, s);
+        if (!in_base) access_expr(e, s, 0, NULL);
         if (tracked_borrow(v)) {
+            r.via = v;
             r.kind = SRC_BORROW;
             int i = slot(v);
             for (int k = 0; k < s->org[i].len; k++) vpush(r.org, s->org[i].items[k]);
@@ -762,6 +838,7 @@ static Src eval_src(Expr *e, State *s) {
         if (!is_owning_type(e->type)) return r;
         r.kind = SRC_PLACE;
         r.path = path_of(e, &r.root);
+        if (r.root && tracked_borrow(r.root)) r.via = r.root;
         r.borrowed_place = e->kind == E_FIELD && e->field->borrowed;
         Expr *b = e;
         while (b->kind == E_FIELD || b->kind == E_INDEX || b->kind == E_DEREF || b->kind == E_CONV || b->kind == E_CAST) b = b->a;
@@ -859,6 +936,9 @@ static void assign_src(Expr *lhs, Src *src, State *s, Pos p, unsigned nbits) {
     }
     if (tvar && tracked_borrow(tvar)) {
         int i = slot(tvar);
+        for (int k = 0; k < o.len; k++)
+            access_path(s, o.items[k].path, tvar, src->via, tvar->type->readonly ? ACC_BORROW_CONST : ACC_BORROW_MUT, p,
+                        o.items[k].desc);
         s->bor[i] = B_VALID;
         s->why[i] = NULL;
         s->org[i] = o;
@@ -873,6 +953,7 @@ static void do_assign(Expr *lhs, Expr *rhs, State *s, Pos p) {
     if (lhs->kind == E_DEREF && lhs->a->kind == E_VAR && lhs->a->var->is_box) {
         /* storing into a heap value: allocates the cell if it has none yet */
         use_expr(rhs, s);
+        access_expr(lhs, s, 1, NULL);
         int i = slot(lhs->a->var);
         if (i >= 0) {
             s->own[i] = O_OWNED;
@@ -883,6 +964,7 @@ static void do_assign(Expr *lhs, Expr *rhs, State *s, Pos p) {
     if (!is_owning_type(lhs->type)) {
         use_expr(rhs, s);
         use_lvalue(lhs, s);
+        access_expr(lhs, s, 1, NULL);
         return;
     }
     Src src = eval_src(rhs, s);
@@ -891,6 +973,7 @@ static void do_assign(Expr *lhs, Expr *rhs, State *s, Pos p) {
     (void)is_place_kind;
     nil_flow(lhs->type, rhs, nb, p, sfmt("'%s'", desc_of(lhs)));
     if (is_self_expr(rhs)) self_escape_check(s, p, sfmt("stored in '%s'", desc_of(lhs)));
+    if (!(lhs->kind == E_VAR && tracked_borrow(lhs->var))) access_expr(lhs, s, 1, NULL); /* rebinding a borrow is no change */
     assign_src(lhs, &src, s, p, nb);
     int k = ctor_field(lhs);
     if (k >= 0) s->fd[k] = N_NN;
@@ -1102,6 +1185,12 @@ static void call_effects(Expr *e, State *s, Origins *out) {
                 berror(e->pos, "cannot borrow '%s' as mutable (var) because it is also borrowed in the same call of '%s'",
                        x->mut ? x->desc : y->desc, r->name);
         }
+    /* aliasing: a changing method changes its receiver; var/out arguments are changed */
+    if (e->a && !r->is_constm && e->cmode != CM_NEWCLASS && !is_free_call(e)) access_expr(e->a, s, 1, NULL);
+    for (int i = 0; i < e->args.len; i++) {
+        int m = r->params.items[i].mode;
+        if (m == PM_VAR || m == PM_OUT) access_expr(e->args.items[i], s, 1, NULL);
+    }
     /* effects of var parameters */
     for (int i = 0; i < e->args.len; i++) {
         Param *pm = &r->params.items[i];
