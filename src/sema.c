@@ -503,8 +503,8 @@ static int nonlocal_to_rt(Var *v, Routine *r) { return v && v->vkind != VK_WITH 
 static void check_writable(Expr *e, const char *what) {
     if (!is_lvalue(e)) error_at(e->pos, "%s: variable identifier expected", what);
     if (e->kind == E_VAR && e->var->is_stack)
-        error_at(e->pos, "%s: \"%s\" is a stack object and cannot be reassigned; construct it with %s.Create(...) (heap objects are declared in a 'var' section)", what,
-                 e->var->name, e->var->name);
+        error_at(e->pos, "%s: \"%s\" is a stack object and cannot be reassigned (it lives in place until the end of its block; use 'vao' for an object that can be replaced)",
+                 what, e->var->name);
     Routine *pr = pure_ctx();
     if (pr && nonlocal_to_rt(root_var(e), pr))
         error_at(e->pos, "%s: const %s '%s' cannot change the non-local variable '%s'", what,
@@ -2693,7 +2693,7 @@ static void decls(Block *b, int has_frame) {
                     if (!vd->ty) error_at(dpos, "'%s' must be initialized: '%s %s := ...'", vn, sec, vn);
                     Type *t0 = resolve_type(vd->ty);
                     if (t0->kind == T_CLASS && !vd->is_heap && !vd->borrowed)
-                        error_at(dpos, "an object variable is declared with 'vao' (owns the object) or 'var' (reference without ownership): 'vao %s := %s.Create(...)'",
+                        error_at(dpos, "a stack object is created in its declaration: 'val %s := %s.Create(...)' (or 'vao' for a heap object, 'var' for a reference)",
                                  vn, type_name(t0));
                     if (t0->kind == T_CLASS && vd->is_heap && !t0->nilable)
                         error_at(dpos, "'%s' must be initialized: 'vao %s := %s.Create(...)' (or 'vao %s: optional %s := none')",
@@ -2717,9 +2717,26 @@ static void decls(Block *b, int has_frame) {
                     r = value(vd->init);
                     t = infer_type(r, vd->init->pos, vn);
                 }
-                if (t->kind == T_CLASS && !vd->is_heap && !vd->borrowed)
-                    error_at(dpos, "an object variable is declared with 'vao' (owns the object) or 'var' (reference without ownership): 'vao %s := ...'",
-                             vn);
+                /* val k := TFoo.Create(...): a stack object, constructed in place, destroyed at the end of its block */
+                int is_stack = t->kind == T_CLASS && !vd->is_heap && !vd->borrowed;
+                Expr *ctor = NULL;
+                if (is_stack) {
+                    if (t->nilable)
+                        error_at(dpos, "a stack object always exists, it cannot be optional: use 'vao %s: %s := none' for a heap object that may be missing",
+                                 vn, type_name(t));
+                    if (!r) r = value(vd->init);
+                    if (r->kind == E_VAR && r->var->is_stack)
+                        error_at(vd->init->pos, "'%s' is a stack object and cannot be copied or moved: borrow it ('var %s: %s := %s') or copy it ('vao %s := %s.Clone')",
+                                 r->var->name, vn, type_name(t), r->var->name, vn, r->var->name);
+                    if (r->kind != E_RCALL || r->cmode != CM_NEWCLASS)
+                        error_at(vd->init->pos, "a stack object is created in its declaration: 'val %s := %s.Create(...)' (for a reference use 'var', to own a heap object 'vao')",
+                                 vn, type_name(t));
+                    if (vd->ty && r->ctype->st != t->st)
+                        error_at(vd->init->pos, "stack object '%s' is declared as \"%s\" but created as \"%s\": it is stored in place, so both must be the same class",
+                                 vn, type_name(t), type_name(r->ctype));
+                    if (!vd->ty) t = r->ctype;
+                    ctor = r;
+                }
                 int is_alias = vd->borrowed && t->kind != T_CLASS; /* var x: Integer := y: x refers to y */
                 int is_const = t->readonly && t->kind != T_CLASS;
                 int is_box = 0;
@@ -2733,7 +2750,8 @@ static void decls(Block *b, int has_frame) {
                     Ident *id = &vd->names.items[k];
                     Var *v = new_var(id->name, t, cur ? VK_LOCAL : VK_GLOBAL, id->pos);
                     if (in_block || is_alias) v->cname = sfmt("L%d_%s", v->id, id->name);
-                    v->borrowed = vd->borrowed && t->kind == T_CLASS;
+                    v->borrowed = (vd->borrowed && t->kind == T_CLASS) || is_stack;
+                    v->is_stack = is_stack;
                     v->is_box = is_box;
                     v->is_alias = is_alias;
                     v->is_ref = is_alias;
@@ -2743,7 +2761,17 @@ static void decls(Block *b, int has_frame) {
                     else vpush(prog->globals, v);
                     add_sym(SY_VAR, id->name, id->pos)->var = v;
                     StmtVec *dst = (cur || in_block) ? local_init : &prog->init;
-                    if (is_alias) {
+                    if (is_stack) { /* construct the object in its storage in the frame */
+                        Expr *c = NEW(Expr);
+                        *c = *ctor;
+                        c->cmode = CM_CTOR_INST;
+                        c->a = var_expr(v, id->pos);
+                        c->ctype = NULL;
+                        c->type = v->type;
+                        Stmt *cs = new_stmt(S_CALL, vd->init->pos);
+                        cs->a = c;
+                        vpush(*dst, cs);
+                    } else if (is_alias) {
                         /* bind the reference to the variable it names */
                         Expr *src = r ? r : value(vd->init);
                         if (!is_lvalue(src)) error_at(vd->init->pos, "'%s' must refer to a variable, not to a computed value", id->name);

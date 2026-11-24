@@ -1,0 +1,11 @@
+Kreis 1 r=2.5
+Kreis 5 r=2.5
+  Destroy TKreis 5
+  Destroy TFigur 99
+Figur 10
+  Destroy TFigur 10
+Figur 20
+  Destroy TFigur 20
+Figur 7
+Ende
+  Destroy TFigur 7

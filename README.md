@@ -7,9 +7,10 @@ Der Compiler ist selbst in C geschrieben (C11, keine Abhängigkeiten).
 Besonderheiten:
 
 * **Groß-/Kleinschreibung wird unterschieden** (anders als Standard-Pascal).
-* **Drei Arten von Variablen:** `val` für Werte, `var` für Referenzen ohne Besitz und `vao`
-  für Besitzer. Ein `vao` gibt sein Objekt automatisch frei, wenn es den Gültigkeitsbereich
-  verlässt (wie `Box<T>` in Rust). Jede Variable wird bei der Deklaration initialisiert.
+* **Drei Arten von Variablen:** `val` für Werte und Stackobjekte, `var` für Referenzen ohne
+  Besitz und `vao` für Besitzer von Heapobjekten. Ein `vao` gibt sein Objekt automatisch frei,
+  wenn es den Gültigkeitsbereich verlässt (wie `Box<T>` in Rust); ein Stackobjekt wird am
+  Blockende abgebaut. Jede Variable wird bei der Deklaration initialisiert.
 * **Borrow Checker** nach dem Vorbild von Rust: prüft Besitz (Ownership), Ausleihen (Borrows)
   und die Ausleihregeln (viele lesende *oder* eine änderbare Ausleihe) zur Compile-Zeit.
 * **Keine Zeiger und kein nil:** Es gibt kein `^`, `@`, `New`, `Dispose` und kein `nil`.
@@ -25,7 +26,7 @@ Besonderheiten:
 
 ```bash
 make            # erzeugt ./ppc
-make test       # Testsuite (Ausgaben, Borrow-/Optional-/const-/result-Fehler, Compile-Fehler)
+make test       # Testsuite (Ausgaben, Borrow-/Optional-/Stackobjekt-/const-/result-/Clone-Fehler, Compile-Fehler)
 ```
 
 ```bash
@@ -57,8 +58,8 @@ Referenztypen, implizit von `TObject` abgeleitet:
 `constructor Create`, `destructor Destroy; override;`, `Free`, `ClassName`,
 `virtual`/`override`/`abstract`, `inherited`, Properties mit Feld- oder Methoden-Zugriff,
 `is`/`as`, `Self`, Sichtbarkeitsabschnitte (werden geparst, nicht erzwungen), Forward-Klassen
-(`TFoo = class;`). Objekte liegen immer auf dem Heap und werden nur im Initialisierer
-erzeugt: `vao k := TKreis.Create(1, 2, 3.0)`.
+(`TFoo = class;`). Objekte werden nur im Initialisierer erzeugt: als **Stackobjekt**
+`val k := TKreis.Create(1, 2, 3.0)` oder als **Heapobjekt** `vao k := TKreis.Create(1, 2, 3.0)`.
 
 ### Klassenmethoden: `class function` / `class procedure`
 
@@ -99,6 +100,7 @@ Deklaration mit `:=` initialisiert**; der Typ darf fehlen, dann kommt er aus dem
 |---|---|
 | `val i := 5;` / `val i: Integer := 5;` | **Wert** (Zahlen, Strings, Records, Arrays, `optional`-Werte) |
 | `val v: TVektor := default;` | Nullwert des Typs (0, `''`, `False`, `none`, alle Felder 0) |
+| `val s := TKreis.Create(1, 2, 3.0);` | **Stackobjekt**: liegt im Stackframe, `Destroy` am Blockende, siehe unten |
 | `vao k := TKreis.Create(1, 2, 3.0);` | **Besitzer**: `k` besitzt das Objekt und gibt es am Ende frei |
 | `vao n: optional TKreis := none;` | Besitzer, der (noch) nichts besitzen darf |
 | `vao I: Integer := 42;` | **Heapwert**: ein Wert auf dem Heap, siehe unten |
@@ -118,7 +120,8 @@ begin
 end;                                  { k wird hier freigegeben, r nicht }
 ```
 
-* Klassenvariablen sind immer `vao` oder `var` – `val k: TKreis` ist ein Fehler.
+* Eine Klassenvariable in `val` ist ein Stackobjekt und muss mit einem Konstruktor erzeugt werden;
+  `optional` geht nur mit `vao` oder `var`.
 * Die Initialisierer dürfen beliebige Ausdrücke sein. Sie werden ausgewertet, wenn die
   Deklaration ausgeführt wird: beim Eintritt in die Routine bzw. in den Block (siehe „Blöcke“).
 * **Besitzer (`vao`)** geben ihr Objekt **automatisch frei**, wenn sie den Gültigkeitsbereich
@@ -135,6 +138,39 @@ end;                                  { k wird hier freigegeben, r nicht }
   Variable sein, kein berechneter Wert. Für beide gelten die Ausleihregeln (siehe
   „Borrow Checker“).
 * `var` bei Parametern (`procedure P(var x: Integer)`) bedeutet wie immer Übergabe per Referenz.
+
+### Stackobjekte: `val k := TKlasse.Create(...)`
+
+Wenn Geschwindigkeit zählt, kann ein Objekt direkt im Stackframe liegen (global: im
+Datensegment) – ohne `malloc` und `free`. Klasse, Methoden, Vererbung und VMT sind dieselben wie
+bei Heapobjekten:
+
+```pascal
+procedure Male(F: TFigur);                  { nimmt Stack- und Heapobjekte }
+
+procedure Lokal;
+val k := TKreis.Create(1, 2.5);             { im Stackframe konstruiert }
+begin
+  Male(k);                                  { Ausleihe, virtuelle Methoden wie gewohnt }
+  k.Name := TFigur.Create(99);              { besitzende Felder gehen auch }
+  var f: TFigur := k;                       { Referenz auf das Stackobjekt }
+  begin f.X := 5; end;
+end;                                        { k.Destroy läuft hier, k.Name wird freigegeben }
+```
+
+* Das Objekt wird bei der Deklaration konstruiert und am Ende seines Blocks automatisch abgebaut
+  (`Destroy`, danach werden seine besitzenden Felder freigegeben) – auch bei `Break`, `Exit` und
+  `try`. In einem Schleifenrumpf entsteht in jedem Durchlauf ein frisches Objekt.
+* Ein Stackobjekt **bleibt, wo es ist**: Es kann nicht neu zugewiesen, nicht freigegeben, nicht
+  in einen `vao` oder an einen `vao`-Parameter verschoben und nicht kopiert werden
+  (`val t := k` ist ein Fehler). Für eine Kopie auf dem Heap: `vao t := k.Clone`.
+* Ausleihen (`var r: TFigur := k`, Parameter) sind erlaubt, dürfen aber den Block nicht
+  überleben: Speichern in globalen Variablen, Feldern oder Funktionsergebnissen meldet der
+  Borrow Checker.
+* Deklarierter Typ und Konstruktor-Klasse müssen gleich sein (`val f: TFigur := TKreis.Create`
+  ist ein Fehler, weil das Objekt in seiner genauen Größe angelegt wird).
+* Messung: 50 Millionen kurzlebige Objekte brauchen mit `-O2` 0,08 s als Stackobjekt und 0,32 s
+  als Heapobjekt.
 
 ### Arrays und Records, die Objekte besitzen
 
@@ -726,7 +762,9 @@ varianten Records, `goto`, Datei-I/O.
 
 Klassen werden als C-Structs mit `__vmt`-Zeiger am Anfang abgebildet. Geerbte Felder liegen
 als Präfix vorne, daher sind Zeiger auf Nachfahren mit Zeigern auf Vorfahren layoutkompatibel.
-Ein Objekt ist ein mit `calloc` angelegtes Struct. Am Ende eines Bereichs gibt der erzeugte
+Ein Heapobjekt ist ein mit `calloc` angelegtes Struct; ein Stackobjekt ist dasselbe Struct als
+lokale C-Variable, die Pascal-Variable zeigt darauf, und am Blockende ruft der erzeugte Code den
+virtuellen Destruktor ohne Freigabe auf. Am Ende eines Bereichs gibt der erzeugte
 Code alles frei, was `vao`-Variablen noch besitzen (in umgekehrter Reihenfolge). Eine
 `var`-Referenz auf einen Wert ist in C ein Zeiger auf die Original-Variable; Klassenmethoden
 sind C-Funktionen ohne `self`-Parameter.

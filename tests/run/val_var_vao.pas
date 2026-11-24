@@ -1,6 +1,7 @@
 program ValVarVao;
 { Drei Arten von Variablen:
     val  x := 5;                 Wert (Integer, String, Record, Array, optional)
+    val  s := TKonto.Create;     Stackobjekt: im Stackframe, Destroy am Blockende
     var  r: Integer := x;        Referenz auf eine andere Variable, besitzt nichts
     vao  o := TKonto.Create;     besitzt das Objekt: am Ende des Bereichs freigegeben
   'T const' macht eine Variable oder einen Parameter unveraenderlich;
@@ -42,6 +43,14 @@ begin
   Zeige(k);
 end;                                        { k wird hier freigegeben }
 
+procedure Schnell;
+val
+  s := TKonto.Create('stack', 5);           { Stackobjekt: kein malloc, kein free }
+begin
+  s.Einzahlen(1);
+  Zeige(s);                                 { Ausleihe wie bei einem Heapobjekt }
+end;                                        { s.Destroy laeuft hier }
+
 val
   zahl := 21;
   p := TPunkt.Ursprung;
@@ -52,6 +61,7 @@ vao
 begin
   WriteLn('--- vao: Besitzer');
   Lokal;
+  Schnell;
   anna.Einzahlen(25);
   Zeige(anna);
   Zeige(bert);

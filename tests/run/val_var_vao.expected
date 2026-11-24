@@ -1,6 +1,8 @@
 --- vao: Besitzer
   lokal: 10
   frei: lokal
+  stack: 6
+  frei: stack
   Anna: 75
   Bert: 10
 --- var: Referenz ohne Besitz
