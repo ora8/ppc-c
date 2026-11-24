@@ -3,11 +3,11 @@ type
   TVektor = record
     X, Y: Real;
     procedure Skaliere(F: Real);
-    const function Laenge: Real;
+    function Laenge: Real; const;
   end;
   TGross = array[1..1000] of Integer;
 procedure TVektor.Skaliere(F: Real); begin X := X * F; Y := Y * F; end;
-const function TVektor.Laenge: Real; begin Result := Sqrt(X * X + Y * Y); end;
+function TVektor.Laenge: Real; const; begin Result := Sqrt(X * X + Y * Y); end;
 
 function Summe(constref A: TGross): Integer;     { keine Kopie von 4000 Bytes }
 val i;

@@ -351,7 +351,7 @@ static Var *root_var(Expr *e) {
     return e ? e->var : NULL;
 }
 
-/* innermost enclosing 'const function/procedure' that is not a method (no side effects allowed) */
+/* innermost enclosing routine declared '; const;' that is not a method (no side effects allowed) */
 static Routine *pure_ctx(void) {
     for (Routine *r = cur; r; r = r->parent)
         if (r->is_constm && !r->owner) return r;
@@ -914,7 +914,7 @@ static Expr *make_call(Routine *rt, Expr *base, ExprVec *args, int mode, Type *n
         error_at(p, "method \"%s\" needs an instance", rt->name);
     if (rt->owner && base && !rt->is_constm && mode != CM_NEWCLASS &&
         (rooted_const(base) || (base->kind == E_VAR && base->var->vkind == VK_SELF && base->var->is_const)))
-        error_at(p, "cannot call '%s' on constant '%s': only const methods ('const function' / 'const procedure') are allowed",
+        error_at(p, "cannot call '%s' on constant '%s': only const methods (declared with '; const;') are allowed",
                  rt->name, const_root_name(base));
     Routine *pr = pure_ctx();
     if (pr && !rt->is_constm && !rt->prelude) {

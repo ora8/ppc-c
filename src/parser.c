@@ -314,8 +314,16 @@ static int is_directive(void) {
     return 0;
 }
 
-static void parse_directives(int *virt, int *abs, int *fwd) {
-    while (is_directive()) {
+/* directives after a routine header: virtual; override; abstract; forward; const; */
+static void parse_directives(int *virt, int *abs, int *fwd, int *cnst) {
+    for (;;) {
+        if (is_kw("const") && T.items[P + 1].kind == TK_SYM && STREQ(T.items[P + 1].s, ";")) {
+            next(); /* const;  -- method does not change Self / routine has no side effects */
+            next();
+            *cnst = 1;
+            continue;
+        }
+        if (!is_directive()) break;
         const char *d = CUR.s;
         next();
         if (STREQ(d, "virtual")) *virt = VIRT_VIRTUAL;
@@ -357,7 +365,7 @@ static ParamGroupVec parse_params(void) {
     return v;
 }
 
-/* 'const function' / 'const procedure': does not change Self (methods) or has no side effects */
+/* old prefix form 'const function' / 'const procedure' (now written as a trailing 'const;' directive) */
 static int const_routine_ahead(void) {
     return is_kw("const") && T.items[P + 1].kind == TK_KW &&
            (STREQ(T.items[P + 1].s, "function") || STREQ(T.items[P + 1].s, "procedure") ||
@@ -368,10 +376,8 @@ static int last_const; /* the routine was declared with 'const' */
 static int routine_kind(void) {
     int k = RK_PROC;
     last_const = 0;
-    if (const_routine_ahead()) {
-        next();
-        last_const = 1;
-    }
+    if (const_routine_ahead())
+        error_at(pos(), "write 'const' at the end of the declaration: '%s Name(...); const;'", T.items[P + 1].s);
     if (is_kw("function")) k = RK_FUNC;
     else if (is_kw("constructor")) k = RK_CTOR;
     else if (is_kw("destructor")) k = RK_DTOR;
@@ -431,7 +437,6 @@ static StructDecl *parse_struct(int kind) {
         if (is_routine_kw()) {
             MethodDecl m = {0};
             m.kind = routine_kind();
-            m.is_const = last_const;
             m.name = ident();
             m.params = parse_params();
             if (m.kind == RK_FUNC) {
@@ -441,7 +446,7 @@ static StructDecl *parse_struct(int kind) {
             }
             expect_sym(";");
             int fwd = 0;
-            parse_directives(&m.virt, &m.is_abstract, &fwd);
+            parse_directives(&m.virt, &m.is_abstract, &fwd, &m.is_const);
             vpush(sd->methods, m);
             continue;
         }
@@ -566,7 +571,6 @@ static RoutineDecl *parse_routine(void) {
     RoutineDecl *d = NEW(RoutineDecl);
     d->pos = pos();
     d->kind = routine_kind();
-    d->is_const = last_const;
     d->name = ident();
     if (accept_sym(".")) {
         d->cls = d->name;
@@ -583,7 +587,7 @@ static RoutineDecl *parse_routine(void) {
     }
     expect_sym(";");
     int virt = 0, abs = 0;
-    parse_directives(&virt, &abs, &d->forward);
+    parse_directives(&virt, &abs, &d->forward, &d->is_const);
     if (d->forward) return d;
     if (is_ident("external")) error_at(pos(), "external routines are not supported");
     d->body = parse_block();

@@ -218,7 +218,7 @@ begin
   Hoch := 1;                   { Fehler }
   w.X := 1;                    { Fehler: Teil einer Konstanten }
   w.Skaliere(2);               { Fehler: Skaliere ist keine const-Methode }
-  WriteLn(w.Laenge);           { erlaubt: const function }
+  WriteLn(w.Laenge);           { erlaubt: const-Methode }
 ```
 
 * Lässt sich der Wert beim Übersetzen ausrechnen, ist es eine echte Konstante (auch für
@@ -252,25 +252,26 @@ WriteLn(Doppelt(Hoch + 1));                     { auch Ausdrücke: temporäre Ko
 Der Borrow Checker behandelt `constref` als lesende Ausleihe: `Q(x, x)` mit einem `var`- und
 einem `constref`-Parameter ist ein Fehler.
 
-### Konstante Methoden und Routinen: `const function` / `const procedure`
+### Konstante Methoden und Routinen: `; const;`
 
-`const` vor `function` oder `procedure` (wie `void f() const` in C++):
+`const;` als Direktive am Ende der Deklaration, wie `virtual;` (entspricht `void f() const` in C++).
+Die Implementierung wiederholt es: `function TVektor.Laenge: Real; const;`.
 
 ```pascal
 type
   TVektor = record
     X, Y: Real;
     procedure Skaliere(F: Real);          { darf Self ändern }
-    const function Laenge: Real;          { ändert Self nicht }
-    const procedure Zeige;
+    function Laenge: Real; const;          { ändert Self nicht }
+    procedure Zeige; const;
   end;
   TKonto = class
-    const function Beschreibung: String; virtual;
+    function Beschreibung: String; const; virtual;
   end;
 
-const function TVektor.Laenge: Real; begin Result := Sqrt(X * X + Y * Y); end;
+function TVektor.Laenge: Real; const; begin Result := Sqrt(X * X + Y * Y); end;
 
-const function Quadrat(N: Integer): Integer;   { freie Routine ohne Seiteneffekte }
+function Quadrat(N: Integer): Integer; const;   { freie Routine ohne Seiteneffekte }
 begin Result := N * N; end;
 ```
 
@@ -278,7 +279,7 @@ begin Result := N * N; end;
   Klassen), und auf `Self` dürfen nur weitere const-Methoden aufgerufen werden.
 * **Auf konstanten Werten** – `const`-Variablen, `const`- und `constref`-Parameter, `Self` in
   const-Methoden – sind nur const-Methoden aufrufbar.
-* **Eine freie `const function`/`const procedure`** hat keine Seiteneffekte auf den
+* **Eine freie Routine mit `; const;`** hat keine Seiteneffekte auf den
   Programmzustand: Sie ändert keine globalen oder äußeren Variablen, ruft nur andere
   const-Routinen auf und ruft auf nicht-lokalen Objekten nur const-Methoden auf. Parameter,
   lokale Variablen und neu erzeugte Objekte darf sie frei benutzen; Ausgaben mit `WriteLn`

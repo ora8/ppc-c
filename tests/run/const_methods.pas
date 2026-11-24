@@ -1,13 +1,13 @@
 program ConstMethods;
-{ const function / const procedure: Methoden, die Self nicht aendern,
+{ Methoden mit '; const;': aendern Self nicht;
   und Routinen ohne Seiteneffekte auf globale Variablen }
 type
   TVektor = record
     X, Y: Real;
     procedure Skaliere(F: Real);
-    const function Laenge: Real;               { aendert Self nicht }
-    const function Normiert: TVektor;
-    const procedure Zeige;
+    function Laenge: Real; const;               { aendert Self nicht }
+    function Normiert: TVektor; const;
+    procedure Zeige; const;
   end;
 
   TKonto = class
@@ -16,32 +16,32 @@ type
   public
     constructor Create(S: Integer);
     procedure Einzahlen(B: Integer);
-    const function Saldo: Integer;
-    const function Beschreibung: String; virtual;
+    function Saldo: Integer; const;
+    function Beschreibung: String; const; virtual;
   end;
   TSparkonto = class(TKonto)
-    const function Beschreibung: String; override; { Override bleibt const }
+    function Beschreibung: String; const; override; { Override bleibt const }
   end;
 
 procedure TVektor.Skaliere(F: Real); begin X := X * F; Y := Y * F; end;
-const function TVektor.Laenge: Real; begin Result := Sqrt(X * X + Y * Y); end;
-const function TVektor.Normiert: TVektor;
+function TVektor.Laenge: Real; const; begin Result := Sqrt(X * X + Y * Y); end;
+function TVektor.Normiert: TVektor; const;
 val l = Laenge;                                 { const Methode ruft const Methode }
 begin
   Result.X := X / l;
   Result.Y := Y / l;
 end;
-const procedure TVektor.Zeige; begin WriteLn('(', X:0:2, ', ', Y:0:2, ') Laenge ', Laenge:0:2); end;
+procedure TVektor.Zeige; const; begin WriteLn('(', X:0:2, ', ', Y:0:2, ') Laenge ', Laenge:0:2); end;
 
 constructor TKonto.Create(S: Integer); begin inherited Create; FSaldo := S; end;
 procedure TKonto.Einzahlen(B: Integer); begin FSaldo := FSaldo + B; end;
-const function TKonto.Saldo: Integer; begin Result := FSaldo; end;
-const function TKonto.Beschreibung: String; begin Result := ClassName + ' ' + IntToStr(Saldo); end;
-const function TSparkonto.Beschreibung: String; begin Result := 'Spar: ' + inherited Beschreibung; end;
+function TKonto.Saldo: Integer; const; begin Result := FSaldo; end;
+function TKonto.Beschreibung: String; const; begin Result := ClassName + ' ' + IntToStr(Saldo); end;
+function TSparkonto.Beschreibung: String; const; begin Result := 'Spar: ' + inherited Beschreibung; end;
 
 { freie const Funktion: nur Parameter und lokale Variablen, keine Seiteneffekte }
-const function Quadrat(N: Integer): Integer; begin Result := N * N; end;
-const function SummeQuadrate(N: Integer): Integer;
+function Quadrat(N: Integer): Integer; const; begin Result := N * N; end;
+function SummeQuadrate(N: Integer): Integer; const;
 val i;
 begin
   Result := 0;
