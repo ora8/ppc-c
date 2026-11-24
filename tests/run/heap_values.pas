@@ -1,56 +1,56 @@
 program HeapValues;
-{ Werte auf dem Heap: mit 'vao' deklariert, im Code benutzt wie ein normaler Wert und
-  am Ende des Gueltigkeitsbereichs automatisch freigegeben (wie Box<T> in Rust) }
+{ values on the heap: declared with 'vao', used in the code like a normal value and
+  freed automatically at the end of the scope (like Box<T> in Rust) }
 type
-  TVektor = record
+  TVector = record
     X, Y: Real;
-    procedure Skaliere(F: Real);
+    procedure Scale(F: Real);
   end;
-  TFeld = array[1..5] of Integer;
+  TField = array[1..5] of Integer;
 
-procedure TVektor.Skaliere(F: Real); begin X := X * F; Y := Y * F; end;
+procedure TVector.Scale(F: Real); begin X := X * F; Y := Y * F; end;
 
-procedure Verdopple(var N: Integer); begin N := N * 2; end;
-function Quadrat(N: Integer): Integer; begin Result := N * N; end;
+procedure Duplicate(var N: Integer); begin N := N * 2; end;
+function SquareOf(N: Integer): Integer; begin Result := N * N; end;
 
-procedure Lokal;
+procedure Local;
 vao
-  Zaehler: Integer := 100;                   { Heapwert in einer Prozedur }
+  Counter: Integer := 100;                   { heap value in a procedure }
 begin
-  Inc(Zaehler);
-  WriteLn('lokal: ', Zaehler);
-end;                                         { Zaehler wird hier freigegeben }
+  Inc(Counter);
+  WriteLn('local: ', Counter);
+end;                                         { Counter is freed here }
 
-procedure Frueh;
+procedure Early;
 vao
-  Puffer: TFeld := default;
+  Buffer: TField := default;
 begin
-  Puffer[1] := 7;
-  WriteLn('frueh: ', Puffer[1]);
-  Puffer.Free;                               { optional: schon hier freigeben }
-  Puffer := (1, 2, 3, 4, 5);                 { ganzer neuer Wert: legt eine neue Zelle an }
-  WriteLn('wieder: ', Puffer[1], ' ', Puffer[5]);
+  Buffer[1] := 7;
+  WriteLn('early: ', Buffer[1]);
+  Buffer.Free;                               { optional: free it already here }
+  Buffer := (1, 2, 3, 4, 5);                 { a whole new value: creates a new cell }
+  WriteLn('again: ', Buffer[1], ' ', Buffer[5]);
 end;
 
 vao
   I: Integer := 20;
-  S: String := 'Hallo';
-  V: TVektor := (X: 3; Y: 4);
-  F: TFeld := default;
+  S: String := 'Hello';
+  V: TVector := (X: 3; Y: 4);
+  F: TField := default;
 begin
   I := I + 1;
-  Verdopple(I);                   { var-Parameter: Referenz auf den Heapwert }
-  WriteLn('I = ', I, ', Quadrat = ', Quadrat(I));
+  Duplicate(I);                   { var parameter: reference to the heap value }
+  WriteLn('I = ', I, ', SquareOf = ', SquareOf(I));
 
   S := S + ' Welt';
-  WriteLn('S = ', S, ' (', Length(S), ' Zeichen)');
+  WriteLn('S = ', S, ' (', Length(S), ' characters)');
 
-  V.Skaliere(2);                  { Methode eines Records auf dem Heap }
+  V.Scale(2);                  { method of a record on the heap }
   WriteLn('V = (', V.X:0:1, ', ', V.Y:0:1, ')');
 
   for val k := 1 to 5 do F[k] := k * k;
   WriteLn('F[5] = ', F[5]);
 
-  Lokal;
-  Frueh;
-end.                              { I, S, V und F werden hier freigegeben }
+  Local;
+  Early;
+end.                              { I, S, V and F are freed here }

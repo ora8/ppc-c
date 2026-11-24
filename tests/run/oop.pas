@@ -1,6 +1,6 @@
 program OOP;
 type
-  { ---- eine Klassenhierarchie, Objekte gehoeren einer vao-Variablen ---- }
+  { ---- a class hierarchy, objects belong to a vao variable ---- }
   TShape = class
     X, Y: Integer;
     constructor Create(AX, AY: Integer);
@@ -50,47 +50,47 @@ function TShape.Area: Real; begin Result := 0; end;
 function TShape.Name: String; begin Result := 'Shape'; end;
 procedure TShape.Describe;
 begin
-  WriteLn(Name, ' bei (', X, ',', Y, ') Flaeche=', Area:0:2);
+  WriteLn(Name, ' at (', X, ',', Y, ') Area=', Area:0:2);
 end;
 destructor TShape.Destroy; begin WriteLn('  Destroy ', Name); inherited Destroy; end;
 
 constructor TCircle.Create(AX, AY: Integer; AR: Real);
 begin inherited Create(AX, AY); R := AR; end;
 function TCircle.Area: Real; begin Result := Pi * R * R; end;
-function TCircle.Name: String; begin Result := 'Kreis'; end;
+function TCircle.Name: String; begin Result := 'Circle'; end;
 
 constructor TRect.Create(AX, AY, AW, AH: Integer);
 begin inherited Create(AX, AY); W := AW; H := AH; end;
 function TRect.Area: Real; begin Result := W * H; end;
-function TRect.Name: String; begin Result := 'Rechteck(' + inherited Name + ')'; end;
+function TRect.Name: String; begin Result := 'Rectangle(' + inherited Name + ')'; end;
 
 constructor TAnimal.Create(AName: String const);
 begin inherited Create; FName := AName; FLegs := 4; end;
 destructor TAnimal.Destroy;
-begin WriteLn('  ', FName, ' wird freigegeben'); inherited Destroy; end;
+begin WriteLn('  ', FName, ' is freed'); inherited Destroy; end;
 procedure TAnimal.SetLegs(V: Integer); begin if V >= 0 then FLegs := V; end;
-procedure TAnimal.Speak; begin WriteLn(FName, ' (', ClassName, ', ', Legs, ' Beine) sagt ', Sound); end;
+procedure TAnimal.Speak; begin WriteLn(FName, ' (', ClassName, ', ', Legs, ' legs) says ', Sound); end;
 function TDog.Sound: String; begin Result := 'Wuff'; end;
 constructor TCat.Create(AName: String const);
 begin inherited Create(AName); Lives := 7; end;
 function TCat.Sound: String; begin Result := 'Miau'; end;
 
-procedure ShowShape(S: TShape);       { leiht das Objekt nur aus }
+procedure ShowShape(S: TShape);       { only borrows the object }
 begin S.Describe; end;
 
-procedure Verschiebe(S: TShape; DX: Integer);
+procedure Shift(S: TShape; DX: Integer);
 begin S.X := S.X + DX; end;
 
-procedure LokaleFiguren;
+procedure LocalFigures;
 vao
-  r := TRect.Create(0, 0, 3, 4);                          { besitzt r: wird am Prozedurende freigegeben }
+  r := TRect.Create(0, 0, 3, 4);                          { owns r: freed at the end of the procedure }
 begin
   
   ShowShape(r);
-end;                                 { hier wird r automatisch freigegeben }
+end;                                 { r is freed automatically here }
 
 vao
-  c := TCircle.Create(1, 2, 1.5);                        { globaler Besitzer }
+  c := TCircle.Create(1, 2, 1.5);                        { global owner }
 val
   pets: array[1..2] of optional TAnimal := default;
 var
@@ -98,26 +98,26 @@ var
 val
   i: Integer := default;
 vao
-  h: TShape := TRect.Create(5, 5, 2, 2);                         { Besitzer }
+  h: TShape := TRect.Create(5, 5, 2, 2);                         { owners }
   dog: TDog := TDog.Create('Bello');
   cat: TCat := TCat.Create('Minka');
 begin
-  WriteLn('--- Objekte ---');
+  WriteLn('--- objects ---');
   
   c.Describe;
   ShowShape(c);
-  Verschiebe(c, 10);                 { Wertparameter = Referenz: Original wird geaendert }
+  Shift(c, 10);                 { value parameter = reference: the original is changed }
   c.Describe;
-  LokaleFiguren;
-  WriteLn('c is TShape: ', c is TShape, ', c is TRect: ', c is TRect, ', Klasse: ', c.ClassName);
+  LocalFigures;
+  WriteLn('c is TShape: ', c is TShape, ', c is TRect: ', c is TRect, ', class: ', c.ClassName);
 
-  WriteLn('--- frueh freigegeben ---');
+  WriteLn('--- freed early ---');
   
   h.Describe;
   ShowShape(h);
   h.Free;
 
-  WriteLn('--- Klassen ---');
+  WriteLn('--- classes ---');
   
   
   dog.Speak;
@@ -125,7 +125,7 @@ begin
   cat.Speak;
   a := cat;
   if a is some x then
-    WriteLn('a is TCat: ', x is TCat, ', a is TDog: ', x is TDog, ', Leben: ', (x as TCat).Lives);
+    WriteLn('a is TCat: ', x is TCat, ', a is TDog: ', x is TDog, ', lives: ', (x as TCat).Lives);
   a := none;
   pets[1] := dog;
   pets[2] := cat;
@@ -135,5 +135,5 @@ begin
   end;
   WriteLn;
 
-  WriteLn('Ende');
+  WriteLn('End');
 end.

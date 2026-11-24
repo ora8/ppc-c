@@ -1,7 +1,7 @@
-I = 42, Quadrat = 1764
-S = Hallo Welt (10 Zeichen)
+I = 42, SquareOf = 1764
+S = Hello Welt (10 characters)
 V = (6.0, 8.0)
 F[5] = 25
-lokal: 101
-frueh: 7
-wieder: 1 5
+local: 101
+early: 7
+again: 1 5

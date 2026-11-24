@@ -1,3 +1,0 @@
-module MitBlock;
-begin
-end.

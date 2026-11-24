@@ -1,20 +1,20 @@
---- Objekte ---
-Kreis bei (1,2) Flaeche=7.07
-Kreis bei (1,2) Flaeche=7.07
-Kreis bei (11,2) Flaeche=7.07
-Rechteck(Shape) bei (0,0) Flaeche=12.00
-  Destroy Rechteck(Shape)
-c is TShape: TRUE, c is TRect: FALSE, Klasse: TCircle
---- frueh freigegeben ---
-Rechteck(Shape) bei (5,5) Flaeche=4.00
-Rechteck(Shape) bei (5,5) Flaeche=4.00
-  Destroy Rechteck(Shape)
---- Klassen ---
-Bello (TDog, 4 Beine) sagt Wuff
-Minka (TCat, 3 Beine) sagt Miau
-a is TCat: TRUE, a is TDog: FALSE, Leben: 7
+--- objects ---
+Circle at (1,2) Area=7.07
+Circle at (1,2) Area=7.07
+Circle at (11,2) Area=7.07
+Rectangle(Shape) at (0,0) Area=12.00
+  Destroy Rectangle(Shape)
+c is TShape: TRUE, c is TRect: FALSE, class: TCircle
+--- freed early ---
+Rectangle(Shape) at (5,5) Area=4.00
+Rectangle(Shape) at (5,5) Area=4.00
+  Destroy Rectangle(Shape)
+--- classes ---
+Bello (TDog, 4 legs) says Wuff
+Minka (TCat, 3 legs) says Miau
+a is TCat: TRUE, a is TDog: FALSE, lives: 7
 Bello Minka 
-Ende
-  Bello wird freigegeben
-  Minka wird freigegeben
-  Destroy Kreis
+End
+  Bello is freed
+  Minka is freed
+  Destroy Circle

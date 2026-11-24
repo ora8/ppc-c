@@ -1,78 +1,78 @@
 program Generics;
-{ Generische Records und Klassen (Stufe 1): TPaar<A, B>, TListe<T>, rekursiv, Vererbung von Instanzen }
+{ generic records and classes (stage 1): TPair<A, B>, TList<T>, recursive, inheritance from instances }
 type
-  TPaar<A, B> = record
-    Erstes: A;
-    Zweites: B;
+  TPair<A, B> = record
+    First: A;
+    Second: B;
     function Text: String; const;
   end;
 
-  TListe<T> = class
-    Elemente: array[1..10] of optional T;
-    Anzahl: Integer;
+  TList<T> = class
+    Items: array[1..10] of optional T;
+    Size: Integer;
     procedure Add(vao x: T);
-    function Hole(i: Integer): var optional T;
-    function Laenge: Integer; const;
+    function Get(i: Integer): var optional T;
+    function Len: Integer; const;
   end;
 
-  TKnoten<T> = class                     { rekursiv }
-    Wert: T;
-    Next: optional TKnoten<T>;
+  TNode<T> = class                     { recursive }
+    Value: T;
+    Next: optional TNode<T>;
   end;
 
-  TKunde = class
+  TCustomer = class
     Name: String;
     constructor Create(AName: String const);
     destructor Destroy; override;
   end;
 
-  TKundenListe = class(TListe<TKunde>)
-    function Suche(N: String const): var optional TKunde;
+  TCustomerList = class(TList<TCustomer>)
+    function Find(N: String const): var optional TCustomer;
   end;
 
-constructor TKunde.Create(AName: String const); begin inherited Create; Name := AName; end;
-destructor TKunde.Destroy; begin WriteLn('  frei ', Name); inherited Destroy; end;
+constructor TCustomer.Create(AName: String const); begin inherited Create; Name := AName; end;
+destructor TCustomer.Destroy; begin WriteLn('  freed ', Name); inherited Destroy; end;
 
-function TPaar<A, B>.Text: String; const;
-begin Result := 'Paar'; end;
+function TPair<A, B>.Text: String; const;
+begin Result := 'MakePair'; end;
 
-procedure TListe<T>.Add(vao x: T);
+procedure TList<T>.Add(vao x: T);
 begin
-  Inc(Anzahl);
-  Elemente[Anzahl] := x;
+  Inc(Size);
+  Items[Size] := x;
 end;
 
-function TListe<T>.Hole(i: Integer): var optional T;
-begin Result := Elemente[i]; end;
+function TList<T>.Get(i: Integer): var optional T;
+begin Result := Items[i]; end;
 
-function TListe<T>.Laenge: Integer; const;
-begin Result := Anzahl; end;
+function TList<T>.Len: Integer; const;
+begin Result := Size; end;
 
-function TKundenListe.Suche(N: String const): var optional TKunde;
+function TCustomerList.Find(N: String const): var optional TCustomer;
 begin
   Result := none;
-  for val i := 1 to Anzahl do
-    if Elemente[i] is some k then
+  for val i := 1 to Size do
+    if Items[i] is some k then
       if k.Name = N then Result := k;
 end;
 
 val
-  p: TPaar<String, Integer> := (Erstes: 'Anna'; Zweites: 30);
+  p: TPair<String, Integer> := (First: 'Anna'; Second: 30);
 vao
-  zahlen := TListe<Integer>.Create;
-  kunden := TKundenListe.Create;
-  k1 := TKnoten<String>.Create;
+  numbers := TList<Integer>.Create;
+  customers := TCustomerList.Create;
+  k1 := TNode<String>.Create;
 begin
-  WriteLn(p.Erstes, ' ', p.Zweites, ' ', p.Text);
-  zahlen.Add(10);
-  zahlen.Add(20);
-  if zahlen.Hole(2) is some z then WriteLn('zahlen[2] = ', z, ', Laenge ', zahlen.Laenge);
-  kunden.Add(TKunde.Create('Anna'));
-  kunden.Add(TKunde.Create('Bert'));
-  if kunden.Suche('Bert') is some k then WriteLn('gefunden: ', k.Name);
-  WriteLn(kunden.ClassName, ' erbt von TListe<TKunde>, Laenge ', kunden.Laenge);
-  k1.Wert := 'eins';
-  k1.Next := TKnoten<String>.Create;
-  if k1.Next is some n then n.Wert := 'zwei';
-  WriteLn(k1.Wert);
+  WriteLn(p.First, ' ', p.Second, ' ', p.Text);
+  numbers.Add(10);
+  numbers.Add(20);
+  if numbers.Get(2) is some z then WriteLn('numbers[2] = ', z, ', Len ', numbers.Len);
+  customers.Add(TCustomer.Create('Anna'));
+  customers.Add(TCustomer.Create('Bert'));
+  if customers.Find('Bert') is some k then WriteLn('found: ', k.Name);
+  WriteLn(customers.ClassName, ' inherits from TList<TCustomer>, Len ', customers.Len);
+  k1.Value := 'eins';
+  k1.Next := TNode<String>.Create;
+  if k1.Next is some n then n.Value := 'zwei';
+  WriteLn(k1.Value);
 end.

@@ -1,19 +1,19 @@
 program Optionals;
-{ optional T wie Option<T> (Rust) / std::optional<T> (C++) }
+{ optional T like Option<T> (Rust) / std::optional<T> (C++) }
 type
-  TKnoten = class
-    Wert: Integer;
-    Next: optional TKnoten;
+  TNode = class
+    Value: Integer;
+    Next: optional TNode;
     constructor Create(W: Integer);
   end;
-  TEintrag = record
+  TEntry = record
     Name: String;
-    Alter: optional Integer;           { Wert-Optional als Record-Feld }
+    Age: optional Integer;           { value optional as a record field }
   end;
 
-constructor TKnoten.Create(W: Integer); begin inherited Create; Wert := W; end;
+constructor TNode.Create(W: Integer); begin inherited Create; Value := W; end;
 
-function Wurzel(x: Real): optional Real;
+function Root(x: Real): optional Real;
 begin
   if x < 0 then Result := none else Result := Sqrt(x);
 end;
@@ -31,13 +31,13 @@ begin
   Result := v;                         { Integer -> some(v) }
 end;
 
-function Gross(k: optional TKnoten): Boolean;
+function Big(k: optional TNode): Boolean;
 begin
   Result := False;
-  if (k is some x) and (x.Wert > 10) then Result := True;
+  if (k is some x) and (x.Value > 10) then Result := True;
 end;
 
-function Beschreibe(o: optional Integer): String;
+function Describe(o: optional Integer): String;
 begin
   case o of
     some v: Result := 'some(' + IntToStr(v) + ')';
@@ -49,56 +49,56 @@ val
   a, b: optional Integer := none;
   r: optional Real := none;
   s: optional String := none;
-  e: TEintrag := default;
+  e: TEntry := default;
   tab: array[1..3] of optional Integer := default;
-  i, summe: Integer := default;
-  var p: optional TKnoten := none;
+  i, total: Integer := default;
+  var p: optional TNode := none;
 vao
-  liste: optional TKnoten := none;
-  k: TKnoten := TKnoten.Create(3);
+  list: optional TNode := none;
+  k: TNode := TNode.Create(3);
 begin
   a := 7;
-  WriteLn('a = ', Beschreibe(a), ', b = ', Beschreibe(b));
+  WriteLn('a = ', Describe(a), ', b = ', Describe(b));
   WriteLn('HasValue: ', a.HasValue, ' ', b.HasValue, ', ValueOr: ', a.ValueOr(0), ' ', b.ValueOr(-1));
-  if a <> none then WriteLn('a ist gesetzt');
-  if b = none then WriteLn('b ist leer');
+  if a <> none then WriteLn('a is set');
+  if b = none then WriteLn('b is empty');
 
   r := 3;                              { Integer -> optional Real }
   if r is some x then WriteLn('r = ', x:0:1);
-  case Wurzel(16) of some w: WriteLn('Wurzel(16) = ', w:0:1); none: WriteLn('keine Wurzel'); end;
-  case Wurzel(-1) of some w: WriteLn('Wurzel(-1) = ', w:0:1); none: WriteLn('Wurzel(-1): keine'); end;
+  case Root(16) of some w: WriteLn('Root(16) = ', w:0:1); none: WriteLn('no root'); end;
+  case Root(-1) of some w: WriteLn('Root(-1) = ', w:0:1); none: WriteLn('Root(-1): none'); end;
 
-  WriteLn('Parse: ', Beschreibe(Parse('123')), ' ', Beschreibe(Parse('12x')), ' ', Beschreibe(Parse('')));
+  WriteLn('Parse: ', Describe(Parse('123')), ' ', Describe(Parse('12x')), ' ', Describe(Parse('')));
 
-  s := 'Hallo';
-  if (s is some t) and (Length(t) > 3) then WriteLn('s = ', t, ' (', Length(t), ' Zeichen)');
+  s := 'Hello';
+  if (s is some t) and (Length(t) > 3) then WriteLn('s = ', t, ' (', Length(t), ' characters)');
   s := none;
   case s of
     some t: WriteLn('s = ', t);
   else
-    WriteLn('s ist leer');
+    WriteLn('s is empty');
   end;
 
   e.Name := 'Bert';
-  WriteLn(e.Name, ': ', Beschreibe(e.Alter));
-  e.Alter := 42;
-  WriteLn(e.Name, ': ', Beschreibe(e.Alter));
+  WriteLn(e.Name, ': ', Describe(e.Age));
+  e.Age := 42;
+  WriteLn(e.Name, ': ', Describe(e.Age));
 
   tab[2] := 5;
   tab[3] := 8;
-  summe := 0;
+  total := 0;
   for i := 1 to 3 do
-    if tab[i] is some v then summe := summe + v;
-  WriteLn('Summe der gesetzten Werte: ', summe);
+    if tab[i] is some v then total := total + v;
+  WriteLn('sum of the set values: ', total);
 
-  liste := TKnoten.Create(20);
+  list := TNode.Create(20);
   
-  if liste is some h then h.Next := k;
-  WriteLn('Gross(liste) = ', Gross(liste));
-  p := liste;
-  while p is some n do begin Write(n.Wert, ' '); p := n.Next; end;
+  if list is some h then h.Next := k;
+  WriteLn('Big(list) = ', Big(list));
+  p := list;
+  while p is some n do begin Write(n.Value, ' '); p := n.Next; end;
   WriteLn;
-  if Take(liste) is some erster then begin   { Take liefert den Besitz }
-    WriteLn('entnommen: ', erster.Wert, ', liste leer: ', liste = none);
+  if Take(list) is some first then begin   { Take hands over the ownership }
+    WriteLn('taken: ', first.Value, ', list empty: ', list = none);
   end;
 end.

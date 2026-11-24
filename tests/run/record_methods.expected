@@ -1,9 +1,9 @@
-a = (3.0, 4.0), Laenge 5.0
-a = (3.0, 4.0), b = (6.0, 8.0)  (b ist eine Kopie)
+a = (3.0, 4.0), Len 5.0
+a = (3.0, 4.0), b = (6.0, 8.0)  (b is a copy)
 a + b = (9.0, 12.0)
-Laenge von Vektor(6, 8): 10.0
+Len of vec(6, 8): 10.0
 a.Plus(b).Plus(a) = (12.0, 16.0)
-nach a.Breite := 10: (10.0, 4.0), Breite 10.0
-Flaeche 12.0, enthaelt (2,2): TRUE, enthaelt (5,1): FALSE
+after a.Width := 10: (10.0, 4.0), Width 10.0
+Area 12.0, contains (2,2): TRUE, contains (5,1): FALSE
 (10.0, 10.0) (20.0, 40.0) (30.0, 90.0) 
-mit with: (8.0, 6.0)
+with with: (8.0, 6.0)

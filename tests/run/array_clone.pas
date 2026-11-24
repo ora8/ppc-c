@@ -1,24 +1,24 @@
 program ArrayClone;
-{ Arrays mit Objekten: Zuweisung verschiebt, a.Clone kopiert tief }
+{ arrays with objects: assignment moves, a.Clone copies deeply }
 type
-  TTier = class
+  TAnimal = class
     Name: String;
     constructor Create(AName: String const);
     destructor Destroy; override;
-    function Clone: TTier; const; auto;
+    function Clone: TAnimal; const; auto;
   end;
-  TZoo = array[1..3] of optional TTier;
-  TGehege = record                       { Array in einem Record: Clone wird erzeugt }
-    Tiere: TZoo;
-    function Clone: TGehege; const; auto;
+  TZoo = array[1..3] of optional TAnimal;
+  TEnclosure = record                       { array in a record: Clone is generated }
+    Animals: TZoo;
+    function Clone: TEnclosure; const; auto;
   end;
 
-constructor TTier.Create(AName: String const); begin inherited Create; Name := AName; end;
-destructor TTier.Destroy; begin WriteLn('  frei ', Name); inherited Destroy; end;
+constructor TAnimal.Create(AName: String const); begin inherited Create; Name := AName; end;
+destructor TAnimal.Destroy; begin WriteLn('  freed ', Name); inherited Destroy; end;
 
-procedure Zeige(Titel: String; z: TZoo);
+procedure Show(Title: String; z: TZoo);
 begin
-  Write(Titel, ': ');
+  Write(Title, ': ');
   for val i := 1 to 3 do
     if z[i] is some t then Write(t.Name, ' ') else Write('- ');
   WriteLn;
@@ -28,43 +28,43 @@ val
   a: TZoo := default;
   b: TZoo := default;
   c: TZoo := default;
-  g: TGehege := default;
-  h: TGehege := default;
+  g: TEnclosure := default;
+  h: TEnclosure := default;
 begin
-  a[1] := TTier.Create('Leo');
-  a[2] := TTier.Create('Mia');
+  a[1] := TAnimal.Create('Leo');
+  a[2] := TAnimal.Create('Mia');
 
-  WriteLn('1. Zuweisung = Move');
-  b := a;                                { die Objekte wandern nach b, a ist leer }
-  Zeige('a', a);
-  Zeige('b', b);
+  WriteLn('1. assignment = move');
+  b := a;                                { the objects move to b, a is empty }
+  Show('a', a);
+  Show('b', b);
 
-  WriteLn('2. Kopie mit Clone, Element fuer Element');
+  WriteLn('2. copy with Clone, element by element');
   for val i := 1 to 3 do
     if b[i] is some t then c[i] := t.Clone;
-  if c[1] is some t then t.Name := 'Leo2';     { aendert nur die Kopie }
-  Zeige('b', b);
-  Zeige('c', c);
+  if c[1] is some t then t.Name := 'Leo2';     { changes only the copy }
+  Show('b', b);
+  Show('c', c);
 
-  WriteLn('3. Kopie des ganzen Arrays mit a.Clone');
+  WriteLn('3. copy of the whole array with a.Clone');
   val d := b.Clone;
   begin
     if d[2] is some t then t.Name := 'Mia2';
-    Zeige('b', b);
-    Zeige('d', d);
+    Show('b', b);
+    Show('d', d);
   end;
-  WriteLn('4. Kopie des ganzen Records mit Clone');
-  g.Tiere[1] := TTier.Create('Rex');
+  WriteLn('4. copy of the whole record with Clone');
+  g.Animals[1] := TAnimal.Create('Rex');
   h := g.Clone;
-  Zeige('g', g.Tiere);
-  Zeige('h', h.Tiere);
-  val zahlen: array[1..3] of Integer := (1, 2, 3);
+  Show('g', g.Animals);
+  Show('h', h.Animals);
+  val numbers: array[1..3] of Integer := (1, 2, 3);
   begin
-    val k := zahlen.Clone;                     { ohne Objekte: einfach eine Kopie }
+    val k := numbers.Clone;                     { without objects: simply a copy }
     begin
       k[1] := 9;
-      WriteLn('Zahlen: ', zahlen[1], ' ', k[1]);
+      WriteLn('Numbers: ', numbers[1], ' ', k[1]);
     end;
   end;
-  WriteLn('Programmende');
+  WriteLn('end of program');
 end.

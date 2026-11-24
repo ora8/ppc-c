@@ -1,20 +1,20 @@
 Original: Bern
-Chef der Kopie: Boss
-Kind der Kopie: Kind
-  frei Anna2
-  frei Adresse Basel
-  frei Kind
--- Ende Lokal
-  frei Anna
-  frei Adresse Bern
-  frei Kind
-Klasse: TMitarbeiter
+Boss of the copy: Boss
+Child of the copy: Child
+  freed Anna2
+  freed Address Basel
+  freed Child
+-- end of Local
+  freed Anna
+  freed Address Bern
+  freed Child
+Class: TEmployee
 Nr: 7
-  frei Max
-  frei Adresse Zug
-  frei Max
-  frei Adresse Zug
+  freed Max
+  freed Address Zug
+  freed Max
+  freed Address Zug
 Record-Original: Chur
-  frei Adresse Thun
-  frei Adresse Chur
-  frei Boss
+  freed Address Thun
+  freed Address Chur
+  freed Boss

@@ -1,15 +1,15 @@
   p4: 4
-  q leer: TRUE
-  frei 5
-  frei 9
-Lokal Ende
-  frei 7
-  frei 8
-  frei 3
-  frei 4
-  frei 6
-  frei 1
-  frei 2
-Programmende
-  frei 10
-  frei 11
+  q empty: TRUE
+  freed 5
+  freed 9
+end of Local
+  freed 7
+  freed 8
+  freed 3
+  freed 4
+  freed 6
+  freed 1
+  freed 2
+end of program
+  freed 10
+  freed 11

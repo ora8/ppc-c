@@ -1,14 +1,14 @@
---- vao: Besitzer
-  lokal: 10
-  frei: lokal
+--- vao: owner
+  local: 10
+  freed: local
   stack: 6
-  frei: stack
+  freed: stack
   Anna: 75
   Bert: 10
---- var: Referenz ohne Besitz
-  zahl = 44, anna = 80
+--- var: reference without ownership
+  number = 44, anna = 80
 --- const
   p = (100, 0), limit = 100
---- Programmende
-  frei: Bert
-  frei: Anna
+--- end of program
+  freed: Bert
+  freed: Anna

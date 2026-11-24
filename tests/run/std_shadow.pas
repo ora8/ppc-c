@@ -1,19 +1,19 @@
 program StdShadow;
-{ eigene Namen verdecken die der Bibliothek; die Bibliothek benutzt weiter ihre eigenen }
+{ names of the program hide those of the library; the library keeps using its own }
 import ppc_std;
 type
-  TStapel = record Hoehe: Integer; end;          { verdeckt TStapel<T> aus ppc_std }
+  TStack = record Height: Integer; end;          { hides TStack<T> of ppc_std }
 
-function Suche(x: Integer): String;              { verdeckt Suche<T> }
-begin Result := 'eigene Suche ' + IntToStr(x); end;
+function IndexOf(x: Integer): String;              { hides IndexOf<T> }
+begin Result := 'own IndexOf ' + IntToStr(x); end;
 
 val
-  s: TStapel := (Hoehe: 3);
+  s: TStack := (Height: 3);
   a: array of Integer := (3, 1, 2);
-vao l := TListe<Integer>.Create;
+vao l := TList<Integer>.Create;
 begin
-  WriteLn(s.Hoehe, ' ', Suche(5));
-  Sortiere(a);
+  WriteLn(s.Height, ' ', IndexOf(5));
+  Sort(a);
   WriteLn(a[0], a[1], a[2]);
   l.Add(4);
   WriteLn(l.Count);

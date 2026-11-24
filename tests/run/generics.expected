@@ -1,7 +1,7 @@
-Anna 30 Paar
-zahlen[2] = 20, Laenge 2
-gefunden: Bert
-TKundenListe erbt von TListe<TKunde>, Laenge 2
+Anna 30 MakePair
+numbers[2] = 20, Len 2
+found: Bert
+TCustomerList inherits from TList<TCustomer>, Len 2
 eins
-  frei Anna
-  frei Bert
+  freed Anna
+  freed Bert

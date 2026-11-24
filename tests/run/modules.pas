@@ -1,15 +1,15 @@
 program Module;
-{ eigene Module: 'import Geometrie' laedt Geometrie.pas aus demselben Verzeichnis }
-import ppc_std, Geometrie;
+{ modules of our own: 'import Geometry' loads Geometry.pas from the same directory }
+import ppc_std, Geometry;
 
 val
-  a: TPunkt := (X: 0; Y: 0);
-  b: TPunkt := (X: 3; Y: 4);
-vao figuren := TListe<TFigur>.Create;
+  a: TPoint := (X: 0; Y: 0);
+  b: TPoint := (X: 3; Y: 4);
+vao figures := TList<TFigure>.Create;
 begin
-  WriteLn('Abstand: ', a.Abstand(b):0:1);
-  figuren.Add(TKreis.Create(1));
-  figuren.Add(TKreis.Create(2));
-  WriteLn('Flaeche: ', Gesamtflaeche(figuren):0:2);
-  if figuren.Hole(0) is some f then WriteLn(f.Name, ' ', f.ClassName);
+  WriteLn('Distance: ', a.Distance(b):0:1);
+  figures.Add(TCircle.Create(1));
+  figures.Add(TCircle.Create(2));
+  WriteLn('Area: ', TotalArea(figures):0:2);
+  if figures.Get(0) is some f then WriteLn(f.Name, ' ', f.ClassName);
 end.

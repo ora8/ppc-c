@@ -1,4 +1,4 @@
-program Inferenz;
+program Inference;
 type
   TFoo = class
     V: Integer;
@@ -10,10 +10,10 @@ destructor TFoo.Destroy; begin WriteLn('  Destroy TFoo ', V); inherited Destroy;
 
 procedure Demo;
 vao
-  I := 5;                     { besitzter Heapwert, Typ Integer aus dem Initialisierer }
+  I := 5;                     { owned heap value, type Integer from the initializer }
 val
-  N := 3.5;                   { Wert, Typ Real }
-  S := 'Hallo';               { Typ String }
+  N := 3.5;                   { value, type Real }
+  S := 'Hello';               { type String }
 begin
   I := I * 2;
   WriteLn('I = ', I, ', N = ', N:0:1, ', S = ', S);
@@ -24,24 +24,24 @@ val
 begin
   Demo;
   begin
-    WriteLn('ohne Deklaration: normaler begin-Block');
+    WriteLn('without declarations: a normal begin block');
   end;
   val
     j: Integer := default;
     k := 10;
-    vao s := TFoo.Create(1);                  { Besitzer im Block }
+    vao s := TFoo.Create(1);                  { owner in the block }
   vao
     h := TFoo.Create(2);       
   begin
     j := i + k;
     
-    WriteLn('im Block: j = ', j, ', s.V = ', s.V, ', h.V = ', h.V);
-  end;                        { s und h werden hier freigegeben }
-  WriteLn('nach dem Block');
+    WriteLn('in the block: j = ', j, ', s.V = ', s.V, ', h.V = ', h.V);
+  end;                        { s and h are freed here }
+  WriteLn('after the block');
   while i < 2 do
     val q := i * 100;
     begin
-      WriteLn('Schleife: q = ', q);
+      WriteLn('loop: q = ', q);
       Inc(i);
     end;
 end.

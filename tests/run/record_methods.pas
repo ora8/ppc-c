@@ -1,69 +1,69 @@
 program RecordMethods;
-{ Records mit Methoden: Werttypen mit Verhalten, ohne Klasse und Heap }
+{ records with methods: value types with behaviour, without class and heap }
 type
-  TVektor = record
+  TVector = record
     X, Y: Real;
-    procedure Setze(AX, AY: Real);
-    procedure Skaliere(F: Real);                 { aendert den Record selbst }
-    function Laenge: Real;
-    function Plus(B: TVektor const): TVektor;    { liefert einen neuen Wert }
-    function AlsText: String;
-    property Breite: Real read X write X;
+    procedure Put(AX, AY: Real);
+    procedure Scale(F: Real);                 { changes the record itself }
+    function Len: Real;
+    function Plus(B: TVector const): TVector;    { returns a new value }
+    function AsText: String;
+    property Width: Real read X write X;
   end;
 
-  TRechteck = record
-    Ecke, Groesse: TVektor;                       { Records in Records }
-    function Flaeche: Real;
-    function Enthaelt(P: TVektor const): Boolean;
+  TRectangle = record
+    Corner, Magnitude: TVector;                       { Records in Records }
+    function Area: Real;
+    function Contains(P: TVector const): Boolean;
   end;
 
-procedure TVektor.Setze(AX, AY: Real); begin X := AX; Y := AY; end;
-procedure TVektor.Skaliere(F: Real); begin X := X * F; Y := Y * F; end;
-function TVektor.Laenge: Real; begin Result := Sqrt(Sqr(X) + Sqr(Y)); end;
-function TVektor.Plus(B: TVektor const): TVektor;
-begin Result.Setze(X + B.X, Y + B.Y); end;
-function TVektor.AlsText: String;
+procedure TVector.Put(AX, AY: Real); begin X := AX; Y := AY; end;
+procedure TVector.Scale(F: Real); begin X := X * F; Y := Y * F; end;
+function TVector.Len: Real; begin Result := Sqrt(Sqr(X) + Sqr(Y)); end;
+function TVector.Plus(B: TVector const): TVector;
+begin Result.Put(X + B.X, Y + B.Y); end;
+function TVector.AsText: String;
 val sx, sy: String := default;
 begin
   Str(X:0:1, sx); Str(Y:0:1, sy);
   Result := '(' + sx + ', ' + sy + ')';
 end;
 
-function TRechteck.Flaeche: Real; begin Result := Groesse.X * Groesse.Y; end;
-function TRechteck.Enthaelt(P: TVektor const): Boolean;
+function TRectangle.Area: Real; begin Result := Magnitude.X * Magnitude.Y; end;
+function TRectangle.Contains(P: TVector const): Boolean;
 begin
-  Result := (P.X >= Ecke.X) and (P.X <= Ecke.X + Groesse.X) and
-            (P.Y >= Ecke.Y) and (P.Y <= Ecke.Y + Groesse.Y);
+  Result := (P.X >= Corner.X) and (P.X <= Corner.X + Magnitude.X) and
+            (P.Y >= Corner.Y) and (P.Y <= Corner.Y + Magnitude.Y);
 end;
 
-function Vektor(AX, AY: Real): TVektor;          { "Konstruktor" als Funktion }
-begin Result.Setze(AX, AY); end;
+function vec(AX, AY: Real): TVector;          { "constructor" as a function }
+begin Result.Put(AX, AY); end;
 
 val
-  a, b, c: TVektor := default;
-  r: TRechteck := default;
-  punkte: array[1..3] of TVektor := default;
+  a, b, c: TVector := default;
+  r: TRectangle := default;
+  points: array[1..3] of TVector := default;
   i: Integer := default;
 begin
-  a.Setze(3, 4);
-  WriteLn('a = ', a.AlsText, ', Laenge ', a.Laenge:0:1);
-  b := a;                                         { Kopie }
-  b.Skaliere(2);
-  WriteLn('a = ', a.AlsText, ', b = ', b.AlsText, '  (b ist eine Kopie)');
+  a.Put(3, 4);
+  WriteLn('a = ', a.AsText, ', Len ', a.Len:0:1);
+  b := a;                                         { CopyOf }
+  b.Scale(2);
+  WriteLn('a = ', a.AsText, ', b = ', b.AsText, '  (b is a copy)');
   c := a.Plus(b);
-  WriteLn('a + b = ', c.AlsText);
-  WriteLn('Laenge von Vektor(6, 8): ', Vektor(6, 8).Laenge:0:1);   { Methode auf einem Ergebniswert }
-  WriteLn('a.Plus(b).Plus(a) = ', a.Plus(b).Plus(a).AlsText);
-  a.Breite := 10;
-  WriteLn('nach a.Breite := 10: ', a.AlsText, ', Breite ', a.Breite:0:1);
+  WriteLn('a + b = ', c.AsText);
+  WriteLn('Len of vec(6, 8): ', vec(6, 8).Len:0:1);   { method on a result value }
+  WriteLn('a.Plus(b).Plus(a) = ', a.Plus(b).Plus(a).AsText);
+  a.Width := 10;
+  WriteLn('after a.Width := 10: ', a.AsText, ', Width ', a.Width:0:1);
 
-  r.Ecke.Setze(0, 0);
-  r.Groesse.Setze(4, 3);
-  WriteLn('Flaeche ', r.Flaeche:0:1, ', enthaelt (2,2): ', r.Enthaelt(Vektor(2, 2)), ', enthaelt (5,1): ', r.Enthaelt(Vektor(5, 1)));
+  r.Corner.Put(0, 0);
+  r.Magnitude.Put(4, 3);
+  WriteLn('Area ', r.Area:0:1, ', contains (2,2): ', r.Contains(vec(2, 2)), ', contains (5,1): ', r.Contains(vec(5, 1)));
 
-  for i := 1 to 3 do punkte[i].Setze(i, i * i);
-  for i := 1 to 3 do punkte[i].Skaliere(10);
-  for i := 1 to 3 do Write(punkte[i].AlsText, ' ');
+  for i := 1 to 3 do points[i].Put(i, i * i);
+  for i := 1 to 3 do points[i].Scale(10);
+  for i := 1 to 3 do Write(points[i].AsText, ' ');
   WriteLn;
-  with r.Groesse do begin Skaliere(2); WriteLn('mit with: ', AlsText); end;
+  with r.Magnitude do begin Scale(2); WriteLn('with with: ', AsText); end;
 end.

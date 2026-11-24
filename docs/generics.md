@@ -1,199 +1,198 @@
-# Design: Generics für ppc
+# Design: generics for ppc
 
-Status: **abgenommen** (alle Vorschläge aus Abschnitt 8 angenommen). Stufe 1 (generische Records und Klassen), Stufe 2 (generische Funktionen und Prozeduren), Stufe 3 (Einschränkungen), Stufe 4 (Prüfung des Rumpfs gegen die Einschränkungen), Stufe 5 (dynamische Arrays) und Stufe 6 (Standardbibliothek `import ppc_std`) sind gebaut – alle Stufen sind fertig.
+Status: **accepted** (all proposals of section 8 accepted). Stage 1 (generic records and
+classes), stage 2 (generic functions and procedures), stage 3 (constraints), stage 4 (checking
+the body against the constraints), stage 5 (dynamic arrays) and stage 6 (standard library
+`import ppc_std`) are built – all stages are done.
 
-## 1. Ziel
+## 1. Goal
 
-Typen und Routinen sollen einmal geschrieben und für beliebige Typen benutzt werden können –
-geprüft beim Übersetzen, ohne `as`-Umwandlungen und so schnell wie von Hand geschriebener Code.
+Types and routines should be written once and be usable for any type – checked at compile time,
+without `as` casts and as fast as hand-written code.
 
 ```pascal
-vao kunden := TListe<TKunde>.Create;
-kunden.Add(TKunde.Create('Anna'));
-if kunden.Hole(1) is some k then WriteLn(k.Name);   { k ist ein TKunde, kein TObject }
+vao customers := TList<TCustomer>.Create;
+customers.Add(TCustomer.Create('Anna'));
+if customers.Get(0) is some k then WriteLn(k.Name);   { k is a TCustomer, not a TObject }
 
-WriteLn(Max(3, 7), ' ', Max('Anna', 'Bert'));        { Max<Integer>, Max<String> }
+WriteLn(Max(3, 7), ' ', Max('Anna', 'Bert'));          { Max<Integer>, Max<String> }
 ```
 
-**Nicht-Ziele:** keine Template-Metaprogrammierung wie in C++, keine Spezialisierung für einzelne
-Typen, keine Typparameter, die Werte sind (`array[1..N]` mit generischem `N`), kein Überladen.
+**Non-goals:** no template metaprogramming as in C++, no specialization for single types, no
+type parameters that are values (`array[1..N]` with a generic `N`), no overloading.
 
 ## 2. Syntax
 
-Im Stil von Delphi / Free Pascal (`<...>` hinter dem Namen):
+In the style of Delphi / Free Pascal (`<...>` after the name):
 
 ```pascal
 type
-  TPaar<A, B> = record                         { generischer Record }
-    Erstes: A;
-    Zweites: B;
+  TPair<A, B> = record                         { generic record }
+    First: A;
+    Second: B;
   end;
 
-  TListe<T> = class                            { generische Klasse }
-    Elemente: array[1..100] of optional T;
-    Anzahl: Integer;
+  TList<T> = class                             { generic class }
+    Items: array[1..100] of optional T;
+    Size: Integer;
     procedure Add(vao x: T);
-    function Hole(i: Integer): var optional T;
-    function Laenge: Integer; const;
+    function Get(i: Integer): var optional T;
+    function Len: Integer; const;
   end;
 
-  TKundenListe = class(TListe<TKunde>)         { erbt von einer Instanz }
-    function Suche(Name: String const): var optional TKunde;
+  TCustomerList = class(TList<TCustomer>)      { inherits from an instance }
+    function Find(Name: String const): var optional TCustomer;
   end;
 
-procedure TListe<T>.Add(vao x: T);             { Methoden wiederholen <T> }
+procedure TList<T>.Add(vao x: T);              { methods repeat <T> }
 begin
-  Inc(Anzahl);
-  Elemente[Anzahl] := x;                       { Move, auch wenn T ein Objekt ist }
+  Inc(Size);
+  Items[Size] := x;                            { move, even if T is an object }
 end;
 
-function Max<T: Comparable>(a, b: T): T;       { generische Funktion mit Einschränkung }
+function Max<T: Comparable>(a, b: T): T;       { generic function with a constraint }
 begin
   if a > b then Result := a else Result := b;
 end;
 ```
 
-Benutzung:
+Use:
 
 ```pascal
-val p: TPaar<String, Integer> := (Erstes: 'Anna'; Zweites: 30);
-vao l := TListe<TKunde>.Create;
-val m := Max(3, 7);                            { T aus den Argumenten: Integer }
-val r := Max<Real>(3, 7.5);                    { T ausdrücklich angegeben }
+val p: TPair<String, Integer> := (First: 'Anna'; Second: 30);
+vao l := TList<TCustomer>.Create;
+val m := Max(3, 7);                            { T from the arguments: Integer }
+val r := Max<Real>(3, 7.5);                    { T written out }
 ```
 
-**Mehrdeutigkeit von `<`:** In Ausdrücken kann `Max<Real>(…)` auch als Vergleich `Max < Real …`
-gelesen werden. Der Parser versucht deshalb nach einem Bezeichner zuerst `< Typliste >` gefolgt
-von `(`, `.` oder `;` zu lesen und fällt sonst auf den Vergleich zurück (der Parser arbeitet auf
-einem Token-Array, ein Zurückspringen ist billig). In Typen gibt es keine Mehrdeutigkeit.
+**Ambiguity of `<`:** in expressions, `Max<Real>(…)` could also be read as the comparison
+`Max < Real …`. After an identifier the parser therefore first tries to read `< type list >`
+followed by `(` or `.`, and otherwise falls back to the comparison (the parser works on a token
+array, so going back is cheap). In types there is no ambiguity.
 
-## 3. Einschränkungen (Constraints)
+## 3. Constraints
 
-Ohne Einschränkung darf man mit einem `T` nur das tun, was für **jeden** Typ geht: speichern,
-verschieben, ausleihen, übergeben, in `optional T` / `array of T` / `result T` verpacken.
-Alles andere muss angekündigt werden:
+Without a constraint you may only do with a `T` what works for **every** type: store, move,
+borrow, pass, wrap it in `optional T` / `array of T` / `result T`. Everything else must be
+announced:
 
-| Einschränkung | erlaubt im Rumpf | passende Typen |
+| Constraint | allowed in the body | fitting types |
 |---|---|---|
-| (keine) | speichern, verschieben, ausleihen | alle |
-| `T: class` | `T` ist ein Objekt: `ClassName`, `is`, `as`, `Free` | alle Klassen |
-| `T: TBasis` | alle Felder und Methoden von `TBasis` | `TBasis` und Nachfahren |
-| `T: Copy` | `b := a` kopiert, `a` bleibt gültig | Werte ohne Objekte (Zahlen, Strings, einfache Records) |
-| `T: Clone` | `x.Clone` | Klassen/Records mit `Clone`, Arrays davon |
-| `T: Equatable` | `=`, `<>` | Zahlen, Strings, Char, Boolean, Aufzählungen |
-| `T: Comparable` | zusätzlich `<`, `<=`, `>`, `>=` | Zahlen, Strings, Char, Aufzählungen |
-| `T: Numeric` | `+`, `-`, `*`, Zahl-Literale, Vergleiche | Integer-Typen, Real |
+| (none) | store, move, borrow | all |
+| `T: class` | `T` is an object: `ClassName`, `is`, `as`, `Free` | all classes |
+| `T: TBase` | all fields and methods of `TBase` | `TBase` and its descendants |
+| `T: Copy` | `b := a` copies, `a` stays valid | values without objects (numbers, strings, simple records) |
+| `T: Clone` | `x.Clone` | classes/records with `Clone`, arrays of them |
+| `T: Equatable` | `=`, `<>` | numbers, strings, Char, Boolean, enumerations |
+| `T: Comparable` | also `<`, `<=`, `>`, `>=` | numbers, strings, Char, enumerations |
+| `T: Numeric` | `+`, `-`, `*`, number literals, comparisons | integer types, Real |
 
-Mehrere Einschränkungen: `T: Clone, Comparable`; Parametergruppen mit Einschränkungen werden wie in Delphi mit `;` getrennt: `TMap<K: Comparable; V>`. Die Prüfung der Einschränkungen passiert bei
-jeder Instanziierung: `TListe<TKunde>` mit `T: Comparable` ergibt
-`"TKunde" does not satisfy 'T: Comparable' (required by TListe<T>)`.
+Several constraints: `T: Clone, Comparable`; parameter groups with constraints are separated by
+`;` as in Delphi: `TMap<K: Comparable; V>`. The constraints are checked at every instantiation:
+`TList<TCustomer>` with `T: Comparable` gives
+`"TCustomer" does not satisfy 'T: Comparable' (required by TList<T>)`.
 
-## 4. Besitz und Borrow Checker
+## 4. Ownership and the borrow checker
 
-Das ist der Teil, der ppc von Delphi unterscheidet. Grundsatz (wie in Rust): **Ein `T` ohne
-`Copy` wird im generischen Rumpf immer wie ein Besitzer behandelt.**
+This is the part where ppc differs from Delphi. Principle (as in Rust): **a `T` without `Copy`
+is always treated like an owner in the generic body.**
 
 ```pascal
-procedure TListe<T>.Tausche(i, j: Integer);
+procedure TList<T>.Swap(i, j: Integer);
 begin
-  val h := Take(Elemente[i]);       { ok: Take funktioniert für optional T }
-  Elemente[i] := Take(Elemente[j]);
-  Elemente[j] := h;                  { Move }
+  val h := Take(Items[i]);          { ok: Take works for optional T }
+  Items[i] := Take(Items[j]);
+  Items[j] := h;                     { move }
 end;
 
-function Zweimal<T>(a: T): TPaar<T, T>;
+function MoveTwice<T>(a: T): TPair<T, T>;
 begin
-  Result := (Erstes: a; Zweites: a); { Fehler: a würde zweimal verschoben – 'T: Copy' oder 'T: Clone' nötig }
+  Result := (First: a; Second: a);   { error: a would be moved twice – 'T: Copy' or 'T: Clone' needed }
 end;
 ```
 
-* Zuweisung von `T` ist ein **Move**; nach dem Move ist die Quelle tot. Mit `T: Copy` ist es eine
-  Kopie. So ist der Rumpf für Objekte **und** Werte richtig, und der Borrow Checker meldet
-  Fehler schon im generischen Code, nicht erst bei einer bestimmten Instanz.
-* `vao x: T` übernimmt den Besitz, `var x: T` ist eine Referenz, `x: T` leiht aus – genau wie
-  bei normalen Parametern.
-* **Speicherort von `val x: T`** (offene Frage, siehe 8.): Vorschlag: Im generischen Code heißt
-  `val x: T` „besitzt ein T an Ort und Stelle“. Für Werte liegt der Wert dort, für Objekte eine
-  besitzende Referenz (wie `vao`). Stackobjekte entstehen in generischem Code also nicht.
-* Felder vom Typ `T` besitzen ihren Inhalt; bei Objekten muss das Feld `optional T` sein, wie
-  heute bei Records (Speicher beginnt leer). Der Compiler verlangt das schon im generischen Typ.
-* Automatisches Freigeben, Moves von Arrays/Records mit Objekten und `Clone` funktionieren
-  unverändert, weil sie pro Instanz erzeugt werden.
+* Assigning a `T` is a **move**; after the move the source is dead. With `T: Copy` it is a copy.
+  So the body is correct for objects **and** values, and the borrow checker reports errors in
+  the generic code, not only for a particular instance.
+* `vao x: T` takes over the ownership, `var x: T` is a reference, `x: T` borrows – exactly as
+  for normal parameters.
+* **Storage of `val x: T`:** in generic code `val x: T` means "owns a T in place". For values
+  the value lives there, for objects an owning reference (like `vao`). So no stack objects are
+  created in generic code.
+* Fields of type `T` own their content; for objects the field must be `optional T`, as for
+  records today (memory starts empty). The compiler requires this already in the generic type.
+* Automatic freeing, moves of arrays/records with objects and `Clone` work unchanged, because
+  they are generated per instance.
 
-## 5. Prüfung und Übersetzung
+## 5. Checking and translation
 
-**Monomorphisierung:** Für jede benutzte Typkombination erzeugt der Compiler eine eigene Kopie
-des Typs bzw. der Routine – wie Rust und C++. `TListe<TKunde>` und `TListe<Integer>` werden zwei
-C-Structs mit eigenen Funktionen und eigener VMT. Das kostet zur Laufzeit nichts.
+**Monomorphization:** for every type combination used, the compiler creates its own copy of the
+type or the routine – like Rust and C++. `TList<TCustomer>` and `TList<Integer>` become two C
+structs with their own functions and their own VMT. This costs nothing at run time.
 
-* Namen im C-Code: `S12` mit Kommentar `/* TListe<TKunde> */`; `ClassName` liefert
-  `'TListe<TKunde>'`.
-* Gleiche Instanzen werden nur einmal erzeugt (Schlüssel: Name + Typargumente).
-* Rekursive Instanzen (`TBaum<T>` mit Feld `optional TBaum<T>`) funktionieren über die
-  vorhandenen Vorwärtsdeklarationen.
-* Unbeschränkte Verschachtelung (`TListe<TListe<TListe<...>>>`) wird nach 50 Ebenen abgebrochen.
+* Names in the C code: `S12` with the comment `/* TList<TCustomer> */`; `ClassName` returns
+  `'TList<TCustomer>'`.
+* Equal instances are created only once (key: name + type arguments).
+* Recursive instances (`TTree<T>` with a field `optional TTree<T>`) work through the existing
+  forward declarations.
+* Unlimited nesting (`TList<TList<TList<...>>>`) is stopped after 50 levels.
 
-**Typprüfung** – zwei Möglichkeiten:
+**Type checking** – two possibilities:
 
-1. **Pro Instanz** (wie C++-Templates): Der Rumpf wird mit eingesetzten Typen geprüft. Einfach zu
-   bauen, nutzt die vorhandene Typprüfung fast unverändert. Nachteil: Fehler im generischen Code
-   erscheinen erst, wenn er benutzt wird, und die Meldung nennt die Instanz.
-2. **Gegen die Einschränkungen** (wie Rust): Der Rumpf wird einmal mit „abstraktem“ `T` geprüft;
-   jede Benutzung von `T`, die keine Einschränkung erlaubt, ist sofort ein Fehler. Bessere
-   Meldungen, aber deutlich mehr Arbeit in der Typprüfung.
+1. **Per instance** (like C++ templates): the body is checked with the actual types. Simple to
+   build, uses the existing type checking almost unchanged. Drawback: errors in generic code
+   only appear when it is used, and the message names the instance.
+2. **Against the constraints** (like Rust): the body is checked once with an "abstract" `T`;
+   every use of `T` that no constraint allows is an error at once. Better messages, but much
+   more work in the type checker.
 
-**Umsetzung:** (1) seit Stufe 1; (2) seit Stufe 4: Jedes Generic wird zusätzlich einmal mit
-Platzhaltertypen geprüft, die genau das können, was ihre Einschränkungen erlauben (mit einer
-Basisklasse als Einschränkung ist der Platzhalter diese Klasse). Dabei entsteht kein Code; ein
-Generic mit Fehlern wird für seine Instanzen nicht noch einmal gemeldet. Meldungen in (1) sehen dann so aus:
+**Implementation:** (1) since stage 1; (2) since stage 4: every generic is additionally checked
+once with placeholder types that can do exactly what their constraints allow (with a base class
+as constraint the placeholder is that class). No code is produced for this; a generic with
+errors is not reported again for its instances.
 
-```
-liste.pas(12,5) Error: in TListe<TKunde>.Sortiere: operator '<' is not defined for "TKunde"
-                (declare 'T: Comparable' and use a type that supports it)
-```
+## 6. Prerequisite: growing arrays
 
-## 6. Voraussetzung: wachsende Arrays
+Generic containers are only half useful with `array[1..100] of optional T` – the size is fixed.
+`TList<T>`, `TStack<T>` and `TMap<K, V>` need memory that can grow. Two ways:
 
-Generische Container sind mit `array[1..100] of optional T` nur halb nützlich – die Größe steht
-fest. Für `TListe<T>`, `TStapel<T>` und `TMap<K, V>` braucht es Speicher, der wachsen kann. Zwei
-Wege:
+* **Dynamic arrays** `array of T` with `SetLength(a, n)`, `Length(a)`, index checks and
+  automatic freeing (owns its elements like a fixed array today).
+* or only a built-in generic class `TVec<T>` (like Rust's `Vec<T>`) on which everything else is
+  built.
 
-* **Dynamische Arrays** `array of T` mit `SetLength(a, n)`, `Length(a)`, Indexprüfung und
-  automatischer Freigabe (besitzt seine Elemente wie heute ein festes Array).
-* oder nur eine eingebaute generische Klasse `TVektor<T>` (wie Rusts `Vec<T>`), auf der alles
-  andere aufbaut.
+**Decision:** dynamic arrays `array of T` as a stage of their own before the containers.
 
-**Vorschlag:** dynamische Arrays `array of T` als eigene Stufe vor den Containern.
+## 7. Stages
 
-## 7. Ausbaustufen
-
-| Stufe | Inhalt | Ergebnis |
+| Stage | Contents | Result |
 |---|---|---|
-| 1 | generische Records und Klassen: Typparameter, Felder, Methoden, explizite Instanziierung `TListe<TKunde>`, Vererbung von Instanzen, Prüfung pro Instanz, Monomorphisierung | `TPaar<A, B>`, `TListe<T>` mit festem Array |
-| 2 | generische Funktionen und Prozeduren, Typableitung aus den Argumenten | `Max(3, 7)`, `Tausche<T>(var a, b: T)` |
-| 3 | Einschränkungen `class`, Basisklasse, `Copy`, `Clone`, `Equatable`, `Comparable`; Move-Regeln für `T` im Borrow Checker | `Sortiere<T: Comparable>` |
-| 4 | Prüfung des generischen Rumpfs gegen die Einschränkungen (Fehler ohne Instanz) | Rust-artige Meldungen |
-| 5 | dynamische Arrays `array of T` | wachsende Container |
-| 6 | kleine Standardbibliothek: `TListe<T>`, `TStapel<T>`, `TMap<K, V>`, `Sortiere`, `Suche` | als `import ppc_std` |
+| 1 | generic records and classes: type parameters, fields, methods, explicit instantiation `TList<TCustomer>`, inheritance from instances, checking per instance, monomorphization | `TPair<A, B>`, `TList<T>` with a fixed array |
+| 2 | generic functions and procedures, type inference from the arguments | `Max(3, 7)`, `Swap<T>(var a, b: T)` |
+| 3 | constraints `class`, base class, `Copy`, `Clone`, `Equatable`, `Comparable`, `Numeric` | `Sort<T: Comparable>` |
+| 4 | checking the generic body against the constraints (errors without an instance) | Rust-like messages |
+| 5 | dynamic arrays `array of T` | growing containers |
+| 6 | small standard library: `TList<T>`, `TStack<T>`, `TMap<K, V>`, `Sort`, `IndexOf` | as `import ppc_std` |
 
-Jede Stufe kommt mit eigenen Tests (Lauf- und Fehlertests), ASan-Prüfung und README-Abschnitt.
+Every stage comes with its own tests (run and error tests), an ASan check and a README section.
 
-## 8. Entscheidungen
+## 8. Decisions
 
-| Frage | Entscheidung |
+| Question | Decision |
 |---|---|
-| Syntax | `TListe<T>` wie Delphi |
-| `val x: T` für Objekt-Instanzen | besitzende Referenz wie `vao`; keine Stackobjekte in generischem Code |
-| Prüfstrategie | zuerst pro Instanz, ab Stufe 4 gegen die Einschränkungen |
-| Reihenfolge | dynamische Arrays als eigene Stufe vor den Containern |
-| Standardbibliothek | als ppc-Quelltext (`import ppc_std`) |
+| Syntax | `TList<T>` like Delphi |
+| `val x: T` for object instances | owning reference like `vao`; no stack objects in generic code |
+| Checking strategy | first per instance, from stage 4 against the constraints |
+| Order | dynamic arrays as a stage of their own before the containers |
+| Standard library | as Perfect Pascal source (`import ppc_std`) |
 
-Ursprüngliche Fragen:
+Original questions:
 
-1. **Syntax:** `TListe<T>` wie Delphi (Vorschlag) oder `TListe[T]` (keine Mehrdeutigkeit mit `<`)?
-2. **`val x: T` für Objekt-Instanzen:** besitzende Referenz wie `vao` (Vorschlag), oder in
-   generischem Code nur `vao`/`var` für `T` erlauben?
-3. **Prüfstrategie:** erst pro Instanz, später gegen Einschränkungen (Vorschlag) – oder gleich
-   Rust-artig?
-4. **Reihenfolge:** dynamische Arrays vor den Generics, danach oder parallel?
-5. **Standardbibliothek:** als ppc-Quelltext (`import ppc_std`) oder fest im Compiler wie `TObject`?
+1. **Syntax:** `TList<T>` like Delphi (proposal) or `TList[T]` (no ambiguity with `<`)?
+2. **`val x: T` for object instances:** owning reference like `vao` (proposal), or allow only
+   `vao`/`var` for `T` in generic code?
+3. **Checking strategy:** first per instance, later against the constraints (proposal) – or
+   Rust-like right away?
+4. **Order:** dynamic arrays before the generics, after them or in parallel?
+5. **Standard library:** as Perfect Pascal source (`import ppc_std`) or built into the compiler
+   like `TObject`?

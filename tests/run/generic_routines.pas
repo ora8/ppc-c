@@ -1,43 +1,43 @@
 program GenericRoutines;
-{ Generische Funktionen und Prozeduren (Stufe 2): Typ aus den Argumenten oder ausdruecklich }
+{ generic functions and procedures (stage 2): type from the arguments or written out }
 type
-  TKunde = class
+  TCustomer = class
     Name: String;
     constructor Create(AName: String const);
   end;
-  TPaar<A, B> = record
-    Erstes: A;
-    Zweites: B;
+  TPair<A, B> = record
+    First: A;
+    Second: B;
   end;
-constructor TKunde.Create(AName: String const); begin inherited Create; Name := AName; end;
+constructor TCustomer.Create(AName: String const); begin inherited Create; Name := AName; end;
 
 function Max<T: Comparable>(a, b: T): T;
 begin
   if a > b then Result := a else Result := b;
 end;
 
-procedure Tausche<T>(var a, b: T);
+procedure Swap<T>(var a, b: T);
 val h: T := a;
 begin
   a := b;
   b := h;
 end;
 
-function Paar<A, B>(x: A; y: B): TPaar<A, B>;
+function MakePair<A, B>(x: A; y: B): TPair<A, B>;
 begin
-  Result.Erstes := x;
-  Result.Zweites := y;
+  Result.First := x;
+  Result.Second := y;
 end;
 
-function Erstes<A, B>(p: TPaar<A, B>): A;
-begin Result := p.Erstes; end;
+function First<A, B>(p: TPair<A, B>): A;
+begin Result := p.First; end;
 
-function Fakultaet<T: Numeric>(n: T): T;          { rekursiv }
+function Factorial<T: Numeric>(n: T): T;          { recursive }
 begin
-  if n <= 1 then Result := 1 else Result := n * Fakultaet(n - 1);
+  if n <= 1 then Result := 1 else Result := n * Factorial(n - 1);
 end;
 
-function Name<T: TKunde>(k: T): String;
+function Name<T: TCustomer>(k: T): String;
 begin Result := k.Name; end;
 
 val
@@ -45,16 +45,16 @@ val
   j := 9;
   s := 'Anna';
   t := 'Bert';
-vao k := TKunde.Create('Carla');
+vao k := TCustomer.Create('Carla');
 begin
   WriteLn(Max(3, 7), ' ', Max('Anna', 'Bert'), ' ', Max(2.5, 1.0):0:1);
   WriteLn(Max(3, 7.5):0:1, ' ', Max<Real>(1, 2):0:1);
-  Tausche(i, j);
-  Tausche(s, t);
+  Swap(i, j);
+  Swap(s, t);
   WriteLn(i, ' ', j, ' ', s, ' ', t);
-  val p := Paar('x', 42);
+  val p := MakePair('x', 42);
   begin
-    WriteLn(p.Erstes, ' ', p.Zweites, ' ', Erstes(p));
+    WriteLn(p.First, ' ', p.Second, ' ', First(p));
   end;
-  WriteLn(Fakultaet(10), ' ', Name(k));
+  WriteLn(Factorial(10), ' ', Name(k));
 end.

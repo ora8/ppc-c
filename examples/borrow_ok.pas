@@ -1,23 +1,23 @@
 program BorrowOk;
-{ Ownership-Regeln von ppc an einem kleinen Adressbuch.
-  Besitzer:  'vao'-Variablen, Felder vom Klassentyp
-  Ausleihe:  'var'-Variablen, Parameter (auch 'T const')
-  Move:      Zuweisung Besitzer -> Besitzer, 'vao'-Parameter, Take()
-  optional:   nur solche Referenzen duerfen fehlen (none), z. B. das Listenende;
-             benutzt werden sie nach dem Auspacken mit 'is some' }
+{ Ownership rules of ppc with a small address book.
+  Owners:    'vao' variables, fields of class type
+  Borrows:   'var' variables, parameters (also 'T const')
+  Move:      assignment owner -> owner, 'vao' parameters, Take()
+  optional:  only such references may be missing (none), e.g. the end of a list;
+             they are used after unpacking with 'is some' }
 type
   TPerson = class
     Name: String;
-    Next: optional TPerson;               { besitzt den Nachfolger, none am Ende }
+    Next: optional TPerson;               { owns the successor, none at the end }
     constructor Create(AName: String const);
     destructor Destroy; override;
   end;
 
-  TBuch = class
-    Erste: optional TPerson;              { besitzt die ganze Kette }
-    procedure Neu(vao P: TPerson);     { uebernimmt den Besitz von P }
-    function Suche(N: String const): var optional TPerson;  { leiht nur aus }
-    function Entnimm: optional TPerson;   { gibt Besitz an den Aufrufer }
+  TBook = class
+    FirstPerson: optional TPerson;              { owns the whole chain }
+    procedure Fresh(vao P: TPerson);     { takes over the ownership of P }
+    function Find(N: String const): var optional TPerson;  { only borrows }
+    function TakeOut: optional TPerson;   { gives the ownership to the caller }
     destructor Destroy; override;
   end;
 
@@ -25,61 +25,61 @@ constructor TPerson.Create(AName: String const);
 begin inherited Create; Name := AName; end;
 
 destructor TPerson.Destroy;
-begin inherited Destroy; end;                 { Next wird automatisch freigegeben }
+begin inherited Destroy; end;                 { Next is freed automatically }
 
-procedure TBuch.Neu(vao P: TPerson);
+procedure TBook.Fresh(vao P: TPerson);
 begin
-  P.Next := Take(Erste);                 { Erste wird none, Kette wandert zu P.Next }
-  Erste := P;                            { Move: P ist danach verbraucht }
+  P.Next := Take(FirstPerson);                 { FirstPerson becomes none, the chain moves to P.Next }
+  FirstPerson := P;                            { Move: P is used up afterwards }
 end;
 
-function TBuch.Suche(N: String const): var optional TPerson;
+function TBook.Find(N: String const): var optional TPerson;
 var p: optional TPerson := none;
 begin
   Result := none;
-  p := Erste;
+  p := FirstPerson;
   while p is some x do begin
     if x.Name = N then begin Result := x; Exit; end;
     p := x.Next;
   end;
 end;
 
-function TBuch.Entnimm: optional TPerson;
+function TBook.TakeOut: optional TPerson;
 begin
-  Result := Take(Erste);
-  if Result is some r then Erste := Take(r.Next);
+  Result := Take(FirstPerson);
+  if Result is some r then FirstPerson := Take(r.Next);
 end;
 
-destructor TBuch.Destroy;
-begin inherited Destroy; end;                 { Erste (und die Kette) automatisch }
+destructor TBook.Destroy;
+begin inherited Destroy; end;                 { FirstPerson (and the chain) automatically }
 
-procedure Zeige(B: TBuch);               { Wertparameter = Ausleihe, darf nicht freigeben }
+procedure Show(B: TBook);               { value parameter = borrow, must not free }
 var p: optional TPerson := none;
 begin
-  p := B.Erste;
+  p := B.FirstPerson;
   while p is some x do begin Write(x.Name, ' '); p := x.Next; end;
   WriteLn;
 end;
 
 vao
-  buch := TBuch.Create;                  { Besitzer }
+  book := TBook.Create;                  { owners }
   anna: TPerson := TPerson.Create('Anna');
-  weg: optional TPerson := none;
+  gone: optional TPerson := none;
 var
-  treffer: optional TPerson := none;     { Ausleihe }
+  hit: optional TPerson := none;     { borrow }
 begin
   
-  buch.Neu(TPerson.Create('Bert'));      { Temporaeres Objekt direkt uebergeben }
+  book.Fresh(TPerson.Create('Bert'));      { pass a temporary object directly }
   
-  buch.Neu(anna);                        { Move: anna besitzt nichts mehr }
-  anna := TPerson.Create('Carla');       { neu belegen ist erlaubt }
-  buch.Neu(anna);
-  Zeige(buch);
+  book.Fresh(anna);                        { Move: anna owns nothing any more }
+  anna := TPerson.Create('Carla');       { assigning again is allowed }
+  book.Fresh(anna);
+  Show(book);
 
-  treffer := buch.Suche('Anna');         { Ausleihe aus dem Buch }
-  if treffer is some t then WriteLn('gefunden: ', t.Name);
+  hit := book.Find('Anna');         { borrow from the book }
+  if hit is some t then WriteLn('found: ', t.Name);
 
-  weg := buch.Entnimm;                   { Besitz kommt zurueck }
-  if weg is some w then WriteLn('entnommen: ', w.Name);
-  Zeige(buch);
-end.                                     { buch, anna und weg werden hier freigegeben }
+  gone := book.TakeOut;                   { ownership comes back }
+  if gone is some w then WriteLn('taken: ', w.Name);
+  Show(book);
+end.                                     { book, anna and gone are freed here }

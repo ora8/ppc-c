@@ -1,84 +1,84 @@
 program ValVarVao;
-{ Drei Arten von Variablen:
-    val  x := 5;                 Wert (Integer, String, Record, Array, optional)
-    val  s := TKonto.Create;     Stackobjekt: im Stackframe, Destroy am Blockende
-    var  r: Integer := x;        Referenz auf eine andere Variable, besitzt nichts
-    vao  o := TKonto.Create;     besitzt das Objekt: am Ende des Bereichs freigegeben
-  'T const' macht eine Variable oder einen Parameter unveraenderlich;
-  ein 'T const'-Parameter wird per Referenz uebergeben, ohne Kopie. }
+{ Three kinds of variables:
+    val  x := 5;                 value (Integer, String, record, array, optional)
+    val  s := TAccount.Create;   stack object: in the stack frame, Destroy at the end of the block
+    var  r: Integer := x;        reference to another variable, owns nothing
+    vao  o := TAccount.Create;   owns the object: freed at the end of the scope
+  'T const' makes a variable or a parameter unchangeable;
+  a 'T const' parameter is passed by reference, without a copy. }
 type
-  TKonto = class
+  TAccount = class
     Name: String;
-    Saldo: Integer;
-    constructor Create(AName: String const; ASaldo: Integer);
+    Balance: Integer;
+    constructor Create(AName: String const; ABalance: Integer);
     destructor Destroy; override;
-    class function Eroeffne(AName: String const): TKonto;   { ohne Self }
-    procedure Einzahlen(Betrag: Integer);
+    class function Open(AName: String const): TAccount;   { without Self }
+    procedure Deposit(Amount: Integer);
     function Info: String; const;
   end;
-  TPunkt = record
+  TPoint = record
     X, Y: Integer;
-    class function Ursprung: TPunkt;
+    class function Origin: TPoint;
   end;
 
-constructor TKonto.Create(AName: String const; ASaldo: Integer);
-begin inherited Create; Name := AName; Saldo := ASaldo; end;
-destructor TKonto.Destroy; begin WriteLn('  frei: ', Name); inherited Destroy; end;
-class function TKonto.Eroeffne(AName: String const): TKonto;
-begin Result := TKonto.Create(AName, 10); end;              { Startguthaben }
-procedure TKonto.Einzahlen(Betrag: Integer); begin Saldo := Saldo + Betrag; end;
-function TKonto.Info: String; const; begin Result := Name + ': ' + IntToStr(Saldo); end;
-class function TPunkt.Ursprung: TPunkt; begin Result := (X: 0; Y: 0); end;
+constructor TAccount.Create(AName: String const; ABalance: Integer);
+begin inherited Create; Name := AName; Balance := ABalance; end;
+destructor TAccount.Destroy; begin WriteLn('  freed: ', Name); inherited Destroy; end;
+class function TAccount.Open(AName: String const): TAccount;
+begin Result := TAccount.Create(AName, 10); end;              { Startguthaben }
+procedure TAccount.Deposit(Amount: Integer); begin Balance := Balance + Amount; end;
+function TAccount.Info: String; const; begin Result := Name + ': ' + IntToStr(Balance); end;
+class function TPoint.Origin: TPoint; begin Result := (X: 0; Y: 0); end;
 
-procedure Zeige(K: TKonto const);           { Ausleihe, nur lesbar }
+procedure Show(K: TAccount const);           { borrow, read-only }
 begin WriteLn('  ', K.Info); end;
 
-procedure Verdopple(var N: Integer);        { var-Parameter: aendert das Original }
+procedure Duplicate(var N: Integer);        { var parameter: changes the original }
 begin N := N * 2; end;
 
-procedure Lokal;
+procedure Local;
 vao
-  k := TKonto.Eroeffne('lokal');            { gehoert Lokal }
+  k := TAccount.Open('local');            { belongs to Local }
 begin
-  Zeige(k);
-end;                                        { k wird hier freigegeben }
+  Show(k);
+end;                                        { k is freed here }
 
-procedure Schnell;
+procedure Fast;
 val
-  s := TKonto.Create('stack', 5);           { Stackobjekt: kein malloc, kein free }
+  s := TAccount.Create('stack', 5);           { stack object: no malloc, no free }
 begin
-  s.Einzahlen(1);
-  Zeige(s);                                 { Ausleihe wie bei einem Heapobjekt }
-end;                                        { s.Destroy laeuft hier }
+  s.Deposit(1);
+  Show(s);                                 { borrow as with a heap object }
+end;                                        { s.Destroy runs here }
 
 val
-  zahl := 21;
-  p := TPunkt.Ursprung;
-  limit: Integer const := 100;              { unveraenderlich }
+  number := 21;
+  p := TPoint.Origin;
+  limit: Integer const := 100;              { unchangeable }
 vao
-  anna := TKonto.Create('Anna', 50);
-  bert := TKonto.Eroeffne('Bert');
+  anna := TAccount.Create('Anna', 50);
+  bert := TAccount.Open('Bert');
 begin
-  WriteLn('--- vao: Besitzer');
-  Lokal;
-  Schnell;
-  anna.Einzahlen(25);
-  Zeige(anna);
-  Zeige(bert);
+  WriteLn('--- vao: owner');
+  Local;
+  Fast;
+  anna.Deposit(25);
+  Show(anna);
+  Show(bert);
 
-  WriteLn('--- var: Referenz ohne Besitz');
+  WriteLn('--- var: reference without ownership');
   var
-    r: Integer := zahl;                     { r ist ein anderer Name fuer zahl }
-    k: TKonto := anna;                      { k leiht anna aus, gibt nichts frei }
+    r: Integer := number;                     { r is another name for number }
+    k: TAccount := anna;                      { k borrows anna, frees nothing }
   begin
     r := r + 1;
-    k.Einzahlen(5);
-    Verdopple(r);
+    k.Deposit(5);
+    Duplicate(r);
   end;
-  WriteLn('  zahl = ', zahl, ', anna = ', anna.Saldo);
+  WriteLn('  number = ', number, ', anna = ', anna.Balance);
 
   WriteLn('--- const');
   p.X := limit;
   WriteLn('  p = (', p.X, ', ', p.Y, '), limit = ', limit);
-  WriteLn('--- Programmende');
-end.                                        { anna und bert werden freigegeben }
+  WriteLn('--- end of program');
+end.                                        { anna and bert are freed }

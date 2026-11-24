@@ -1,72 +1,72 @@
 program Results;
-{ Fehler als Rueckgabewert: 'result T' (wie Result<T, E> in Rust) }
+{ errors as return values: 'result T' (like Result<T, E> in Rust) }
 type
-  TFehler = (KeinFehler, DurchNull, ZuGross);
-  TPunkt = record
+  TError = (NoError, DivByZero, TooBig);
+  TPoint = record
     X, Y: Integer;
   end;
-  TZaehler = class
+  TCounter = class
     N: Integer;
     destructor Destroy; override;
   end;
 
-destructor TZaehler.Destroy; begin WriteLn('  frei: Zaehler ', N); inherited Destroy; end;
+destructor TCounter.Destroy; begin WriteLn('  freed: Counter ', N); inherited Destroy; end;
 
-function Teile(a, b: Integer): result Integer;          { Fehler: String }
+function Divide(a, b: Integer): result Integer;          { error: String }
 begin
-  if b = 0 then Result := error('Division durch 0')
-  else Result := a div b;                               { Wert = ok(...) }
+  if b = 0 then Result := error('division by 0')
+  else Result := a div b;                               { Value = ok(...) }
 end;
 
-function Pruefe(n: Integer): result of TFehler;         { kein Wert, nur Erfolg oder Fehler }
+function Check(n: Integer): result of TError;         { no value, only success or error }
 begin
-  if n > 100 then Result := error(ZuGross) else Result := ok;
+  if n > 100 then Result := error(TooBig) else Result := ok;
 end;
 
-function Rechne(a, b, c: Integer): result Integer;
-vao z := TZaehler.Create;                               { wird auch beim Fehler freigegeben }
+function Compute(a, b, c: Integer): result Integer;
+vao z := TCounter.Create;                               { is freed on an error too }
 begin
-  val q := try Teile(a, b);                             { Fehler -> sofort zurueck }
+  val q := try Divide(a, b);                             { error -> return at once }
   begin
     z.N := q;
-    Result := try Teile(q, c);
+    Result := try Divide(q, c);
     Result := ok(q * 10);
   end;
 end;
 
-function Kette(n: Integer): result of TFehler;
+function Chain(n: Integer): result of TError;
 begin
-  try Pruefe(n);                                        { Anweisung: nur der Fehler zaehlt }
-  try Pruefe(n * 2);
-  WriteLn('  Kette ok fuer ', n);
+  try Check(n);                                        { statement: only the error counts }
+  try Check(n * 2);
+  WriteLn('  Chain ok for ', n);
 end;
 
-function Punkt(ok_: Boolean): result TPunkt;
+function MakePoint(ok_: Boolean): result TPoint;
 begin
-  if ok_ then Result := (X: 1; Y: 2) else Result := error('kein Punkt');
+  if ok_ then Result := (X: 1; Y: 2) else Result := error('no MakePoint');
 end;
 
-val r := Teile(10, 2);
+val r := Divide(10, 2);
 begin
   if r is ok v then WriteLn('10 / 2 = ', v);
-  case Teile(1, 0) of
-    ok v: WriteLn('Wert ', v);
-    error e: WriteLn('Fehler: ', e);
+  case Divide(1, 0) of
+    ok v: WriteLn('Value ', v);
+    error e: WriteLn('Error: ', e);
   end;
-  WriteLn('ValueOr: ', Teile(7, 0).ValueOr(-1), ' ', Teile(7, 7).ValueOr(-1));
-  WriteLn('IsOk: ', Teile(1, 1).IsOk, ', IsError: ', Teile(1, 0).IsError);
+  WriteLn('ValueOr: ', Divide(7, 0).ValueOr(-1), ' ', Divide(7, 7).ValueOr(-1));
+  WriteLn('IsOk: ', Divide(1, 1).IsOk, ', IsError: ', Divide(1, 0).IsError);
   WriteLn('-- try');
-  case Rechne(100, 5, 2) of ok v: WriteLn('Rechne = ', v); error e: WriteLn('Fehler: ', e); end;
-  case Rechne(100, 0, 2) of ok v: WriteLn('Rechne = ', v); error e: WriteLn('Fehler: ', e); end;
-  case Rechne(100, 5, 0) of ok v: WriteLn('Rechne = ', v); error e: WriteLn('Fehler: ', e); end;
-  WriteLn('-- ohne Wert');
-  if Kette(10) is ok then WriteLn('  ok');
-  if Kette(60) is error f then WriteLn('  Fehler ', Ord(f));
-  case Pruefe(500) of
-    ok: WriteLn('  passt');
-    error f: WriteLn('  zu gross: ', f = ZuGross);
+  case Compute(100, 5, 2) of ok v: WriteLn('Compute = ', v); error e: WriteLn('Error: ', e); end;
+  case Compute(100, 0, 2) of ok v: WriteLn('Compute = ', v); error e: WriteLn('Error: ', e); end;
+  case Compute(100, 5, 0) of ok v: WriteLn('Compute = ', v); error e: WriteLn('Error: ', e); end;
+  WriteLn('-- without a value');
+  if Chain(10) is ok then WriteLn('  ok');
+  if Chain(60) is error f then WriteLn('  Error ', Ord(f));
+  case Check(500) of
+    ok: WriteLn('  fits');
+    error f: WriteLn('  too big: ', f = TooBig);
   end;
   WriteLn('-- Record');
-  if Punkt(True) is ok p then WriteLn('  (', p.X, ',', p.Y, ')');
-  if Punkt(False) is error e then WriteLn('  ', e);
+  if MakePoint(True) is ok p then WriteLn('  (', p.X, ',', p.Y, ')');
+  if MakePoint(False) is error e then WriteLn('  ', e);
 end.

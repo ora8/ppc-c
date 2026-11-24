@@ -1,7 +1,7 @@
 program Basics;
 const
   N = 10;
-  Greeting = 'Hallo';
+  Greeting = 'Hello';
   Primes: array[1..5] of Integer = (2, 3, 5, 7, 11);
 type
   TColor = (Red, Green, Blue);
@@ -45,8 +45,8 @@ end;
 begin
   sum := 0;
   for i := 1 to N do sum := sum + i;
-  WriteLn('Summe 1..', N, ' = ', sum);
-  WriteLn(Greeting + ', Welt!', ' Laenge=', Length(Greeting));
+  WriteLn('Sum 1..', N, ' = ', sum);
+  WriteLn(Greeting + ', Welt!', ' Len=', Length(Greeting));
   WriteLn('10! = ', Fact(10));
   r := 22 / 7;
   WriteLn('r = ', r:0:4);
@@ -56,7 +56,7 @@ begin
   for col := Red to Blue do Write(col, ' ');
   WriteLn;
   p.X := 3; p.Y := 4;
-  with p do WriteLn('Punkt (', X, ',', Y, ')');
+  with p do WriteLn('MakePoint (', X, ',', Y, ')');
   for i := 0 to N - 1 do a[i] := i * i;
   WriteLn('a[7] = ', a[7]);
   for i := 1 to 3 do m[i, i] := i;
@@ -66,12 +66,12 @@ begin
   s[1] := 'X';
   WriteLn(s, ' pos(de)=', Pos('de', s), ' copy=', Copy(s, 2, 3));
   c := 'q';
-  if c in ['a'..'z'] then WriteLn(c, ' ist klein, gross: ', UpCase(c));
+  if c in ['a'..'z'] then WriteLn(c, ' is small, big: ', UpCase(c));
   case sum of
     1, 2: WriteLn('eins/zwei');
-    3..5: WriteLn('drei bis fuenf');
+    3..5: WriteLn('three to five');
   else
-    WriteLn('sonst');
+    WriteLn('otherwise');
   end;
   i := 0;
   repeat Inc(i, 2) until i >= 7;

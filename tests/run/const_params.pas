@@ -1,51 +1,51 @@
 program ConstParams;
-{ 'T const': unveraenderlich; als Parameter per Referenz, ohne Kopie }
+{ 'T const': unchangeable; as a parameter by reference, without a copy }
 type
-  TVektor = record
+  TVector = record
     X, Y: Real;
-    procedure Skaliere(F: Real);
-    function Laenge: Real; const;
+    procedure Scale(F: Real);
+    function Len: Real; const;
   end;
-  TGross = array[1..1000] of Integer;
-procedure TVektor.Skaliere(F: Real); begin X := X * F; Y := Y * F; end;
-function TVektor.Laenge: Real; const; begin Result := Sqrt(X * X + Y * Y); end;
+  TBig = array[1..1000] of Integer;
+procedure TVector.Scale(F: Real); begin X := X * F; Y := Y * F; end;
+function TVector.Len: Real; const; begin Result := Sqrt(X * X + Y * Y); end;
 
-function Summe(A: TGross const): Integer;     { keine Kopie von 4000 Bytes }
+function Sum(A: TBig const): Integer;     { no copy of 4000 bytes }
 begin
   Result := 0;
   for val i := 1 to 1000 do Result := Result + A[i];
 end;
 
-procedure Zeige(S: String const; V: TVektor const);
+procedure Show(S: String const; V: TVector const);
 begin
-  WriteLn(S, ': ', V.Laenge:0:1);                { Funktionen sind erlaubt }
+  WriteLn(S, ': ', V.Len:0:1);                { functions are allowed }
 end;
 
-function Doppelt(N: Integer const): Integer; begin Result := N * 2; end;
+function Twice(N: Integer const): Integer; begin Result := N * 2; end;
 
 procedure P(n: Integer);
 const
-  Max = 100;                    { Konstante zur Uebersetzungszeit }
+  Max = 100;                    { compile-time constant }
 val
-  Hoch: Integer const := n * n; { unveraenderlich, Wert zur Laufzeit }
+  Square: Integer const := n * n; { unchangeable, value at run time }
   Text: String const := 'n=' + IntToStr(n);
-  v: TVektor := default;
+  v: TVector := default;
 begin
   v.X := 3; v.Y := 4;
-  WriteLn(Max, ' ', Hoch, ' ', Text);
-  Zeige('v', v);
-  Zeige('temporaer', v);
-  WriteLn('Doppelt(Hoch + 1) = ', Doppelt(Hoch + 1));   { Ausdruck als const-Argument }
-  val w: TVektor const := v;    { unveraenderliche Kopie im Block }
+  WriteLn(Max, ' ', Square, ' ', Text);
+  Show('v', v);
+  Show('temporary', v);
+  WriteLn('Twice(Square + 1) = ', Twice(Square + 1));   { expression as a const argument }
+  val w: TVector const := v;    { unchangeable copy in the block }
   begin
-    WriteLn('w.Laenge = ', w.Laenge:0:1);
+    WriteLn('w.Len = ', w.Len:0:1);
   end;
 end;
 
 val
-  g: TGross := default;
+  g: TBig := default;
 begin
   for val i := 1 to 1000 do g[i] := i;
-  WriteLn('Summe = ', Summe(g));
+  WriteLn('Sum = ', Sum(g));
   P(7);
 end.

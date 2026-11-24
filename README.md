@@ -1,60 +1,63 @@
 # ppc – Perfect Pascal Compiler
 
-`ppc` (**Perfect Pascal Compiler**) ist der Compiler für **Perfect Pascal**, eine Weiterentwicklung von
-Pascal und Delphi. Die Sprache übernimmt von **Pascal** die klare Syntax (`begin … end`, `:=`,
-`procedure`/`function`, Records, Aufzählungen, Teilbereiche, `case`, `for … to/downto`) und von
-**Delphi** die Objektorientierung (Klassen mit `constructor`/`destructor`, `virtual`/`override`,
-`inherited`, Properties, `is`/`as`, Klassenmethoden, Records mit Methoden, Generics mit `<T>`).
-Darüber hinaus entwickelt sie beide weiter – mit Ideen aus Rust: Besitz und Ausleihen statt
-manueller Speicherverwaltung, `optional T` statt `nil`, `result T` statt Exceptions,
-Stack- und Heapobjekte derselben Klasse und unterschiedenes Groß-/Kleinschreiben.
+`ppc` (**Perfect Pascal Compiler**) is the compiler for **Perfect Pascal**, an evolution of
+Pascal and Delphi. The language takes the clear syntax of **Pascal** (`begin … end`, `:=`,
+`procedure`/`function`, records, enumerations, subranges, `case`, `for … to/downto`) and the
+object orientation of **Delphi** (classes with `constructor`/`destructor`, `virtual`/`override`,
+`inherited`, properties, `is`/`as`, class methods, records with methods, generics with `<T>`).
+Beyond that it develops both further – with ideas from Rust: ownership and borrowing instead of
+manual memory management, `optional T` instead of `nil`, `result T` instead of exceptions,
+stack and heap objects of the same class, and case-sensitive names.
 
-Perfect Pascal ist daher **nicht** quellcodekompatibel zu Delphi oder Free Pascal: Vertrautes sieht
-vertraut aus, aber `var`/`val`/`vao`, die Pflicht zur Initialisierung und die Regeln für Besitz
-unterscheiden sich bewusst.
+Perfect Pascal is therefore **not** source compatible with Delphi or Free Pascal: what is
+familiar looks familiar, but `var`/`val`/`vao`, mandatory initialization and the ownership rules
+differ on purpose.
 
-`ppc` übersetzt Perfect Pascal nach **C** und ruft danach `gcc` auf, um ein natives Programm zu
-erzeugen. Der Compiler ist selbst in C geschrieben (C11, keine Abhängigkeiten).
+`ppc` translates Perfect Pascal to **C** and then calls `gcc` to produce a native program. The
+compiler itself is written in C (C11, no dependencies).
 
-Besonderheiten:
+Highlights:
 
-* **Groß-/Kleinschreibung wird unterschieden** (anders als Standard-Pascal).
-* **Drei Arten von Variablen:** `val` für Werte und Stackobjekte, `var` für Referenzen ohne
-  Besitz und `vao` für Besitzer von Heapobjekten. Ein `vao` gibt sein Objekt automatisch frei,
-  wenn es den Gültigkeitsbereich verlässt (wie `Box<T>` in Rust); ein Stackobjekt wird am
-  Blockende abgebaut. Jede Variable wird bei der Deklaration initialisiert.
-* **Borrow Checker** nach dem Vorbild von Rust: prüft Besitz (Ownership), Ausleihen (Borrows)
-  und die Ausleihregeln (viele lesende *oder* eine änderbare Ausleihe) zur Compile-Zeit.
-* **Keine Zeiger und kein nil:** Es gibt kein `^`, `@`, `New`, `Dispose` und kein `nil`.
-  Werte, die fehlen können, haben den Typ **`optional T`** (wie `Option<T>` in Rust bzw.
-  `std::optional<T>` in C++) und müssen vor der Benutzung ausgepackt werden.
-* **Keine Exceptions:** Fehler sind Rückgabewerte vom Typ **`result T`** (wie `Result<T, E>` in
-  Rust), weitergegeben mit `try`.
-* **`T const`** macht Variablen, Parameter und Objekt-Referenzen unveränderlich;
-  `; const;` kennzeichnet Methoden, die `Self` nicht ändern.
-* **Klassenmethoden** (`class function`), **Records mit Methoden**, Record- und Array-Literale.
+* **Case-sensitive** (unlike standard Pascal).
+* **Three kinds of variables:** `val` for values and stack objects, `var` for references without
+  ownership and `vao` for owners of heap objects. A `vao` frees its object automatically when it
+  leaves its scope (like `Box<T>` in Rust); a stack object is destroyed at the end of its block.
+  Every variable is initialized in its declaration.
+* **Borrow checker** modelled on Rust: checks ownership, borrows and the borrowing rules (many
+  read-only *or* one changeable borrow) at compile time.
+* **No pointers and no nil:** there is no `^`, `@`, `New`, `Dispose` and no `nil`. Values that
+  may be missing have the type **`optional T`** (like `Option<T>` in Rust or `std::optional<T>`
+  in C++) and must be unpacked before use.
+* **No exceptions:** errors are return values of type **`result T`** (like `Result<T, E>` in
+  Rust), passed on with `try`.
+* **`T const`** makes variables, parameters and object references unchangeable; `; const;`
+  marks methods that do not change `Self`.
+* **Generics** (`TList<T>`, `Max<T: Comparable>`), **modules** (`module` / `import`) and a
+  **standard library** (`import ppc_std`).
+* **Class methods** (`class function`), **records with methods**, record and array literals,
+  dynamic arrays (`array of T`).
 
-## Bauen und benutzen
+## Building and using
 
 ```bash
-make            # erzeugt ./ppc
-make test       # Testsuite (Ausgaben, Borrow-/Optional-/Stackobjekt-/const-/result-/Clone-Fehler, Compile-Fehler)
+make            # builds ./ppc
+make test       # test suite (output, borrow/optional/stack/const/result/clone/generic errors, compile errors)
 ```
 
 ```bash
-./ppc programm.pas            # erzeugt ./programm
-./ppc -o hallo programm.pas   # Name des Programms
-./ppc -S programm.pas         # nur C-Code erzeugen (programm.c)
-./ppc -k programm.pas         # C-Datei zusätzlich behalten
-./ppc --no-borrow-check x.pas # Borrow Checker abschalten
-./ppc --no-nil-check x.pas    # Allokationsanalyse aus, stattdessen Prüfung zur Laufzeit
-./ppc --no-range-check x.pas  # keine Prüfung der Array-/String-Indizes zur Laufzeit
-./ppc --cc clang -O3 x.pas    # anderer C-Compiler / Optimierung
+./ppc program.pas             # produces ./program
+./ppc -o hello program.pas    # name of the program
+./ppc -S program.pas          # only produce the C code (program.c)
+./ppc -k program.pas          # keep the C file as well
+./ppc --no-borrow-check x.pas # switch off the borrow checker
+./ppc --no-nil-check x.pas    # no allocation analysis, check at run time instead
+./ppc --no-range-check x.pas  # no run-time check of array/string indexes
+./ppc --cc clang -O3 x.pas    # other C compiler / optimization
 ```
 
-## Fehlermeldungen
+## Error messages
 
-Der Compiler bricht nicht beim ersten Fehler ab, sondern meldet möglichst alle auf einmal:
+The compiler does not stop at the first error but reports as many as possible at once:
 
 ```
 prog.pas(4,15) Error: ')' expected but number 1 found
@@ -63,340 +66,337 @@ prog.pas(15,6) Error: expression expected but 'then' found
 prog.pas: 3 syntax error(s), compilation aborted
 ```
 
-* **Syntaxfehler:** Nach einem Fehler überspringt der Parser die kaputte Anweisung bis zum
-  nächsten `;` bzw. zum Ende des Blocks (bei einer Deklaration bis zu ihrem Ende, bei einer
-  Routine samt Rumpf) und liest danach weiter.
-* **Typfehler:** Ist der Text syntaktisch in Ordnung, prüft der Compiler jede Anweisung und jede
-  Deklaration für sich; eine fehlerhafte wird übersprungen. Ist die Deklaration einer Variablen
-  kaputt, werden ihre späteren Benutzungen nicht noch einmal gemeldet.
-* **Borrow Checker:** meldet ebenfalls alle gefundenen Fehler (er läuft nur, wenn es keine
-  Syntax- oder Typfehler gibt).
-* Nach 20 Fehlern hört der Compiler auf (`too many errors (20), stopping`).
+* **Syntax errors:** after an error the parser skips the broken statement up to the next `;` or
+  the end of the block (a declaration up to its end, a routine together with its body) and reads
+  on.
+* **Type errors:** if the text is syntactically fine, the compiler checks every statement and
+  every declaration on its own; a broken one is skipped. If the declaration of a variable is
+  broken, its later uses are not reported again.
+* **Borrow checker:** also reports all errors it finds (it only runs when there are no syntax or
+  type errors).
+* After 20 errors the compiler stops (`too many errors (20), stopping`).
 
-## Groß-/Kleinschreibung
+## Case sensitivity
 
-* Schlüsselwörter werden **klein** geschrieben: `program begin end if then class val var vao …`
-  (`Begin` ist ein Bezeichner, kein Schlüsselwort).
-* Bezeichner sind case-sensitiv: `Count` und `count` sind zwei verschiedene Namen.
-* Vordefinierte Namen in Delphi-Schreibweise: `Integer`, `Boolean`, `Char`, `Real`, `String`,
+* Keywords are written in **lower case**: `program begin end if then class val var vao …`
+  (`Begin` is an identifier, not a keyword).
+* Identifiers are case-sensitive: `Count` and `count` are two different names.
+* Predefined names in Delphi spelling: `Integer`, `Boolean`, `Char`, `Real`, `String`,
   `Byte`, `Word`, `Int64`, `Cardinal`, `True`, `False`, `MaxInt`, `Pi`,
   `WriteLn`, `Write`, `ReadLn`, `Read`, `Length`, `Ord`, `Chr`, `Inc`, `Dec`,
-  `TObject`, `Create`, `Destroy`, `Free`, `ClassName`, `Self`, `Result`, `Exit`, `Break`, `Continue` usw.
-* Direktiven/Modifizierer klein: `virtual`, `override`, `abstract`, `forward`, `private`,
-  `public`, `property … read … write …`, `optional`, `some`, `none`, `default`, `result`, `ok`, `error`, `try`, `auto`.
+  `TObject`, `Create`, `Destroy`, `Free`, `ClassName`, `Self`, `Result`, `Exit`, `Break`, `Continue` etc.
+* Directives/modifiers in lower case: `virtual`, `override`, `abstract`, `forward`, `private`,
+  `public`, `property … read … write …`, `optional`, `some`, `none`, `default`, `result`, `ok`,
+  `error`, `try`, `auto`.
 
-## Klassen
+## Classes
 
-Referenztypen, implizit von `TObject` abgeleitet:
+Reference types, implicitly derived from `TObject`:
 `constructor Create`, `destructor Destroy; override;`, `Free`, `ClassName`,
-`virtual`/`override`/`abstract`, `inherited`, Properties mit Feld- oder Methoden-Zugriff,
-`is`/`as`, `Self`, Sichtbarkeitsabschnitte (werden geparst, nicht erzwungen), Forward-Klassen
-(`TFoo = class;`). Objekte werden nur im Initialisierer erzeugt: als **Stackobjekt**
-`val k := TKreis.Create(1, 2, 3.0)` oder als **Heapobjekt** `vao k := TKreis.Create(1, 2, 3.0)`.
+`virtual`/`override`/`abstract`, `inherited`, properties with field or method access,
+`is`/`as`, `Self`, visibility sections (parsed, not enforced), forward classes
+(`TFoo = class;`). Objects are only created in an initializer: as a **stack object**
+`val k := TCircle.Create(1, 2, 3.0)` or as a **heap object** `vao k := TCircle.Create(1, 2, 3.0)`.
 
-### Klassenmethoden: `class function` / `class procedure`
+### Class methods: `class function` / `class procedure`
 
-Wie in Delphi gehören Klassenmethoden zur Klasse, nicht zu einem Objekt. Sie haben kein
-`Self` und werden über den Typnamen aufgerufen (auch bei Records):
+As in Delphi, class methods belong to the class, not to an object. They have no `Self` and are
+called through the type name (also for records):
 
 ```pascal
 type
-  TKonto = class
-    Saldo: Integer;
-    class function Eroeffne(AName: String const): TKonto;
+  TAccount = class
+    Balance: Integer;
+    class function Open(AName: String const): TAccount;
   end;
-  TPunkt = record
+  TPoint = record
     X, Y: Integer;
-    class function Ursprung: TPunkt;
+    class function Origin: TPoint;
   end;
 
-class function TKonto.Eroeffne(AName: String const): TKonto;
-begin Result := TKonto.Create(AName, 10); end;
-class function TPunkt.Ursprung: TPunkt; begin Result := (X: 0; Y: 0); end;
+class function TAccount.Open(AName: String const): TAccount;
+begin Result := TAccount.Create(AName, 10); end;
+class function TPoint.Origin: TPoint; begin Result := (X: 0; Y: 0); end;
 …
-vao k := TKonto.Eroeffne('Anna');
-val p := TPunkt.Ursprung;
+vao k := TAccount.Open('Anna');
+val p := TPoint.Origin;
 ```
 
-* Im Rumpf sind andere Klassenmethoden ohne Präfix aufrufbar; Felder, normale Methoden,
-  `Self` und `inherited` gibt es dort nicht.
-* Klassenmethoden können nicht `virtual`, `abstract`, `override` oder `; const;` sein;
-  Konstruktoren und Destruktoren sind keine Klassenmethoden.
-* Die Implementierung wiederholt `class` (`class function TKonto.Eroeffne …`).
+* In the body, other class methods can be called without a prefix; fields, normal methods,
+  `Self` and `inherited` do not exist there.
+* Class methods cannot be `virtual`, `abstract`, `override` or `; const;`; constructors and
+  destructors are not class methods.
+* The implementation repeats `class` (`class function TAccount.Open …`).
 
-## Variablen: `val`, `var` und `vao`
+## Variables: `val`, `var` and `vao`
 
-Neben `const` und `type` gibt es drei Variablenabschnitte. **Jede Variable wird bei der
-Deklaration mit `:=` initialisiert**; der Typ darf fehlen, dann kommt er aus dem Initialisierer.
+Besides `const` and `type` there are three variable sections. **Every variable is initialized in
+its declaration with `:=`**; the type may be left out, then it comes from the initializer.
 
-| | was die Variable enthält | besitzt? | gibt frei? | Rust | C++ |
+| | what the variable holds | owns? | frees? | Rust | C++ |
 |---|---|---|---|---|---|
-| **`val`** | den **Wert selbst** (Zahl, String, Record, Array, Stackobjekt) | ja | am Blockende (Stackobjekt: `Destroy`) | `let x: T` | `T x` |
-| **`vao`** | eine **besitzende Referenz** auf ein Objekt oder einen Wert auf dem Heap | ja | am Ende des Bereichs | `Box<T>` | `std::unique_ptr<T>` |
-| **`var`** | eine **gewöhnliche Referenz** auf etwas, das jemand anderem gehört | nein | nie | `&mut T` (`T const`: `&T`) | `T&` (`T const`: `const T&`) |
+| **`val`** | the **value itself** (number, string, record, array, stack object) | yes | at the end of the block (stack object: `Destroy`) | `let x: T` | `T x` |
+| **`vao`** | an **owning reference** to an object or a value on the heap | yes | at the end of the scope | `Box<T>` | `std::unique_ptr<T>` |
+| **`var`** | an **ordinary reference** to something that belongs to someone else | no | never | `&mut T` (`T const`: `&T`) | `T&` (`T const`: `const T&`) |
 
-Für Parameter gilt dasselbe Schema: `vao x: TFoo` übernimmt den Besitz, `var x: T` ist eine
-änderbare Referenz, `x: T` leiht ein Objekt aus bzw. kopiert einen einfachen Wert.
+Parameters follow the same scheme: `vao x: TFoo` takes over the ownership, `var x: T` is a
+changeable reference, `x: T` borrows an object or copies a simple value.
 
-| Deklaration | Bedeutung |
+| Declaration | Meaning |
 |---|---|
-| `val i := 5;` / `val i: Integer := 5;` | **Wert** (Zahlen, Strings, Records, Arrays, `optional`-Werte) |
-| `val v: TVektor := default;` | Nullwert des Typs (0, `''`, `False`, `none`, alle Felder 0) |
-| `val s := TKreis.Create(1, 2, 3.0);` | **Stackobjekt**: liegt im Stackframe, `Destroy` am Blockende, siehe unten |
-| `vao k := TKreis.Create(1, 2, 3.0);` | **Besitzer**: `k` besitzt das Objekt und gibt es am Ende frei |
-| `vao n: optional TKreis := none;` | Besitzer, der (noch) nichts besitzen darf |
-| `vao I: Integer := 42;` | **Heapwert**: ein Wert auf dem Heap, siehe unten |
-| `var r: TKreis := k;` | **Referenz ohne Besitz** (Ausleihe) auf ein Objekt; gibt nichts frei |
-| `var x: Integer := i;` | **Referenz auf eine Variable**: `x` ist ein zweiter Name für `i` (wie `int&` in C++) |
+| `val i := 5;` / `val i: Integer := 5;` | **value** (numbers, strings, records, arrays, `optional` values) |
+| `val v: TVector := default;` | zero value of the type (0, `''`, `False`, `none`, all fields 0) |
+| `val s := TCircle.Create(1, 2, 3.0);` | **stack object**: lives in the stack frame, `Destroy` at the end of the block, see below |
+| `vao k := TCircle.Create(1, 2, 3.0);` | **owner**: `k` owns the object and frees it at the end |
+| `vao n: optional TCircle := none;` | owner that may own nothing (yet) |
+| `vao I: Integer := 42;` | **heap value**: a value on the heap, see below |
+| `var r: TCircle := k;` | **reference without ownership** (borrow) to an object; frees nothing |
+| `var x: Integer := i;` | **reference to a variable**: `x` is a second name for `i` (like `int&` in C++) |
 
 ```pascal
 procedure Demo;
 vao
-  k := TKreis.Create(4, 5, 1.0);      { besitzt das Objekt }
+  k := TCircle.Create(4, 5, 1.0);     { owns the object }
 var
-  r: TFigur := k;                     { leiht es aus }
+  r: TFigure := k;                    { borrows it }
 val
   n := 3;
 begin
-  Zeige(r);                           { gleicher Typ, virtuelle Methoden, Polymorphie }
-end;                                  { k wird hier freigegeben, r nicht }
+  Show(r);                            { same type, virtual methods, polymorphism }
+end;                                  { k is freed here, r is not }
 ```
 
-* Eine Klassenvariable in `val` ist ein Stackobjekt und muss mit einem Konstruktor erzeugt werden;
-  `optional` geht nur mit `vao` oder `var`.
-* Die Initialisierer dürfen beliebige Ausdrücke sein. Sie werden ausgewertet, wenn die
-  Deklaration ausgeführt wird: beim Eintritt in die Routine bzw. in den Block (siehe „Blöcke“).
-* **Besitzer (`vao`)** geben ihr Objekt **automatisch frei**, wenn sie den Gültigkeitsbereich
-  verlassen (Routine, Block, Programm) – außer der Besitz wurde vorher weitergegeben: als
-  Funktionsergebnis (`Result := h`), über einen `var`-Parameter, an einen `vao`-Parameter, in ein
-  Feld oder einen anderen Besitzer, per `Take`. Wird ein Besitzer überschrieben, wird sein altes
-  Objekt freigegeben; gibt ein Objekt frei, werden seine besitzenden Felder mit freigegeben;
-  temporäre Objekte, die niemand übernimmt, am Ende der Anweisung.
-* `h.Free` ist erlaubt, um **früher** freizugeben. Benutzung danach und doppeltes `Free` sind
-  Fehler.
-* **Referenzen (`var`)** besitzen nichts. Bei Objekten sind sie Ausleihen; bei Werten
-  verweisen sie auf eine andere Variable (oder ein Feld, Array-Element, einen Heapwert) –
-  Lesen und Schreiben über `x` wirkt direkt auf das Original. Der Initialisierer muss eine
-  Variable sein, kein berechneter Wert. Für beide gelten die Ausleihregeln (siehe
-  „Borrow Checker“).
-* `var` bei Parametern (`procedure P(var x: Integer)`) bedeutet wie immer Übergabe per Referenz.
+* A class variable in `val` is a stack object and must be created with a constructor;
+  `optional` only works with `vao` or `var`.
+* Initializers may be any expressions. They are evaluated when the declaration is executed: on
+  entry to the routine or the block (see "Blocks").
+* **Owners (`vao`)** free their object **automatically** when they leave their scope (routine,
+  block, program) – unless the ownership was passed on before: as a function result
+  (`Result := h`), through a `var` parameter, to a `vao` parameter, into a field or another
+  owner, with `Take`. When an owner is overwritten, its old object is freed; when an object is
+  freed, its owning fields are freed with it; temporary objects that nobody takes are freed at
+  the end of the statement.
+* `h.Free` is allowed to free **earlier**. Using it afterwards and a double `Free` are errors.
+* **References (`var`)** own nothing. For objects they are borrows; for values they refer to
+  another variable (or a field, an array element, a heap value) – reading and writing through
+  `x` acts directly on the original. The initializer must be a variable, not a computed value.
+  The borrowing rules apply to both (see "Borrow checker").
+* `var` for parameters (`procedure P(var x: Integer)`) means passing by reference, as always.
 
-### Stackobjekte: `val k := TKlasse.Create(...)`
+### Stack objects: `val k := TClass.Create(...)`
 
-Wenn Geschwindigkeit zählt, kann ein Objekt direkt im Stackframe liegen (global: im
-Datensegment) – ohne `malloc` und `free`. Klasse, Methoden, Vererbung und VMT sind dieselben wie
-bei Heapobjekten:
+When speed matters, an object can live directly in the stack frame (globals: in the data
+segment) – without `malloc` and `free`. Class, methods, inheritance and VMT are the same as for
+heap objects:
 
 ```pascal
-procedure Male(F: TFigur);                  { nimmt Stack- und Heapobjekte }
+procedure Draw(F: TFigure);                 { takes stack and heap objects }
 
-procedure Lokal;
-val k := TKreis.Create(1, 2.5);             { im Stackframe konstruiert }
+procedure Local;
+val k := TCircle.Create(1, 2.5);            { constructed in the stack frame }
 begin
-  Male(k);                                  { Ausleihe, virtuelle Methoden wie gewohnt }
-  k.Name := TFigur.Create(99);              { besitzende Felder gehen auch }
-  var f: TFigur := k;                       { Referenz auf das Stackobjekt }
+  Draw(k);                                  { borrow, virtual methods as usual }
+  k.Name := TFigure.Create(99);             { owning fields work too }
+  var f: TFigure := k;                      { reference to the stack object }
   begin f.X := 5; end;
-end;                                        { k.Destroy läuft hier, k.Name wird freigegeben }
+end;                                        { k.Destroy runs here, k.Name is freed }
 ```
 
-* Das Objekt wird bei der Deklaration konstruiert und am Ende seines Blocks automatisch abgebaut
-  (`Destroy`, danach werden seine besitzenden Felder freigegeben) – auch bei `Break`, `Exit` und
-  `try`. In einem Schleifenrumpf entsteht in jedem Durchlauf ein frisches Objekt.
-* **Verschieben** in ein anderes Stackobjekt geht wie in Rust: `val b := k` kopiert das Objekt
-  byteweise nach `b` (ohne Konstruktor, ohne `malloc`); `k` ist danach tot – seine Benutzung und
-  Ausleihen von `k` sind Fehler (`use of moved stack object 'k'`), und am Blockende wird nur `b`
-  abgebaut. Geschieht der Move nur auf einem Pfad, merkt sich das Programm, ob `k` noch abgebaut
-  werden muss.
-* **Auf den Heap verschieben** (wie `Box::new` in Rust): Bekommt ein Besitzer das Stackobjekt –
-  `vao h := k`, `Result := k`, `obj.Feld := k`, ein `vao`-Parameter –, holt das Programm einmal
-  Heap-Speicher und kopiert das Objekt byteweise hinein (besitzende Felder wandern mit, nichts
-  wird geklont). `k` ist danach tot wie bei jedem Move. So lässt sich ein Objekt schnell auf dem
-  Stack aufbauen und erst auf den Heap geben, wenn es den Block überleben soll:
+* The object is constructed in its declaration and destroyed automatically at the end of its
+  block (`Destroy`, then its owning fields are freed) – also on `Break`, `Exit` and `try`. In a
+  loop body a fresh object is created in every iteration.
+* **Moving** into another stack object works like in Rust: `val b := k` copies the object byte
+  for byte into `b` (no constructor, no `malloc`); `k` is dead afterwards – using it and borrows
+  of `k` are errors (`use of moved stack object 'k'`), and only `b` is destroyed at the end of
+  the block. If the move happens on one path only, the program remembers whether `k` still has
+  to be destroyed.
+* **Moving to the heap** (like `Box::new` in Rust): when an owner takes the stack object –
+  `vao h := k`, `Result := k`, `obj.Field := k`, a `vao` parameter – the program allocates heap
+  memory once and copies the object into it byte for byte (owning fields move along, nothing is
+  cloned). `k` is dead afterwards, as with every move. So an object can be built quickly on the
+  stack and only be given to the heap when it has to outlive the block:
 
   ```pascal
-  function Baue(n: Integer): TK;
+  function Build(n: Integer): TK;
   val k := TK.Create(n);
   begin
-    k.Teil := TK.Create(n + 100);
-    Result := k;                    { Objekt samt Teil wandert auf den Heap }
+    k.Part := TK.Create(n + 100);
+    Result := k;                    { the object with its part moves to the heap }
   end;
   ```
-* **Vom Heap auf den Stack:** `val k := h` (oder ein Funktionsergebnis, `val k := Mach(1)`)
-  kopiert das Objekt in den Stackframe und gibt den Heap-Speicher zurück; `h` ist danach leer.
-  Die Klasse muss genau passen – ist das Objekt zur Laufzeit eine Unterklasse, stoppt das
-  Programm mit `Runtime error 219: a TBar object does not fit into stack object 's' (TFoo)`.
-* Zusammengefasst:
+* **From the heap to the stack:** `val k := h` (or a function result, `val k := Make(1)`) copies
+  the object into the stack frame and gives the heap memory back; `h` is empty afterwards. The
+  class must match exactly – if the object is a subclass at run time, the program stops with
+  `Runtime error 219: a TBar object does not fit into stack object 's' (TFoo)`.
+* In short:
 
-  | von → nach | `val` (Stack) | `vao` (Heap) | `var` (Referenz) |
+  | from → to | `val` (stack) | `vao` (heap) | `var` (reference) |
   |---|---|---|---|
-  | `val k` | Move (`memcpy`) | Move auf den Heap | Ausleihe |
-  | `vao h` | Move auf den Stack | Move (Zeiger) | Ausleihe |
-  | `var r` | nur als Kopie: `val k := r.Clone` | nur als Kopie: `vao h := r.Clone` | Ausleihe |
+  | `val k` | move (`memcpy`) | move to the heap | borrow |
+  | `vao h` | move to the stack | move (pointer) | borrow |
+  | `var r` | only as a copy: `val k := r.Clone` | only as a copy: `vao h := r.Clone` | borrow |
 
-  Aus einer Referenz kann man nicht verschieben, weil das Objekt weiter seinem Besitzer gehört.
-* Ein Stackobjekt kann nicht neu zugewiesen und nicht freigegeben werden. Eine Kopie, die das
-  Original behält: `vao t := k.Clone`.
-* Ausleihen (`var r: TFigur := k`, Parameter) sind erlaubt, dürfen aber den Block nicht
-  überleben: Speichern in globalen Variablen, Feldern oder Funktionsergebnissen meldet der
-  Borrow Checker.
-* Deklarierter Typ und Konstruktor-Klasse müssen gleich sein (`val f: TFigur := TKreis.Create`
-  ist ein Fehler, weil das Objekt in seiner genauen Größe angelegt wird).
-* Messung: 50 Millionen kurzlebige Objekte brauchen mit `-O2` 0,08 s als Stackobjekt und 0,32 s
-  als Heapobjekt.
+  You cannot move out of a reference, because the object still belongs to its owner.
+* A stack object cannot be reassigned or freed. A copy that keeps the original:
+  `vao t := k.Clone`.
+* Borrows (`var r: TFigure := k`, parameters) are allowed, but must not outlive the block: the
+  borrow checker reports storing them in global variables, fields or function results.
+* The declared type and the class of the constructor must be the same
+  (`val f: TFigure := TCircle.Create` is an error, because the object is created in its exact
+  size).
+* Measurement: 50 million short-lived objects take 0.08 s with `-O2` as stack objects and
+  0.32 s as heap objects.
 
-### Dynamische Arrays: `array of T`
+### Dynamic arrays: `array of T`
 
-Ein dynamisches Array besitzt einen Puffer auf dem Heap, der mit `SetLength` wächst und schrumpft
-(Index ab 0, wie in Delphi):
+A dynamic array owns a buffer on the heap that grows and shrinks with `SetLength` (index from 0,
+as in Delphi):
 
 ```pascal
-val zahlen: array of Integer := (1, 2, 3);
-vao kunden: array of optional TKunde := default;   { leer }
+val numbers: array of Integer := (1, 2, 3);
+vao customers: array of optional TCustomer := default;   { empty }
 begin
-  SetLength(zahlen, 5);                     { neue Elemente sind 0 }
-  zahlen[4] := 42;
-  WriteLn(Length(zahlen), ' ', High(zahlen));   { 5 4 }
-  SetLength(kunden, 1);
-  kunden[0] := TKunde.Create('Anna');
-end;                                        { Puffer und Kunden werden freigegeben }
+  SetLength(numbers, 5);                    { new elements are 0 }
+  numbers[4] := 42;
+  WriteLn(Length(numbers), ' ', High(numbers));   { 5 4 }
+  SetLength(customers, 1);
+  customers[0] := TCustomer.Create('Anna');
+end;                                        { buffer and customers are freed }
 
-function Summe(a: array of Integer): Integer;     { Ausleihe, keine Kopie }
-procedure Fuelle(var a: array of Integer; n: Integer);   { darf die Länge ändern }
+function Sum(a: array of Integer): Integer;       { borrow, no copy }
+procedure Fill(var a: array of Integer; n: Integer);   { may change the length }
 ```
 
-* `Length(a)`, `High(a)` (= `Length(a) - 1`), `Low(a)` (= 0); jeder Zugriff wird geprüft
+* `Length(a)`, `High(a)` (= `Length(a) - 1`), `Low(a)` (= 0); every access is checked
   (`Runtime error 201: … index 3 is outside 0..2`).
-* `SetLength` gibt abgeschnittene Elemente frei (wenn sie Objekte besitzen); neue beginnen mit dem
-  Nullwert bzw. `none`. Weil der Puffer dabei umziehen kann, sind Ausleihen von Elementen danach
-  ungültig – der Borrow Checker meldet ihre Benutzung
+* `SetLength` frees elements that are cut off (if they own objects); new ones start with the
+  zero value or `none`. Because the buffer may move, borrows of elements are invalid afterwards –
+  the borrow checker reports their use
   (`… used after its owner 'a' was resized by SetLength at line 3`).
-* Das Array besitzt seinen Puffer: `b := a` **verschiebt** (`a` ist danach leer), `a.Clone` kopiert
-  (samt Klonen enthaltener Objekte); als Parameter wird es ausgeliehen.
-* Funktioniert auch generisch, z. B. ein `TStapel<T>` mit `Elemente: array of optional T`.
+* The array owns its buffer: `b := a` **moves** (`a` is empty afterwards), `a.Clone` copies (and
+  clones the objects it contains); as a parameter it is borrowed.
+* Works in generic code too, e.g. a `TStack<T>` with `Items: array of optional T`.
 
-### Arrays und Records, die Objekte besitzen
+### Arrays and records that own objects
 
-Ein Array oder Record mit besitzenden Elementen bzw. Feldern (`array[1..9] of optional TK`,
-`record L: optional TK; end`) besitzt diese Objekte – auch in einer `val`-Variablen:
+An array or record with owning elements or fields (`array[1..9] of optional TK`,
+`record L: optional TK; end`) owns these objects – also in a `val` variable:
 
 ```pascal
 val
   a: array[1..2] of optional TK := default;
-  q: TPaar := default;
-  z: TPaar := default;
+  q: TPair := default;
+  z: TPair := default;
 begin
-  a[1] := TK.Create(1);        { das Objekt gehört jetzt dem Array }
-  q := Mach(4);
-  z := q;                      { Move wie in Rust: q ist danach leer (alle Felder none) }
-  q := Mach(5);                { altes q wird freigegeben }
-end;                           { a, q und z geben ihre Objekte hier frei }
+  a[1] := TK.Create(1);        { the object now belongs to the array }
+  q := Make(4);
+  z := q;                      { move like in Rust: q is empty afterwards (all fields none) }
+  q := Make(5);                { the old q is freed }
+end;                           { a, q and z free their objects here }
 ```
 
-* Solche Werte werden **nie kopiert**, sondern verschoben: Zuweisung und Initialisierung leeren
-  die Quelle. Aus Konstanten, `is some`-Bindungen und Parametern kann man nicht verschieben, und
-  sie dürfen nicht in ein Literal kopiert werden.
-* Als Parameter werden sie nur lesend ausgeliehen (per Referenz, wie `T const`); `var`-Parameter
-  ändern das Original.
-* Objekte, die Felder solcher Typen haben, geben sie mit sich frei; ein unbenutztes
-  Funktionsergebnis (`Mach(9);`) wird sofort freigegeben.
-* Ein solches Funktionsergebnis muss gespeichert werden, bevor man es benutzt: `Mach(1).Info`
-  oder `Zeige(Mach(2))` sind Fehler (sonst würde es nie freigegeben) – `val r := Mach(1)` schreiben.
+* Such values are **never copied** but moved: assignment and initialization empty the source.
+  You cannot move out of constants, `is some` bindings and parameters, and they must not be
+  copied into a literal.
+* As parameters they are only borrowed read-only (by reference, like `T const`); `var`
+  parameters change the original.
+* Objects that have fields of such types free them with themselves; an unused function result
+  (`Make(9);`) is freed at once.
+* Such a function result must be stored before it is used: `Make(1).Info` or `Show(Make(2))` are
+  errors (otherwise it would never be freed) – write `val r := Make(1)`.
 
-### Kopieren: `Clone`
+### Copying: `Clone`
 
-Zahlen, Strings, Aufzählungen und Records/Arrays **ohne** Objekte werden bei `b := a` kopiert.
-Alles, was Objekte besitzt, wird **verschoben**. Eine Kopie davon gibt es nur ausdrücklich mit
-`Clone` (wie `.clone()` in Rust) – geschrieben von Hand oder vom Compiler mit `; auto;`
-(wie `#[derive(Clone)]`):
+Numbers, strings, enumerations and records/arrays **without** objects are copied by `b := a`.
+Everything that owns objects is **moved**. A copy of it only exists explicitly with `Clone`
+(like `.clone()` in Rust) – written by hand or generated by the compiler with `; auto;`
+(like `#[derive(Clone)]`):
 
 ```pascal
 type
   TPerson = class
     Name: String;
-    Adresse: optional TAdresse;              { besitzt: wird mitgeklont }
-    Chef: var optional TPerson;              { Referenz: zeigt weiter auf denselben Chef }
+    Address: optional TAddress;              { owned: is cloned along }
+    Boss: var optional TPerson;              { reference: keeps pointing to the same boss }
     function Clone: TPerson; const; virtual; auto;
   end;
-  TMitarbeiter = class(TPerson)              { erbt Clone; seine Felder werden mitkopiert }
-    Buero: optional TAdresse;
+  TEmployee = class(TPerson)                 { inherits Clone; its fields are copied too }
+    Office: optional TAddress;
   end;
-  TPaar = record
-    A, B: optional TAdresse;
-    function Clone: TPaar; const; auto;
+  TPair = record
+    A, B: optional TAddress;
+    function Clone: TPair; const; auto;
   end;
 …
-vao kopie := anna.Clone;                     { neues Objekt, kopie besitzt es }
-var p: TPerson := mitarbeiter;
-vao k := p.Clone;                            { ein TMitarbeiter mit allen Feldern }
-val q := paar.Clone;
+vao dup := anna.Clone;                       { a new object, dup owns it }
+var p: TPerson := employee;
+vao k := p.Clone;                            { a TEmployee with all its fields }
+val q := pair.Clone;
 ```
 
-* Der erzeugte `Clone` kopiert alle Werte, klont jedes besitzende Feld (auch in Arrays und
-  Records) mit dessen eigenem `Clone` und lässt `var`-Felder auf dasselbe Objekt zeigen.
-* Bei Klassen kopiert er das **ganze Objekt seiner tatsächlichen Klasse** – auch Nachfahren, die
-  `Clone` nur erben. Hat ein besitzendes Feld (auch in einem Nachfahren) einen Typ ohne `Clone`,
-  meldet der Compiler das.
-* Kein Konstruktor läuft; das Ergebnis ist ein neuer Besitz, den der Aufrufer übernimmt.
-* Form: `function Clone: T; const; auto;` (bei Klassen auch mit `virtual`; das Ergebnis darf eine
-  Vorfahrklasse sein). Ein selbst geschriebener `Clone` ist eine gewöhnliche const-Methode.
-* **Arrays** haben `Clone` eingebaut: `val d := b.Clone;` kopiert das Array und klont jedes
-  enthaltene Objekt (die Elementklasse braucht einen `Clone`); ohne Objekte ist es eine einfache
-  Kopie. Wie jeder Wert, der Objekte besitzt, muss das Ergebnis gespeichert werden.
+* The generated `Clone` copies all values, clones every owning field (also in arrays and
+  records) with its own `Clone` and lets `var` fields point to the same object.
+* For classes it copies the **whole object of its actual class** – also descendants that only
+  inherit `Clone`. If an owning field (also in a descendant) has a type without `Clone`, the
+  compiler reports it.
+* No constructor runs; the result is new ownership that the caller takes over.
+* Form: `function Clone: T; const; auto;` (for classes also with `virtual`; the result may be an
+  ancestor class). A hand-written `Clone` is an ordinary const method.
+* **Arrays** have `Clone` built in: `val d := b.Clone;` copies the array and clones every object
+  in it (the element class needs a `Clone`); without objects it is a simple copy. Like every
+  value that owns objects, the result must be stored.
 
-### Heapwerte: Werte in `vao`
+### Heap values: values in `vao`
 
-Auch Zahlen, Strings, Records und Arrays können einem Besitzer auf dem Heap gehören (wie
-`Box<T>` in Rust). Man benutzt sie wie einen normalen Wert; am Ende des Gültigkeitsbereichs
-werden sie freigegeben:
+Numbers, strings, records and arrays can also belong to an owner on the heap (like `Box<T>` in
+Rust). They are used like a normal value; at the end of the scope they are freed:
 
 ```pascal
 vao
-  I: Integer := 20;            { legt die Heap-Zelle an }
-  V: TVektor := default;       { Record auf dem Heap }
+  I: Integer := 20;            { creates the heap cell }
+  V: TVector := default;       { record on the heap }
 begin
   I := I + 1;
-  Verdopple(I);                { var-Parameter: Referenz auf den Heapwert }
-  V.Skaliere(2);
-end;                           { I und V werden hier freigegeben }
+  Duplicate(I);                { var parameter: reference to the heap value }
+  V.Scale(2);
+end;                           { I and V are freed here }
 ```
 
-* Jede Zuweisung speichert einen neuen **Wert** in der Zelle; `J := I` zwischen zwei Heapwerten
-  kopiert also den Wert. Nach `I.Free` legt die nächste Zuweisung die Zelle neu an.
-* Nützlich vor allem für große Records oder Arrays, die nicht im Stackframe liegen sollen.
+* Every assignment stores a new **value** in the cell; `J := I` between two heap values copies
+  the value. After `I.Free` the next assignment creates the cell again.
+* Useful mainly for large records or arrays that should not live in the stack frame.
 
-### Literale und `default`
+### Literals and `default`
 
 ```pascal
 val
-  p: TPunkt := (X: 1; Y: 2);                     { Record-Literal }
-  a: array[1..3] of Integer := (10, 20, 30);    { Array-Literal }
-  z: TGross := default;                          { alles 0 / '' / none }
+  p: TPoint := (X: 1; Y: 2);                     { record literal }
+  a: array[1..3] of Integer := (10, 20, 30);    { array literal }
+  z: TBig := default;                            { all 0 / '' / none }
 ```
 
-Literale passen sich dem erwarteten Typ an (Initialisierer, Zuweisung, Argument, `Result`).
+Literals adapt to the expected type (initializer, assignment, argument, `Result`).
 
-## Typ aus dem Initialisierer und Blöcke
+## Type from the initializer, and blocks
 
-Ohne Typangabe bestimmt der Initialisierer den Typ; danach ist er fest:
+Without a type, the initializer determines the type; after that it is fixed:
 
 ```pascal
 val
   N := 3.5;              { Real }
-  S := 'Hallo';          { String }
+  S := 'Hello';          { String }
 vao
-  I := 5;                { Integer auf dem Heap }
+  I := 5;                { Integer on the heap }
 begin
-  N := 'x';              { Fehler: N ist Real }
+  N := 'x';              { error: N is Real }
 end;
 ```
 
-* Aus `none` und `default` lässt sich kein Typ ableiten (`val x: optional T := none` schreiben).
-* `for val i := 1 to n do …` deklariert die Schleifenvariable direkt in der Schleife.
-* `while val i := 0; i < n do …` deklariert eine Variable für die ganze `while`-Schleife: Sie wird
-  **einmal** vor der ersten Prüfung angelegt, behält ihren Wert über die Durchläufe und ist nach
-  der Schleife nicht mehr sichtbar (auch mit `var` und `vao`; ein `vao` wird nach der Schleife
-  freigegeben):
+* No type can be inferred from `none` and `default` (write `val x: optional T := none`).
+* `for val i := 1 to n do …` declares the loop variable directly in the loop.
+* `while val i := 0; i < n do …` declares a variable for the whole `while` loop: it is created
+  **once** before the first check, keeps its value across iterations and is no longer visible
+  after the loop (also with `var` and `vao`; a `vao` is freed after the loop):
 
   ```pascal
   while val i := 0; i < 3 do
@@ -406,17 +406,17 @@ end;
   end;
   ```
 
-**Blöcke mit eigenen Variablen:** Vor einem verschachtelten `begin … end` dürfen `val`-,
-`var`-, `vao`- und `const`-Abschnitte stehen. Sie bilden einen eigenen Gültigkeitsbereich – auch
-als Schleifenrumpf, dann mit frischen Variablen in jedem Durchlauf:
+**Blocks with their own variables:** `val`, `var`, `vao` and `const` sections may stand before a
+nested `begin … end`. They form a scope of their own – also as a loop body, then with fresh
+variables in every iteration:
 
 ```pascal
 begin
   val j := 10;
-  vao s := TFoo.Create(1);   { gehört nur diesem Block }
+  vao s := TFoo.Create(1);   { belongs to this block only }
   begin
     WriteLn(j, ' ', s.V);
-  end;                       { s wird hier freigegeben, j ist nicht mehr sichtbar }
+  end;                       { s is freed here, j is no longer visible }
 
   while i < 3 do
     val q := i * 100;
@@ -427,650 +427,645 @@ begin
 end;
 ```
 
-* Besitzer des Blocks geben am Blockende frei; Ausleihen auf ihre Objekte sind danach
-  ungültig (der Borrow Checker meldet ihre Benutzung).
-* Routinen, Typen und typisierte Konstanten sind in Blöcken nicht erlaubt.
+* Owners of the block free at the end of the block; borrows of their objects are invalid
+  afterwards (the borrow checker reports their use).
+* Routines, types and typed constants are not allowed in blocks.
 
-## Unveränderlich: `const` und `T const`
+## Unchangeable: `const` and `T const`
 
-**`const`** deklariert nur noch Konstanten, die beim Übersetzen feststehen (auch für
-Array-Grenzen nutzbar), sowie typisierte Konstanten:
+**`const`** only declares constants known at compile time (also usable for array bounds) and
+typed constants:
 
 ```pascal
 const
   Max = 100;
   Name = 'ppc';
-  Limit: Integer = 5;          { schreibgeschützt }
+  Limit: Integer = 5;          { read-only }
 ```
 
-Für unveränderliche Werte, die erst zur Laufzeit feststehen, gibt es den Typmodifizierer
-**`T const`** – hinter dem Typ, analog zu `; const;` bei Methoden:
+For unchangeable values that are only known at run time there is the type modifier
+**`T const`** – after the type, like `; const;` for methods:
 
 ```pascal
 procedure P(n: Integer);
 val
-  Hoch: Integer const := n * n;          { unveränderlich, Wert zur Laufzeit }
-  w: TVektor const := v;                 { unveränderliche Kopie eines Records }
+  Square: Integer const := n * n;        { unchangeable, value at run time }
+  w: TVector const := v;                 { unchangeable copy of a record }
 var
-  leser: TPerson const := anna;          { nur lesbare Ausleihe eines Objekts }
+  reader: TPerson const := anna;         { read-only borrow of an object }
 begin
-  Hoch := 1;                             { Fehler }
-  w.X := 1;                              { Fehler: Teil einer Konstanten }
-  w.Skaliere(2);                         { Fehler: Skaliere ist keine const-Methode }
-  WriteLn(w.Laenge);                     { erlaubt: const-Methode }
+  Square := 1;                           { error }
+  w.X := 1;                              { error: part of a constant }
+  w.Scale(2);                            { error: Scale is no const method }
+  WriteLn(w.Len);                        { allowed: const method }
 ```
 
-* Unveränderlich ist alles, was im Wert steckt: Record-Felder und Array-Elemente. Auf
-  konstanten Records dürfen nur **const-Methoden** aufgerufen werden (siehe unten).
-* `var x: Integer const := y` ist eine nur lesende Referenz auf `y`.
-* Felder können nicht `const` sein.
+* Everything inside the value is unchangeable: record fields and array elements. On constant
+  records only **const methods** may be called (see below).
+* `var x: Integer const := y` is a read-only reference to `y`.
+* Fields cannot be `const`.
 
-**`T const` bei Parametern:** Der Parameter wird **per Referenz** übergeben (keine Kopie) und
-ist nur lesbar – wie `const T&` in C++ bzw. `&T` in Rust. Sinnvoll für Strings, Records und
-Arrays; Ausdrücke als Argument werden in eine temporäre Kopie gelegt:
+**`T const` for parameters:** the parameter is passed **by reference** (no copy) and is
+read-only – like `const T&` in C++ or `&T` in Rust. Useful for strings, records and arrays;
+expressions as arguments are put into a temporary copy:
 
 ```pascal
-function Summe(A: TGross const): Integer;           { keine Kopie des Arrays }
-procedure Zeige(S: String const; V: TVektor const);
+function Sum(A: TBig const): Integer;               { no copy of the array }
+procedure Show(S: String const; V: TVector const);
 …
-WriteLn(Doppelt(Hoch + 1));
+WriteLn(Twice(Square + 1));
 ```
 
-| Parameter | Übergabe | Ändern erlaubt |
+| Parameter | Passing | Changing allowed |
 |---|---|---|
-| `x: T` | Kopie (Objekte: Ausleihe) | ja, nur die Kopie (Objekte: ja) |
-| `x: T const` | Referenz | nein |
-| `var x: T` / `out x: T` | Referenz | ja, beim Aufrufer |
-| `vao x: TFoo` | Objekt wird übergeben | ja, der Parameter besitzt es |
+| `x: T` | copy (objects: borrow) | yes, only the copy (objects: yes) |
+| `x: T const` | reference | no |
+| `var x: T` / `out x: T` | reference | yes, at the caller |
+| `vao x: TFoo` | the object is handed over | yes, the parameter owns it |
 
-Der Borrow Checker behandelt `T const`-Parameter als lesende Ausleihe: `Q(x, x)` mit einem
-`var`- und einem `T const`-Parameter ist ein Fehler.
+The borrow checker treats `T const` parameters as read-only borrows: `Q(x, x)` with a `var` and
+a `T const` parameter is an error.
 
-### Konstante Methoden und Routinen: `; const;`
+### Constant methods and routines: `; const;`
 
-`const;` als Direktive am Ende der Deklaration, wie `virtual;` (entspricht `void f() const` in C++).
-Die Implementierung wiederholt es: `function TVektor.Laenge: Real; const;`.
+`const;` as a directive at the end of the declaration, like `virtual;` (corresponds to
+`void f() const` in C++). The implementation repeats it: `function TVector.Len: Real; const;`.
 
 ```pascal
 type
-  TVektor = record
+  TVector = record
     X, Y: Real;
-    procedure Skaliere(F: Real);          { darf Self ändern }
-    function Laenge: Real; const;          { ändert Self nicht }
+    procedure Scale(F: Real);              { may change Self }
+    function Len: Real; const;             { does not change Self }
   end;
-  TKonto = class
-    function Beschreibung: String; const; virtual;
+  TAccount = class
+    function Description: String; const; virtual;
   end;
 
-function Quadrat(N: Integer): Integer; const;   { freie Routine ohne Seiteneffekte }
+function SquareOf(N: Integer): Integer; const;   { free routine without side effects }
 begin Result := N * N; end;
 ```
 
-* **In einer const-Methode** ist `Self` nur lesbar: keine Zuweisung an Felder (auch bei
-  Klassen), und auf `Self` dürfen nur weitere const-Methoden aufgerufen werden.
-* **Auf konstanten Werten** – `T const`-Variablen und -Parameter, `Self` in const-Methoden – sind
-  nur const-Methoden aufrufbar.
-* **Eine freie Routine mit `; const;`** hat keine Seiteneffekte auf den Programmzustand: Sie
-  ändert keine globalen oder äußeren Variablen, ruft nur andere const-Routinen auf und ruft auf
-  nicht-lokalen Objekten nur const-Methoden auf. Parameter, lokale Variablen und neu erzeugte
-  Objekte darf sie frei benutzen; Ausgaben mit `WriteLn` sind erlaubt.
-* Deklaration und Implementierung müssen beide `const` sein; ein `override` muss die
-  const-Eigenschaft der überschriebenen Methode übernehmen. `ClassName` ist eine const-Methode.
+* **In a const method** `Self` is read-only: no assignment to fields (also for classes), and
+  only other const methods may be called on `Self`.
+* **On constant values** – `T const` variables and parameters, `Self` in const methods – only
+  const methods can be called.
+* **A free routine with `; const;`** has no side effects on the program state: it changes no
+  global or outer variables, only calls other const routines and only calls const methods on
+  non-local objects. It may use parameters, local variables and newly created objects freely;
+  output with `WriteLn` is allowed.
+* Declaration and implementation must both be `const`; an `override` must keep the const
+  property of the overridden method. `ClassName` is a const method.
 
-### Nur lesbare Objekt-Referenzen: `TFoo const`
+### Read-only object references: `TFoo const`
 
-`TFoo const` ist eine Referenz, über die ein Objekt **nur gelesen** werden kann – wie `&T`
-gegenüber `&mut T` in Rust:
+`TFoo const` is a reference through which an object can **only be read** – like `&T` compared
+with `&mut T` in Rust:
 
 ```pascal
-procedure Zeige(P: TPerson const);
-function Aelter(A, B: TPerson const): var TPerson const;
-function BesterFreund: var optional TPerson const; const;
+procedure Show(P: TPerson const);
+function Older(A, B: TPerson const): var TPerson const;
+function BestFriend: var optional TPerson const; const;
 var
-  leser: TPerson const := anna;                 { änderbar -> nur lesbar: erlaubt }
+  reader: TPerson const := anna;                { changeable -> read-only: allowed }
 begin
-  WriteLn(leser.Info);                          { const-Methode: erlaubt }
-  leser.Geburtstag;                             { Fehler: keine const-Methode }
-  leser.Alter := 1;                             { Fehler: Objekt ist nur lesbar }
+  WriteLn(reader.Info);                         { const method: allowed }
+  reader.Birthday;                              { error: no const method }
+  reader.Age := 1;                              { error: the object is read-only }
 ```
 
-* **Nur lesbar ist alles, was man darüber erreicht:** Felder vom Klassentyp
-  (`P.Freund is some f` → `f` ist `TPerson const`), Array-Elemente, Ergebnisse von `as`.
-* Eine nur lesbare Referenz lässt sich **nicht** in eine änderbare umwandeln – weder durch
-  Zuweisung noch als Argument, `var`-Parameter oder Funktionsergebnis.
-* `Self` ist in const-Methoden nur lesbar; darum kann eine const-Methode nur
-  `var … const`-Referenzen auf ihre Felder herausgeben.
+* **Everything reached through it is read-only:** fields of class type
+  (`P.Friend is some f` → `f` is `TPerson const`), array elements, results of `as`.
+* A read-only reference can **not** be turned into a changeable one – neither by assignment nor
+  as an argument, `var` parameter or function result.
+* `Self` is read-only in const methods; therefore a const method can only hand out
+  `var … const` references to its fields.
 
-## Generische Typen: `TListe<T>`
+## Generic types: `TList<T>`
 
-Records und Klassen können Typparameter haben (Stufe 1 des Designs in
-[docs/generics.md](docs/generics.md)). Für jede benutzte Typkombination erzeugt der Compiler eine
-eigene Instanz – geprüft beim Übersetzen und ohne Kosten zur Laufzeit:
+Records and classes can have type parameters (design in [docs/generics.md](docs/generics.md)).
+For every type combination used, the compiler creates its own instance – checked at compile time
+and without any cost at run time:
 
 ```pascal
 type
-  TPaar<A, B> = record
-    Erstes: A;
-    Zweites: B;
+  TPair<A, B> = record
+    First: A;
+    Second: B;
   end;
-  TListe<T> = class
-    Elemente: array[1..10] of optional T;
-    Anzahl: Integer;
+  TList<T> = class
+    Items: array[1..10] of optional T;
+    Size: Integer;
     procedure Add(vao x: T);
-    function Hole(i: Integer): var optional T;
+    function Get(i: Integer): var optional T;
   end;
-  TKnoten<T> = class
-    Wert: T;
-    Next: optional TKnoten<T>;               { rekursiv }
+  TNode<T> = class
+    Value: T;
+    Next: optional TNode<T>;                 { recursive }
   end;
-  TKundenListe = class(TListe<TKunde>)       { erbt von einer Instanz }
-    function Suche(N: String const): var optional TKunde;
+  TCustomerList = class(TList<TCustomer>)    { inherits from an instance }
+    function Find(N: String const): var optional TCustomer;
   end;
 
-procedure TListe<T>.Add(vao x: T);          { Methoden wiederholen <T> }
+procedure TList<T>.Add(vao x: T);           { methods repeat <T> }
 begin
-  Inc(Anzahl);
-  Elemente[Anzahl] := x;                     { Move, auch wenn T ein Objekt ist }
+  Inc(Size);
+  Items[Size] := x;                          { move, even if T is an object }
 end;
 …
-val p: TPaar<String, Integer> := (Erstes: 'Anna'; Zweites: 30);
-vao zahlen := TListe<Integer>.Create;
-vao kunden := TKundenListe.Create;
-kunden.Add(TKunde.Create('Anna'));
-if kunden.Suche('Anna') is some k then WriteLn(k.Name);    { k ist ein TKunde }
+val p: TPair<String, Integer> := (First: 'Anna'; Second: 30);
+vao numbers := TList<Integer>.Create;
+vao customers := TCustomerList.Create;
+customers.Add(TCustomer.Create('Anna'));
+if customers.Find('Anna') is some k then WriteLn(k.Name);    { k is a TCustomer }
 ```
 
-* Generische Typen werden auf Programmebene deklariert; generisch sein können Records, Klassen,
-  Funktionen und Prozeduren.
+* Generic types are declared at program (or module) level; records, classes, functions and
+  procedures can be generic.
 
-**Generische Funktionen und Prozeduren:**
+**Generic functions and procedures:**
 
 ```pascal
-function Max<T>(a, b: T): T;
+function Max<T: Comparable>(a, b: T): T;
 begin
   if a > b then Result := a else Result := b;
 end;
 
-procedure Tausche<T>(var a, b: T);
+procedure Swap<T>(var a, b: T);
 val h: T := a;
 begin a := b; b := h; end;
 
-function Paar<A, B>(x: A; y: B): TPaar<A, B>;
+function MakePair<A, B>(x: A; y: B): TPair<A, B>;
 …
-WriteLn(Max(3, 7), Max('Anna', 'Bert'));     { T aus den Argumenten: Integer, String }
-WriteLn(Max(3, 7.5));                        { Integer und Real: T = Real }
-WriteLn(Max<Real>(1, 2));                    { T ausdrücklich }
-Tausche(i, j);
-val p := Paar('x', 42);                       { TPaar<Char, Integer> }
+WriteLn(Max(3, 7), Max('Anna', 'Bert'));     { T from the arguments: Integer, String }
+WriteLn(Max(3, 7.5));                        { Integer and Real: T = Real }
+WriteLn(Max<Real>(1, 2));                    { T written out }
+Swap(i, j);
+val p := MakePair('x', 42);                  { TPair<Char, Integer> }
 ```
 
-* Die Typargumente werden aus den Argumenten abgeleitet – auch aus `optional T`, Arrays,
-  `result T` und generischen Typen (`Erstes<A, B>(p: TPaar<A, B>)`). Geht das nicht (z. B. wenn
-  `T` nur im Ergebnis vorkommt), schreibt man sie aus: `Neu<Integer>`.
-* Widersprechen sich die Argumente, meldet der Compiler das:
+* The type arguments are inferred from the arguments – also through `optional T`, arrays,
+  `result T` and generic types (`First<A, B>(p: TPair<A, B>)`). If that is not possible (e.g.
+  when `T` only occurs in the result), they are written out: `Fresh<Integer>`.
+* If the arguments contradict each other, the compiler reports it:
   `cannot infer 'T' of "Max": it is "Integer" from one argument and "Char" from another`.
-* Jede Instanz wird einzeln geprüft: `Max` mit einem Record ohne `>` ergibt
-  `incompatible types in comparison: "TP" and "TP" (in Max<TP>)`. Rekursion funktioniert.
+* Recursion works.
 
-**Einschränkungen** legen fest, welche Typen eingesetzt werden dürfen (wie in Delphi: Einschränkungen
-eines Parameters mit `,`, Parametergruppen mit `;`):
+**Constraints** decide which types may be used (as in Delphi: constraints of one parameter with
+`,`, parameter groups with `;`):
 
 ```pascal
 function Max<T: Comparable>(a, b: T): T;
-function Gleich<T: Equatable>(a, b: T): Boolean;
-function Doppel<T: Clone>(x: T): T;           { x.Clone }
+function Equal<T: Equatable>(a, b: T): Boolean;
+function CloneOf<T: Clone>(x: T): T;          { x.Clone }
 type
-  TPaar<K: Comparable; V> = record … end;     { K eingeschränkt, V frei }
-  TZoo<T: TTier> = class … end;               { T muss TTier oder ein Nachfahre sein }
+  TPair<K: Comparable; V> = record … end;     { K constrained, V free }
+  TZoo<T: TAnimal> = class … end;             { T must be TAnimal or a descendant }
 ```
 
-| Einschränkung | erlaubte Typen |
+| Constraint | allowed types |
 |---|---|
-| `class` | Klassen |
-| `TBasis` (ein Klassenname) | `TBasis` und Nachfahren |
-| `Copy` | Werte ohne Objekte (Zahlen, Strings, Aufzählungen, einfache Records/Arrays) |
-| `Clone` | Klassen und Records mit `Clone`, Arrays davon |
-| `Equatable` (`=`, `<>`) | Zahlen, Char, Boolean, Strings, Aufzählungen, Klassen (gleiches Objekt) |
-| `Comparable` (`<`, `>` …) | Zahlen, Char, Boolean, Strings, Aufzählungen |
-| `Numeric` (`+`, `-`, `*`, Zahl-Literale, Vergleiche) | Integer-Typen, Real |
+| `class` | classes |
+| `TBase` (a class name) | `TBase` and its descendants |
+| `Copy` | values without objects (numbers, strings, enumerations, simple records/arrays) |
+| `Clone` | classes and records with `Clone`, arrays of them |
+| `Equatable` (`=`, `<>`) | numbers, Char, Boolean, strings, enumerations, classes (same object) |
+| `Comparable` (`<`, `>` …) | numbers, Char, Boolean, strings, enumerations |
+| `Numeric` (`+`, `-`, `*`, number literals, comparisons) | integer types, Real |
 
-Passt ein Typ nicht, meldet der Compiler das schon beim Aufruf bzw. bei der Instanz:
+If a type does not fit, the compiler reports it at the call or the instance:
 `"TK" does not satisfy 'T: Comparable' (required by Max<T>)`.
 
-**Der generische Rumpf wird für sich geprüft** (wie in Rust), auch wenn das Generic nie benutzt
-wird: Mit einem `T` darf man nur tun, was seine Einschränkungen erlauben. Ohne Einschränkung kann
-man es speichern, verschieben, übergeben und in `optional T`, Arrays oder `result T` packen –
-aber nicht rechnen, vergleichen oder Felder und Methoden aufrufen:
+**The generic body is checked on its own** (as in Rust), even if the generic is never used: with
+a `T` you may only do what its constraints allow. Without a constraint you can store, move, pass
+it and put it into `optional T`, arrays or `result T` – but not compute with it, compare it or
+call fields and methods:
 
 ```pascal
-function Summe<T>(a, b: T): T;
-begin Result := a + b; end;           { Fehler: operator needs the constraint 'T: Numeric' (in Summe<T>) }
+function Sum<T>(a, b: T): T;
+begin Result := a + b; end;           { error: operator needs the constraint 'T: Numeric' (in Sum<T>) }
 
 function Name<T>(x: T): String;
-begin Result := x.Name; end;          { Fehler: 'Name' is not known for type parameter "T" … }
+begin Result := x.Name; end;          { error: 'Name' is not known for type parameter "T" … }
 
-function Fakultaet<T: Numeric>(n: T): T;
+function Factorial<T: Numeric>(n: T): T;
 begin
-  if n <= 1 then Result := 1 else Result := n * Fakultaet(n - 1);   { ok }
+  if n <= 1 then Result := 1 else Result := n * Factorial(n - 1);   { ok }
 end;
 ```
 
-Ein Fehler im Rumpf wird so einmal gemeldet – nicht für jede Instanz erneut. Mit einer Basisklasse
-als Einschränkung (`T: TTier`) stehen alle Felder und Methoden von `TTier` zur Verfügung, mit
-`T: class` die von `TObject`.
-* Jede Instanz wird mit den eingesetzten Typen geprüft. Ein Fehler im generischen Code nennt die
-  Instanz: `operator not applicable to "TK" and "TK" (in TBox<TK>.Doppelt)`. Auch der Borrow
-  Checker prüft jede Instanz.
-* Für ein Wert-`T` ist `vao x: T` eine gewöhnliche Übergabe und ein `var`-Ergebnis eine Kopie;
-  für ein Objekt-`T` gelten die üblichen Regeln für Besitz und Ausleihen.
-* `ClassName` liefert den Namen der Instanz, z. B. `'TListe<TKunde>'`.
+* An error in the body is reported once this way – not again for every instance. With a base
+  class as constraint (`T: TAnimal`) all fields and methods of `TAnimal` are available, with
+  `T: class` those of `TObject`.
+* Every instance is also checked with the actual types, including by the borrow checker.
+* For a value `T`, `vao x: T` is an ordinary pass and a `var` result is a copy; for an object `T`
+  the usual ownership and borrowing rules apply.
+* `ClassName` returns the name of the instance, e.g. `'TList<TCustomer>'`.
 
-## Module: `module` und `import`
+## Modules: `module` and `import`
 
-Ein Programm bindet Module mit **`import`** ein. Ein Modul ist eine eigene Datei, die mit
-**`module Name;`** beginnt, Deklarationen enthält (Konstanten, Typen, Variablen, Routinen,
-Generics) und mit `end.` endet:
+A program includes modules with **`import`**. A module is a file of its own that starts with
+**`module Name;`**, contains declarations (constants, types, variables, routines, generics) and
+ends with `end.`:
 
 ```pascal
-module Geometrie;                       { Datei Geometrie.pas }
-import ppc_std;                         { ein Modul darf selbst importieren }
+module Geometry;                        { file Geometry.pas }
+import ppc_std;                         { a module may import too }
 
 type
-  TPunkt = record
+  TPoint = record
     X, Y: Real;
-    function Abstand(b: TPunkt): Real; const;
+    function Distance(b: TPoint): Real; const;
   end;
 
-function TPunkt.Abstand(b: TPunkt): Real; const;
+function TPoint.Distance(b: TPoint): Real; const;
 begin Result := Sqrt(Sqr(X - b.X) + Sqr(Y - b.Y)); end;
 
 end.
 ```
 
 ```pascal
-program Haupt;                          { Datei Haupt.pas im selben Verzeichnis }
-import ppc_std, Geometrie;
+program Main;                           { file Main.pas in the same directory }
+import ppc_std, Geometry;
 
-val a: TPunkt := (X: 0; Y: 0);
-val b: TPunkt := (X: 3; Y: 4);
+val a: TPoint := (X: 0; Y: 0);
+val b: TPoint := (X: 3; Y: 4);
 begin
-  WriteLn(a.Abstand(b):0:1);            { 5.0 }
+  WriteLn(a.Distance(b):0:1);           { 5.0 }
 end.
 ```
 
-* `import Name` sucht `Name.pas` im Verzeichnis des Programms; der Name nach `module` muss zum
-  Dateinamen passen. Jedes Modul wird nur einmal geladen, seine eigenen Importe zuerst;
-  gegenseitige Importe (Zyklen) sind ein Fehler.
-* Alles, was ein Modul deklariert, ist im importierenden Programm sichtbar. Eigene Namen im
-  Programm verdecken die eines Moduls.
-* Fehler in einem Modul werden mit dessen Dateinamen gemeldet:
-  `Geometrie.pas(12,5) Error: …`.
-* Ein Modul hat keinen Hauptblock (`begin … end`); es endet mit `end.`. Das alte `uses` ergibt
+* `import Name` looks for `Name.pas` in the directory of the program; the name after `module`
+  must match the file name. Every module is loaded only once, its own imports first; modules
+  that import each other (cycles) are an error.
+* Everything a module declares is visible in the importing program. Names of the program hide
+  those of a module.
+* Errors in a module are reported with its file name: `Geometry.pas(12,5) Error: …`.
+* A module has no main block (`begin … end`); it ends with `end.`. The old `uses` gives
   `'uses' was replaced by 'import'`.
 
-### Standardbibliothek: `import ppc_std`
+### Standard library: `import ppc_std`
 
-Die Standardbibliothek ist selbst ein Perfect-Pascal-Modul ([lib/ppc_std.pas](lib/ppc_std.pas)) und
-wird in den Compiler eingebettet. Sie besteht aus generischen Containern und Algorithmen:
+The standard library is itself a Perfect Pascal module ([lib/ppc_std.pas](lib/ppc_std.pas)) and
+is embedded into the compiler. It consists of generic containers and algorithms:
 
 ```pascal
-program Beispiel;
+program Example;
 import ppc_std;
-val zahlen: array of Integer := (5, 3, 9, 1, 7);
-vao kunden := TListe<TKunde>.Create;
-vao alter := TMap<String, Integer>.Create;
+val numbers: array of Integer := (5, 3, 9, 1, 7);
+vao customers := TList<TCustomer>.Create;
+vao ages := TMap<String, Integer>.Create;
 begin
-  Sortiere(zahlen);                                  { 1 3 5 7 9 }
-  if Suche(zahlen, 7) is some p then WriteLn(p);     { 3 }
-  kunden.Add(TKunde.Create('Anna'));
-  if kunden.Hole(0) is some k then WriteLn(k.Name);
-  alter.Setze('Anna', 30);
-  if alter.Hole('Anna') is some a then WriteLn(a);
-end.                                                 { alle Container geben ihre Objekte frei }
+  Sort(numbers);                                     { 1 3 5 7 9 }
+  if IndexOf(numbers, 7) is some p then WriteLn(p);  { 3 }
+  customers.Add(TCustomer.Create('Anna'));
+  if customers.Get(0) is some k then WriteLn(k.Name);
+  ages.Put('Anna', 30);
+  if ages.Get('Anna') is some a then WriteLn(a);
+end.                                                 { all containers free their objects }
 ```
 
-| Name | Inhalt |
+| Name | Contents |
 |---|---|
-| `TListe<T>` | `Add(vao x)`, `Count`, `Hole(i)` (ausgeliehen), `Nimm(i)` (herausnehmen), `Leeren`; Index ab 0 |
-| `TStapel<T>` | `Push(vao x)`, `Pop` (herausnehmen), `Top` (ansehen), `Count`, `IstLeer` |
-| `TMap<K: Comparable; V>` | `Setze(k, vao v)` (einfügen/ersetzen), `Hole(k)`, `Enthaelt(k)`, `Entferne(k)`, `Count`; nach Schlüssel sortiert, binäre Suche |
-| `Sortiere<T: Comparable>(var a: array of T)` | sortiert aufsteigend (Quicksort) |
-| `Suche<T: Equatable>(a: array of T; x: T): optional Integer` | erste Position von `x` oder `none` |
+| `TList<T>` | `Add(vao x)`, `Count`, `Get(i)` (borrowed), `Extract(i)` (take out), `Clear`; index from 0 |
+| `TStack<T>` | `Push(vao x)`, `Pop` (take out), `Peek` (look), `Count`, `IsEmpty` |
+| `TMap<K: Comparable; V>` | `Put(k, vao v)` (insert/replace), `Get(k)`, `Contains(k)`, `Remove(k)`, `Count`; sorted by key, binary search |
+| `Sort<T: Comparable>(var a: array of T)` | sorts ascending (quicksort) |
+| `IndexOf<T: Equatable>(a: array of T; x: T): optional Integer` | first position of `x`, or `none` |
 
-* Die Container besitzen ihre Elemente; `Nimm`, `Pop` und `Entferne` geben den Besitz an den
-  Aufrufer weiter (`optional T`), `Hole` und `Top` leihen nur aus.
-* Eigene Namen im Programm verdecken die der Bibliothek; die Bibliothek selbst benutzt weiter ihre
-  eigenen.
-* Ein unbekanntes Modul ergibt `module 'SysUtils' not found (looked for ./SysUtils.pas)`.
+* The containers own their elements; `Extract`, `Pop` and `Remove` pass the ownership to the
+  caller (`optional T`), `Get` and `Peek` only borrow.
+* Names of the program hide those of the library; the library itself keeps using its own.
+* An unknown module gives `module 'SysUtils' not found (looked for ./SysUtils.pas)`.
 
-## Records mit Methoden
+## Records with methods
 
-Records sind **Werte**: `b := a` kopiert, Wertparameter und Funktionsergebnisse sind Kopien,
-Records liegen direkt in Arrays, anderen Records und Klassen (ohne Allokation, ohne VMT, ohne
-Konstruktor). Sie können Methoden und Properties haben – wie *Advanced Records* in Delphi oder
-`impl` für ein `struct` in Rust:
+Records are **values**: `b := a` copies, value parameters and function results are copies,
+records live directly in arrays, other records and classes (no allocation, no VMT, no
+constructor). They can have methods and properties – like *advanced records* in Delphi or
+`impl` for a `struct` in Rust:
 
 ```pascal
 type
-  TVektor = record
+  TVector = record
     X, Y: Real;
-    procedure Setze(AX, AY: Real);
-    procedure Skaliere(F: Real);                { ändert den Record selbst }
-    function Laenge: Real;
-    function Plus(B: TVektor const): TVektor;   { liefert einen neuen Wert }
-    property Breite: Real read X write X;
+    procedure Put(AX, AY: Real);
+    procedure Scale(F: Real);                   { changes the record itself }
+    function Len: Real;
+    function Plus(B: TVector const): TVector;   { returns a new value }
+    property Width: Real read X write X;
   end;
 
-procedure TVektor.Skaliere(F: Real); begin X := X * F; Y := Y * F; end;
-function TVektor.Plus(B: TVektor const): TVektor; begin Result.Setze(X + B.X, Y + B.Y); end;
+procedure TVector.Scale(F: Real); begin X := X * F; Y := Y * F; end;
+function TVector.Plus(B: TVector const): TVector; begin Result.Put(X + B.X, Y + B.Y); end;
 …
 val
-  a: TVektor := (X: 3; Y: 4);
-  b: TVektor := default;
-  punkte: array[1..100] of TVektor := default;  { 100 Werte hintereinander, keine Allokation }
+  a: TVector := (X: 3; Y: 4);
+  b: TVector := default;
+  points: array[1..100] of TVector := default;  { 100 values in a row, no allocation }
 begin
-  b := a;                               { Kopie }
-  b.Skaliere(2);                        { a bleibt (3, 4) }
-  WriteLn(a.Plus(b).Laenge:0:1);        { Methoden auch auf Ergebniswerten }
+  b := a;                               { copy }
+  b.Scale(2);                           { a stays (3, 4) }
+  WriteLn(a.Plus(b).Len:0:1);           { methods on result values too }
 end.
 ```
 
-* In Record-Methoden ist `Self` der Record des Aufrufers: Methoden können ihn ändern.
-* Records haben **keine** Vererbung, keine virtuellen Methoden und keine Konstruktoren oder
-  Destruktoren; als „Konstruktor“ dient ein Literal, eine Prozedur (`Setze`) oder eine
-  Klassenmethode, die den Record zurückgibt (`class function TVektor.Null: TVektor`).
-* Records mit Methoden müssen als benannter Typ deklariert werden.
+* In record methods `Self` is the caller's record: methods can change it.
+* Records have **no** inheritance, no virtual methods and no constructors or destructors; a
+  literal, a procedure (`Put`) or a class method that returns the record
+  (`class function TVector.Zero: TVector`) serves as "constructor".
+* Records with methods must be declared as a named type.
 
-Faustregel: **`record`** für kleine Werte, die kopiert werden (Punkt, Vektor, Datum, Farbe),
-**`class`** für Objekte mit Identität, Vererbung oder Polymorphie.
+Rule of thumb: **`record`** for small values that are copied (point, vector, date, colour),
+**`class`** for objects with identity, inheritance or polymorphism. Where either lives is chosen
+with `val` or `vao`.
 
-## Borrow Checker
+## Borrow checker
 
-Für Objekte und Referenzen gilt:
+For objects and references:
 
-| Konstrukt                      | Bedeutung                                         |
+| Construct                      | Meaning                                           |
 |--------------------------------|---------------------------------------------------|
-| `vao a := TFoo.Create;`        | `a` **besitzt** das Objekt (Owner)                |
-| `var r: TFoo := a;`            | `r` ist eine **Ausleihe** (besitzt nichts)        |
-| `var r: TFoo const := a;`      | lesende Ausleihe                                  |
-| `var x: Integer := i;`         | Ausleihe der Variablen `i`                        |
-| `Next: optional TItem;` (Feld) | Feld besitzt das Objekt (darf fehlen)             |
-| `Parent: var TItem;` (Feld)    | Feld ist eine Ausleihe                            |
-| `procedure P(x: TFoo)`         | Parameter = Ausleihe (`TFoo const`: lesend)       |
-| `procedure P(vao x: TFoo)`     | Parameter übernimmt den Besitz                    |
-| `procedure P(var x: TFoo)`     | veränderliche Ausleihe des Besitzer-Platzes       |
-| `function F: TFoo`             | Ergebnis wird an den Aufrufer übergeben           |
-| `function F: var TFoo`         | Ergebnis ist eine Ausleihe (z. B. `Find`)         |
-| `Take(x.Next)`                 | holt den Wert heraus, der Platz wird `none`       |
+| `vao a := TFoo.Create;`        | `a` **owns** the object                           |
+| `var r: TFoo := a;`            | `r` is a **borrow** (owns nothing)                |
+| `var r: TFoo const := a;`      | read-only borrow                                  |
+| `var x: Integer := i;`         | borrow of the variable `i`                        |
+| `Next: optional TItem;` (field) | the field owns the object (may be missing)       |
+| `Parent: var TItem;` (field)   | the field is a borrow                             |
+| `procedure P(x: TFoo)`         | parameter = borrow (`TFoo const`: read-only)      |
+| `procedure P(vao x: TFoo)`     | the parameter takes over the ownership            |
+| `procedure P(var x: TFoo)`     | changeable borrow of the owner's place            |
+| `function F: TFoo`             | the result is handed to the caller                |
+| `function F: var TFoo`         | the result is a borrow (e.g. `Find`)              |
+| `Take(x.Next)`                 | takes the value out, the place becomes `none`     |
 
-Regeln (Verstöße sind **Fehler**, die Übersetzung bricht ab):
+Rules (violations are **errors**, compilation stops):
 
-* `b := a` zwischen zwei Besitzern ist ein **Move**; `a` ist danach unbenutzbar
-  (`use of moved value 'a'`), bis es neu zugewiesen wird.
-* Kein Zugriff nach `Free`/`Destroy` (`use after free`), kein doppeltes Freigeben.
-* Ausleihen auf Objekte lokaler Besitzer dürfen nicht in globale Variablen, Felder oder
-  Funktionsergebnisse gelangen – der Besitzer gibt das Objekt am Ende seines Bereichs frei.
-* Ein `var`-Ergebnis darf nicht von einem temporären Objekt stammen (`F(TFoo.Create)`).
-* Ausleihen dürfen nicht freigegeben und nicht in Besitzer gespeichert werden.
-* Eine Ausleihe merkt sich, woher sie stammt. Wird die Quelle freigegeben, verschoben oder
-  neu zugewiesen, ist die Ausleihe **hängend**; ihre Benutzung ist ein Fehler.
-* Funktionen dürfen keine Referenz auf Objekte lokaler Besitzer zurückgeben.
-* Dieselbe Variable darf in einem Aufruf nicht zweimal übergeben werden, wenn einer der
-  Parameter `var`/`out` ist (`Swap(x, x)`).
-* **Ausleihregeln wie in Rust:** Zu jedem Zeitpunkt gibt es entweder **beliebig viele lesende**
-  (`var r: T const`) **oder genau eine änderbare** (`var r: T`) Ausleihe eines Objekts oder
-  einer Variablen:
-  - Solange eine lesende Ausleihe noch benutzt wird, darf das Objekt nicht geändert werden –
-    weder über den Besitzer (Feldzuweisung, nicht-const Methode, `var`-Argument) noch über
-    eine andere Ausleihe.
-  - Solange eine änderbare Ausleihe noch benutzt wird, darf das Objekt auf keinem anderen Weg
-    benutzt (auch nicht gelesen) oder erneut ausgeliehen werden.
-  - Wie bei Rusts *non-lexical lifetimes* endet eine Ausleihe mit ihrer **letzten Benutzung**:
-    ein Konflikt ist nur ein Fehler, wenn die Ausleihe danach noch benutzt wird. Die Meldung
-    nennt die Stelle des Konflikts:
+* `b := a` between two owners is a **move**; `a` cannot be used afterwards
+  (`use of moved value 'a'`) until it is assigned again.
+* No access after `Free`/`Destroy` (`use after free`), no double free.
+* Borrows of objects of local owners must not get into global variables, fields or function
+  results – the owner frees the object at the end of its scope.
+* A `var` result must not come from a temporary object (`F(TFoo.Create)`).
+* Borrows must not be freed and not be stored in owners.
+* A borrow remembers where it comes from. If the source is freed, moved or reassigned, the
+  borrow is **dangling**; using it is an error.
+* Functions must not return a reference to objects of local owners.
+* The same variable must not be passed twice in one call if one of the parameters is
+  `var`/`out` (`Swap(x, x)`).
+* **Borrowing rules like in Rust:** at any time there are either **any number of read-only**
+  (`var r: T const`) **or exactly one changeable** (`var r: T`) borrow of an object or a
+  variable:
+  - As long as a read-only borrow is still used, the object must not be changed – neither
+    through the owner (field assignment, non-const method, `var` argument) nor through another
+    borrow.
+  - As long as a changeable borrow is still used, the object must not be used (not even read) or
+    borrowed again in any other way.
+  - As with Rust's *non-lexical lifetimes*, a borrow ends with its **last use**: a conflict is
+    only an error if the borrow is used afterwards. The message names the place of the conflict:
     `borrowed reference 'l' is used here, but 'a' was changed at line 12 while 'l' was borrowing it`.
-  - Die Regeln gelten **feldgenau**: eine Ausleihe von `a.Links` verträgt Änderungen an
-    `a.Rechts`. Ausleihen, die aus einer anderen abgeleitet sind (`p is some k`, `k.Next`),
-    sind mit dieser verträglich.
-* Aus einem Feld kann man nicht einfach herausverschieben (`n := h.Next`) – dafür gibt es `Take`.
-* `var`-Parameter dürfen beim Verlassen der Routine nicht freigegeben/verschoben zurückbleiben.
+  - The rules are **field-precise**: a borrow of `a.Left` tolerates changes to `a.Right`.
+    Borrows derived from another one (`p is some k`, `k.Next`) are compatible with it.
+* You cannot simply move out of a field (`n := h.Next`) – that is what `Take` is for.
+* `var` parameters must not be left freed/moved when the routine is left.
 
-Speicherlecks gibt es nicht mehr: Was am Ende eines Bereichs noch besessen wird, gibt der
-erzeugte Code frei.
+There are no memory leaks any more: whatever is still owned at the end of a scope is freed by
+the generated code.
 
-Die Analyse ist flusssensitiv (if/case/Schleifen mit Fixpunkt-Iteration, `Break`/`Continue`/
-`Exit`), erkennt `is some`, `x <> none`, `HasValue` und berücksichtigt, welche nicht-lokalen
-Variablen aufgerufene Routinen (transitiv) verändern.
-Beispiel: [tests/run/ownership.pas](tests/run/ownership.pas), Fehlerbeispiele in
+The analysis is flow-sensitive (if/case/loops with fixed-point iteration, `Break`/`Continue`/
+`Exit`), understands `is some`, `x <> none`, `HasValue` and takes into account which non-local
+variables called routines change (transitively).
+Example: [tests/run/ownership.pas](tests/run/ownership.pas), error examples in
 [tests/borrow_fail/](tests/borrow_fail/).
 
-Grenzen der Analyse: Sie arbeitet pro Routine. Felder und Dereferenzierungen werden nicht
-einzeln verfolgt (nur ihre Pfade, um Ausleihen ungültig zu machen); die Lebensdauer von
-`var`-Feldern wird nicht geprüft; globale Besitzer werden nur im Hauptprogramm verfolgt;
-das Verschieben ganzer Arrays/Records, die Objekte besitzen, wird zur Laufzeit durch Leeren
-der Quelle abgesichert, nicht im Checker verfolgt.
+Limits of the analysis: it works per routine. Fields and dereferences are not tracked
+individually (only their paths, to invalidate borrows); the lifetime of `var` fields is not
+checked; global owners are only tracked in the main program; moving whole arrays/records that
+own objects is secured at run time by emptying the source, not tracked by the checker.
 
-## Optionale Werte: `optional T`
+## Optional values: `optional T`
 
-Es gibt kein `nil`. Ein Wert, der fehlen kann, hat den Typ **`optional T`** – für **jeden**
-Typ, wie `Option<T>` in Rust und `std::optional<T>` in C++. Der leere Wert heißt **`none`**.
-Ein `optional`-Wert kann nicht direkt benutzt werden, er muss erst **ausgepackt** werden:
+There is no `nil`. A value that may be missing has the type **`optional T`** – for **every**
+type, like `Option<T>` in Rust and `std::optional<T>` in C++. The empty value is called
+**`none`**. An `optional` value cannot be used directly; it must be **unpacked** first:
 
 ```pascal
 type
-  TKnoten = class
-    Wert: Integer;
-    Next: optional TKnoten;              { Option<Box<Knoten>> }
+  TNode = class
+    Value: Integer;
+    Next: optional TNode;                { Option<Box<Node>> }
   end;
 
-function Suche(n: Integer): optional Integer;
+function Find(n: Integer): optional Integer;
 begin
-  if n > 0 then Result := n * 2          { Integer wird automatisch zu some(...) }
+  if n > 0 then Result := n * 2          { Integer becomes some(...) automatically }
   else Result := none;
 end;
 
 val
-  alter: optional Integer := 42;         { std::optional<int> }
+  age: optional Integer := 42;           { std::optional<int> }
 vao
-  kopf: optional TKnoten := none;        { Option<Box<Knoten>> }
+  head: optional TNode := none;          { Option<Box<Node>> }
 var
-  p: optional TKnoten := none;           { Option<&Knoten> }
+  p: optional TNode := none;             { Option<&Node> }
 begin
-  if alter is some a then WriteLn(a);              { if let Some(a) = alter }
-  p := kopf;
+  if age is some a then WriteLn(a);                { if let Some(a) = age }
+  p := head;
   while p is some k do begin                       { while let Some(k) = p }
-    Write(k.Wert, ' ');
+    Write(k.Value, ' ');
     p := k.Next;
   end;
-  if (p is some k) and (k.Wert > 10) then …        { Bindung + weitere Bedingung }
-  case Suche(5) of                                  { match }
-    some v: WriteLn('gefunden ', v);
-    none:   WriteLn('nichts');
+  if (p is some k) and (k.Value > 10) then …       { binding + another condition }
+  case Find(5) of                                  { match }
+    some v: WriteLn('found ', v);
+    none:   WriteLn('nothing');
   end;
-  WriteLn(alter.ValueOr(0));                       { unwrap_or / value_or }
-  if alter.HasValue then …                         { is_some / has_value }
-  if alter = none then …                           { is_none }
+  WriteLn(age.ValueOr(0));                         { unwrap_or / value_or }
+  if age.HasValue then …                           { is_some / has_value }
+  if age = none then …                             { is_none }
 end.
 ```
 
-Regeln:
+Rules:
 
-* **Auspacken:** `x is some v` (in `if`- und `while`-Bedingungen, auch mit `and`
-  verknüpft), `case x of some v: … none: … end`, `x.ValueOr(d)` (für Werte),
-  `x.HasValue`, `x = none` / `x <> none`. Die Variable `v` gilt im `then`-Zweig bzw. im
-  Schleifenrumpf. Bei Objekten ist `v` eine Ausleihe; bei `Take(x) is some v` übernimmt `v`
-  den Besitz.
-* `x.Feld` oder `x.Methode` auf einem `optional`-Wert ist ein Fehler – mit dem Hinweis,
-  wie man auspackt. Ausnahme: `x.Free` (gibt nichts frei, wenn `none`).
-* Ein Wert vom Typ `T` wird automatisch zu `optional T`; umgekehrt nie.
-* `none` passt nur zu `optional`-Typen; `x = none` bei einem nicht-optionalen `x` ist ein Fehler.
-* Optionale Objekte sind intern ein Zeiger (`none` = NULL) und kosten nichts zusätzlich;
-  optionale Werte sind ein kleines Struct aus Flag und Wert.
+* **Unpacking:** `x is some v` (in `if` and `while` conditions, also combined with `and`),
+  `case x of some v: … none: … end`, `x.ValueOr(d)` (for values), `x.HasValue`, `x = none` /
+  `x <> none`. The variable `v` is valid in the `then` branch or the loop body. For objects `v`
+  is a borrow; with `Take(x) is some v`, `v` takes over the ownership.
+* `x.Field` or `x.Method` on an `optional` value is an error – with a hint how to unpack it.
+  Exception: `x.Free` (frees nothing if `none`).
+* A value of type `T` becomes `optional T` automatically; never the other way round.
+* `none` only fits `optional` types; `x = none` for a non-optional `x` is an error.
+* Optional objects are a pointer internally (`none` = NULL) and cost nothing extra; optional
+  values are a small struct of a flag and the value.
 
-Für **nicht-optionale** Objekte garantiert der Compiler, dass sie zur Laufzeit immer ein
-Objekt haben:
+For **non-optional** objects the compiler guarantees that they always have an object at run
+time:
 
-* **Besitzer ohne Objekt** gibt es nicht: ein nicht-optionaler `vao` muss mit einem Objekt
-  initialisiert werden, und nach einem Move oder `Free` ist seine Benutzung ein Fehler.
-* **Konstruktoren** müssen allen eigenen nicht-optionalen Feldern auf jedem Pfad einen Wert
-  geben, bevor `Self` benutzt wird (Methodenaufruf, Übergabe, Speichern). Erbt eine Klasse
-  solche Felder, muss der Konstruktor einen geerbten Konstruktor aufrufen. Eine Klasse mit
-  nicht-optionalen Feldern muss einen eigenen Konstruktor haben und darf nicht mit einem
-  geerbten Konstruktor erzeugt werden, der ihre Felder nicht kennt.
-* **Speicher, der leer beginnt** (Array-Elemente, Record-Felder vom Klassentyp) muss
-  `optional` sein.
-* **Globale Variablen und äußere lokale Variablen:** Ein Aufruf einer Routine, die eine noch
-  nicht belegte Variable liest, ist ein Fehler (transitiv über Aufrufe).
-* `out`-Parameter müssen belegt werden; Funktionen mit nicht-optionalem Ergebnis müssen ein
-  Objekt liefern.
-* `Take()` und `FreeAndNil()` sind nur auf `optional`-Plätzen erlaubt.
+* **Owners without an object** do not exist: a non-optional `vao` must be initialized with an
+  object, and using it after a move or `Free` is an error.
+* **Constructors** must give all their own non-optional fields a value on every path before
+  `Self` is used (method call, passing, storing). If a class inherits such fields, the
+  constructor must call an inherited constructor. A class with non-optional fields must have a
+  constructor of its own and must not be created with an inherited constructor that does not
+  know its fields.
+* **Memory that starts empty** (array elements, record fields of class type) must be
+  `optional`.
+* **Global variables and outer local variables:** calling a routine that reads a variable that
+  is not set yet is an error (transitively through calls).
+* `out` parameters must be set; functions with a non-optional result must deliver an object.
+* `Take()` and `FreeAndNil()` are only allowed on `optional` places.
 
-Weil diese Garantie beim Übersetzen entsteht, erzeugt ppc **keine** Prüfungen im
-Programm. Mit `--no-nil-check` wird die Allokationsanalyse abgeschaltet und stattdessen jeder
-Zugriff über eine Referenz zur Laufzeit geprüft:
+Because this guarantee is established at compile time, ppc produces **no** checks in the
+program. With `--no-nil-check` the allocation analysis is switched off and every access through
+a reference is checked at run time instead:
 
 ```
-Runtime error 210: nil pointer dereference at programm.pas(42,7)
+Runtime error 210: nil pointer dereference at program.pas(42,7)
 ```
 
-Ein fehlgeschlagener Speicherwunsch (`Create`) endet mit `Runtime error 203: heap overflow`.
+A failed memory request (`Create`) ends with `Runtime error 203: heap overflow`.
 
-**Array-Grenzen** werden immer geprüft: Ein konstanter Index außerhalb der Grenzen ist ein
-Fehler beim Übersetzen (`index 7 is outside the array bounds 1..3`); ein berechneter Index wird
-zur Laufzeit geprüft (auch bei Strings, Bereich 0..255):
+**Array bounds** are always checked: a constant index outside the bounds is a compile-time error
+(`index 7 is outside the array bounds 1..3`); a computed index is checked at run time (also for
+strings, range 0..255):
 
 ```
-Runtime error 201: range check error at programm.pas(12,9): index 5 is outside 1..3
+Runtime error 201: range check error at program.pas(12,9): index 5 is outside 1..3
 ```
 
-Mit `--no-range-check` entfällt die Prüfung zur Laufzeit (schneller, aber ohne Schutz).
+With `--no-range-check` the run-time check is dropped (faster, but without protection).
 
-## Fehlerbehandlung: `result T`
+## Error handling: `result T`
 
-Es gibt keine Exceptions. Eine Funktion, die fehlschlagen kann, liefert **`result T`** – einen
-Wert vom Typ `T` *oder* einen Fehler, wie `Result<T, E>` in Rust. Der Fehler ist ein `String`;
-mit `result T of E` ist er vom Typ `E` (z. B. eine Aufzählung). `result` ohne `T` (bzw.
-`result of E`) meldet nur Erfolg oder Fehler, wie `Result<(), E>`.
+There are no exceptions. A function that can fail returns **`result T`** – a value of type `T`
+*or* an error, like `Result<T, E>` in Rust. The error is a `String`; with `result T of E` it is
+of type `E` (e.g. an enumeration). `result` without `T` (or `result of E`) only reports success
+or failure, like `Result<(), E>`.
 
 ```pascal
-type TFehler = (DurchNull, ZuGross);
+type TError = (DivByZero, TooBig);
 
-function Teile(a, b: Integer): result Integer;
+function Divide(a, b: Integer): result Integer;
 begin
-  if b = 0 then Result := error('Division durch 0')
-  else Result := a div b;                      { ein Wert ist automatisch ok(...) }
+  if b = 0 then Result := error('division by 0')
+  else Result := a div b;                      { a value is ok(...) automatically }
 end;
 
-function Pruefe(n: Integer): result of TFehler;
+function Check(n: Integer): result of TError;
 begin
-  if n > 100 then Result := error(ZuGross) else Result := ok;
+  if n > 100 then Result := error(TooBig) else Result := ok;
 end;
 
-function Rechne(a, b, c: Integer): result Integer;
+function Compute(a, b, c: Integer): result Integer;
 begin
-  val q := try Teile(a, b);                    { Fehler: Rechne liefert ihn sofort zurück }
+  val q := try Divide(a, b);                   { error: Compute returns it at once }
   begin
-    Result := try Teile(q, c);
+    Result := try Divide(q, c);
   end;
 end;
 …
-case Teile(1, 0) of                            { match }
-  ok v:    WriteLn('Wert ', v);
-  error e: WriteLn('Fehler: ', e);
+case Divide(1, 0) of                           { match }
+  ok v:    WriteLn('value ', v);
+  error e: WriteLn('error: ', e);
 end;
 if r is ok v then WriteLn(v);                  { if let Ok(v) = r }
-if Pruefe(5) is ok then …;                     { result ohne Wert }
-WriteLn(Teile(7, 0).ValueOr(-1));              { unwrap_or }
-if r.IsError then …;                           { is_err; auch r.IsOk }
+if Check(5) is ok then …;                      { result without a value }
+WriteLn(Divide(7, 0).ValueOr(-1));             { unwrap_or }
+if r.IsError then …;                           { is_err; also r.IsOk }
 ```
 
-* **Erzeugen:** `ok(v)`, `ok` (ohne Wert), `error(e)`; ein Wert vom Typ `T` wird automatisch
-  zu `ok(...)`, Literale und `default` (= `ok` mit dem Nullwert) passen sich an.
-* **Auspacken:** `case r of ok v: … error e: … end` (auch mit `else`; der Ausdruck wird nur einmal
-  ausgewertet), `r is ok v` / `r is error e` in `if`- und `while`-Bedingungen, `r.ValueOr(d)`,
-  `r.IsOk`, `r.IsError`. Ein `result` direkt als Wert zu benutzen ist ein Fehler – er kann nicht
-  versehentlich übergangen werden.
-* **Weitergeben mit `try`** (wie `?` in Rust): `try r` liefert den Wert eines erfolgreichen
-  Ergebnisses; bei einem Fehler endet die Funktion sofort und gibt den Fehler zurück. Besitzer
-  (`vao`) werden dabei wie bei `Exit` freigegeben. `try` steht als ganze Anweisung
-  (`try Speichere(x);`), als Wert einer Zuweisung oder als Initialisierer und nur in Funktionen,
-  die selbst ein `result` mit demselben Fehlertyp liefern.
-* Wert und Fehler sind Werte (Zahlen, Strings, Aufzählungen, Records, Arrays); Objekte in einem
-  `result` werden noch nicht unterstützt.
-* Intern ist ein `result` ein kleines Struct aus Fehler-Flag, Wert und Fehler – ohne Kosten,
-  solange kein Fehler auftritt.
+* **Creating:** `ok(v)`, `ok` (without a value), `error(e)`; a value of type `T` becomes
+  `ok(...)` automatically, literals and `default` (= `ok` with the zero value) adapt.
+* **Unpacking:** `case r of ok v: … error e: … end` (also with `else`; the expression is
+  evaluated only once), `r is ok v` / `r is error e` in `if` and `while` conditions,
+  `r.ValueOr(d)`, `r.IsOk`, `r.IsError`. Using a `result` directly as a value is an error – it
+  cannot be skipped by accident.
+* **Passing on with `try`** (like `?` in Rust): `try r` returns the value of a successful
+  result; on an error the function ends at once and returns the error. Owners (`vao`) are freed
+  as with `Exit`. `try` stands as a whole statement (`try Save(x);`), as the value of an
+  assignment or as an initializer, and only in functions that themselves return a `result`
+  with the same error type.
+* Value and error are values (numbers, strings, enumerations, records, arrays); objects in a
+  `result` are not supported yet.
+* Internally a `result` is a small struct of an error flag, the value and the error – without
+  cost as long as no error occurs.
 
-Ein vollständiges Beispiel (Bank-Überweisung mit Fehler-Aufzählung, `try`-Kette und allen
-Arten des Auspackens): [examples/ueberweisung.pas](examples/ueberweisung.pas).
+A complete example (bank transfer with an error enumeration, a `try` chain and all kinds of
+unpacking): [examples/transfer.pas](examples/transfer.pas).
 
-## Endlosschleife: `loop`
+## Endless loop: `loop`
 
-`loop <Anweisung>` wiederholt die Anweisung ohne Bedingung (wie `loop` in Rust); verlassen wird
-sie mit `Break`, `Exit` oder einem fehlgeschlagenen `try`:
+`loop <statement>` repeats the statement without a condition (like `loop` in Rust); it is left
+with `Break`, `Exit` or a failed `try`:
 
 ```pascal
 loop
   begin
-    ReadLn(zeile);
-    if zeile = 'ende' then Break;
-    Verarbeite(zeile);
+    ReadLn(line);
+    if line = 'end' then Break;
+    Process(line);
   end;
 
 loop
-  vao k := TAuftrag.Create(n);       { frischer Besitzer in jedem Durchlauf }
+  vao k := TJob.Create(n);           { a fresh owner in every iteration }
   begin
-    if not k.Bearbeite then Break;   { k wird auch bei Break freigegeben }
+    if not k.Run then Break;         { k is freed on Break too }
   end;
 ```
 
-Verlässt `Break` oder `Continue` einen Block mit eigenen Variablen, geben dessen Besitzer ihre
-Objekte sofort frei (in jeder Schleifenart); Ausleihen auf sie sind danach ungültig.
+If `Break` or `Continue` leaves a block with its own variables, its owners free their objects at
+once (in every kind of loop); borrows of them are invalid afterwards.
 
-## Unterstützte Sprache
+## Supported language
 
-* `program`, `module` und `import` (eigene Module, Standardbibliothek `ppc_std`), `const` (auch typisierte Konstanten und Array-Initialisierer),
-  `type`, `val` (Werte), `var` (Referenzen), `vao` (Besitzer), Blöcke mit eigenen Abschnitten
-* Typen: `Integer`/`LongInt` (32 Bit), `ShortInt`, `SmallInt`, `Byte`, `Word`, `Cardinal`,
-  `Int64`, `Boolean`, `Char`, `Real`/`Double`, `String` (ShortString, max. 255 Zeichen),
-  Aufzählungen, Teilbereiche, statische (auch mehrdimensionale) Arrays, Records (mit Methoden),
-  `class` (mit Klassenmethoden)
-* Prozeduren/Funktionen, beliebig verschachtelt (Zugriff auf äußere Variablen über
-  Static Links), `var`-, `out`-, `vao`- und `T const`-Parameter, `forward`, Rekursion, `Result`/Funktionsname,
-  `Exit(Wert)`
-* Anweisungen: `:=`, `if`, `case` (auch mit Strings und Bereichen), `while`, `repeat`, `for … to/downto`,
-  `loop` (Endlosschleife), `with`, `Break`, `Continue`, `Exit`
-* Ausdrücke: Arithmetik, `div`, `mod`, `shl`, `shr`, `and`/`or`/`xor`/`not` (Kurzschluss bei Boolean),
-  Vergleiche, Stringverkettung, `in [a, b..c]`, Typumwandlungen `Integer(x)`, `TFoo(obj)`
-* Standardroutinen: `Write(Ln)` mit `:Breite:Nachkommastellen`, `Read(Ln)`, `Length`, `Copy`,
-  `Pos`, `Delete`, `Insert`, `UpCase`, `UpperCase`, `LowerCase`, `Concat`, `IntToStr`, `StrToInt`,
-  `FloatToStr`, `Str`, `SetLength`, `Ord`, `Chr`, `Succ`, `Pred`, `Inc`, `Dec`, `Odd`, `Abs`, `Sqr`,
-  `Sqrt`, `Sin`, `Cos`, `ArcTan`, `Exp`, `Ln`, `Trunc`, `Round`, `Frac`, `Int`, `High`, `Low`,
-  `SizeOf`, `Random`, `Randomize`, `Halt`, `Assigned`, `FreeAndNil`, `Take`;
-  bei `optional`: `HasValue`, `ValueOr`; bei `result`: `IsOk`, `IsError`, `ValueOr`
+* `program`, `module` and `import` (own modules, standard library `ppc_std`), `const` (also
+  typed constants and array initializers), `type`, `val` (values), `var` (references), `vao`
+  (owners), blocks with their own sections
+* Types: `Integer`/`LongInt` (32 bit), `ShortInt`, `SmallInt`, `Byte`, `Word`, `Cardinal`,
+  `Int64`, `Boolean`, `Char`, `Real`/`Double`, `String` (ShortString, max. 255 characters),
+  enumerations, subranges, static (also multi-dimensional) and dynamic arrays, records (with
+  methods), `class` (with class methods), generics
+* Procedures/functions, nested to any depth (access to outer variables through static links),
+  `var`, `out`, `vao` and `T const` parameters, `forward`, recursion, `Result`/function name,
+  `Exit(value)`
+* Statements: `:=`, `if`, `case` (also with strings and ranges), `while`, `repeat`,
+  `for … to/downto`, `loop` (endless loop), `with`, `Break`, `Continue`, `Exit`
+* Expressions: arithmetic, `div`, `mod`, `shl`, `shr`, `and`/`or`/`xor`/`not` (short-circuit for
+  Boolean), comparisons, string concatenation, `in [a, b..c]`, type casts `Integer(x)`,
+  `TFoo(obj)`
+* Standard routines: `Write(Ln)` with `:width:decimals`, `Read(Ln)`, `Length`, `Copy`, `Pos`,
+  `Delete`, `Insert`, `UpCase`, `UpperCase`, `LowerCase`, `Concat`, `IntToStr`, `StrToInt`,
+  `FloatToStr`, `Str`, `SetLength`, `Ord`, `Chr`, `Succ`, `Pred`, `Inc`, `Dec`, `Odd`, `Abs`,
+  `Sqr`, `Sqrt`, `Sin`, `Cos`, `ArcTan`, `Exp`, `Ln`, `Trunc`, `Round`, `Frac`, `Int`, `High`,
+  `Low`, `SizeOf`, `Random`, `Randomize`, `Halt`, `Assigned`, `FreeAndNil`, `Take`;
+  for `optional`: `HasValue`, `ValueOr`; for `result`: `IsOk`, `IsError`, `ValueOr`
 
-Nicht unterstützt: `nil` (ersetzt durch `optional`/`none`), Zeiger (`^`, `@`, `New`, `Dispose`,
-`Pointer` – ersetzt durch Objekte, `var`-Referenzen und `var`-Parameter), `object`-Typen (ersetzt durch `class`), Mengentypen (außer Mengen-Literalen bei `in`), offene
-Array-Parameter (`array of T` ist ein dynamisches Array), Exceptions (ersetzt durch `result T` und `try`), Interfaces, Überladen, Prozedurtypen,
-varianten Records, `goto`, Datei-I/O.
+Not supported: `nil` (replaced by `optional`/`none`), pointers (`^`, `@`, `New`, `Dispose`,
+`Pointer` – replaced by objects, `var` references and `var` parameters), `object` types
+(replaced by `class`), set types (except set literals with `in`), open array parameters
+(`array of T` is a dynamic array), exceptions (replaced by `result T` and `try`), interfaces,
+overloading, procedural types, variant records, `goto`, file I/O.
 
-## Aufbau
+## Structure
 
-| Datei             | Inhalt                                                     |
+| File              | Contents                                                   |
 |-------------------|------------------------------------------------------------|
-| `src/parser.c`    | Lexer (case-sensitiv) und rekursiver Abstiegsparser        |
-| `src/sema.c`      | Namensauflösung, Typprüfung, Klassenlayout, VMT-Slots      |
-| `src/borrow.c`    | Borrow Checker und Allokations-/Initialisierungsanalyse    |
-| `src/codegen.c`   | C-Codeerzeugung (Structs, VMTs, Static Links, Runtime-Aufrufe) |
-| `src/ppc_rt.h`    | C-Laufzeitbibliothek, wird in jedes Programm eingebettet   |
-| `src/main.c`      | Treiber, Prelude (`TObject`), Aufruf des C-Compilers       |
-| `lib/ppc_std.pas` | Standardbibliothek in Perfect Pascal, wird eingebettet     |
-| `tests/`          | Testprogramme und `run.sh`                                 |
+| `src/parser.c`    | lexer (case-sensitive) and recursive-descent parser        |
+| `src/sema.c`      | name resolution, type checking, class layout, VMT slots, generics |
+| `src/borrow.c`    | borrow checker and allocation/initialization analysis      |
+| `src/codegen.c`   | C code generation (structs, VMTs, static links, runtime calls) |
+| `src/ppc_rt.h`    | C runtime library, embedded into every program             |
+| `src/main.c`      | driver, prelude (`TObject`), modules, calling the C compiler |
+| `lib/ppc_std.pas` | standard library in Perfect Pascal, embedded               |
+| `tests/`          | test programs and `run.sh`                                 |
+| `examples/`       | example programs                                           |
 
-Klassen werden als C-Structs mit `__vmt`-Zeiger am Anfang abgebildet. Geerbte Felder liegen
-als Präfix vorne, daher sind Zeiger auf Nachfahren mit Zeigern auf Vorfahren layoutkompatibel.
-Ein Heapobjekt ist ein mit `calloc` angelegtes Struct; ein Stackobjekt ist dasselbe Struct als
-lokale C-Variable, die Pascal-Variable zeigt darauf, und am Blockende ruft der erzeugte Code den
-virtuellen Destruktor ohne Freigabe auf. Am Ende eines Bereichs gibt der erzeugte
-Code alles frei, was `vao`-Variablen noch besitzen (in umgekehrter Reihenfolge). Eine
-`var`-Referenz auf einen Wert ist in C ein Zeiger auf die Original-Variable; Klassenmethoden
-sind C-Funktionen ohne `self`-Parameter.
+Classes are mapped to C structs with a `__vmt` pointer at the start. Inherited fields come first
+as a prefix, so pointers to descendants are layout-compatible with pointers to ancestors. A heap
+object is a struct allocated with `calloc`; a stack object is the same struct as a local C
+variable that the Pascal variable points to, and at the end of the block the generated code
+calls the virtual destructor without freeing. At the end of a scope the generated code frees
+everything that `vao` variables still own (in reverse order). A `var` reference to a value is a
+pointer to the original variable in C; class methods are C functions without a `self`
+parameter.

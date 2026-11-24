@@ -1,56 +1,56 @@
 program StdLibrary;
-{ Standardbibliothek (Generics Stufe 6): uses ppc_std -> TListe, TStapel, TMap, Sortiere, Suche }
+{ standard library (generics stage 6): import ppc_std -> TList, TStack, TMap, Sort, IndexOf }
 import ppc_std;
 type
-  TKunde = class
+  TCustomer = class
     Name: String;
     constructor Create(AName: String const);
     destructor Destroy; override;
   end;
-constructor TKunde.Create(AName: String const); begin inherited Create; Name := AName; end;
-destructor TKunde.Destroy; begin WriteLn('  frei ', Name); inherited Destroy; end;
+constructor TCustomer.Create(AName: String const); begin inherited Create; Name := AName; end;
+destructor TCustomer.Destroy; begin WriteLn('  freed ', Name); inherited Destroy; end;
 
 val
-  zahlen: array of Integer := (5, 3, 9, 1, 7);
-  namen: array of String := ('Mia', 'Anna', 'Bert');
+  numbers: array of Integer := (5, 3, 9, 1, 7);
+  names: array of String := ('Mia', 'Anna', 'Bert');
 vao
-  kunden := TListe<TKunde>.Create;
-  stapel := TStapel<Integer>.Create;
-  alter := TMap<String, Integer>.Create;
-  map := TMap<Integer, TKunde>.Create;
+  customers := TList<TCustomer>.Create;
+  stack := TStack<Integer>.Create;
+  ages := TMap<String, Integer>.Create;
+  map := TMap<Integer, TCustomer>.Create;
 begin
-  Sortiere(zahlen);
-  for val i := 0 to High(zahlen) do Write(zahlen[i], ' ');
+  Sort(numbers);
+  for val i := 0 to High(numbers) do Write(numbers[i], ' ');
   WriteLn;
-  Sortiere(namen);
-  WriteLn(namen[0], ' ', namen[1], ' ', namen[2]);
-  if Suche(zahlen, 7) is some p then WriteLn('7 an Position ', p);
-  if Suche(zahlen, 4) = none then WriteLn('4 nicht gefunden');
+  Sort(names);
+  WriteLn(names[0], ' ', names[1], ' ', names[2]);
+  if IndexOf(numbers, 7) is some p then WriteLn('7 an Position ', p);
+  if IndexOf(numbers, 4) = none then WriteLn('4 not found');
 
-  kunden.Add(TKunde.Create('Anna'));
-  kunden.Add(TKunde.Create('Bert'));
-  kunden.Add(TKunde.Create('Carla'));
-  if kunden.Hole(1) is some k then WriteLn('Hole(1): ', k.Name);
-  if kunden.Nimm(0) is some k then WriteLn('Nimm(0): ', k.Name);
-  WriteLn('Count: ', kunden.Count);
+  customers.Add(TCustomer.Create('Anna'));
+  customers.Add(TCustomer.Create('Bert'));
+  customers.Add(TCustomer.Create('Carla'));
+  if customers.Get(1) is some k then WriteLn('Get(1): ', k.Name);
+  if customers.Extract(0) is some k then WriteLn('Extract(0): ', k.Name);
+  WriteLn('Count: ', customers.Count);
 
-  for val i := 1 to 3 do stapel.Push(i * 10);
-  if stapel.Top is some t then WriteLn('Top: ', t);
-  if stapel.Pop is some t then WriteLn('Pop: ', t);
-  WriteLn('Stapel: ', stapel.Count, ' leer: ', stapel.IstLeer);
+  for val i := 1 to 3 do stack.Push(i * 10);
+  if stack.Peek is some t then WriteLn('Peek: ', t);
+  if stack.Pop is some t then WriteLn('Pop: ', t);
+  WriteLn('Stack: ', stack.Count, ' empty: ', stack.IsEmpty);
 
-  alter.Setze('Bert', 28);
-  alter.Setze('Anna', 30);
-  alter.Setze('Carla', 31);
-  alter.Setze('Anna', 31);
-  if alter.Hole('Anna') is some a then WriteLn('Anna: ', a);
-  WriteLn('enthaelt Dora: ', alter.Enthaelt('Dora'), ', Count ', alter.Count);
-  if alter.Entferne('Bert') is some a then WriteLn('Bert entfernt: ', a);
-  WriteLn('Schluessel[0..1]: ', alter.Schluessel[0], ' ', alter.Schluessel[1]);
+  ages.Put('Bert', 28);
+  ages.Put('Anna', 30);
+  ages.Put('Carla', 31);
+  ages.Put('Anna', 31);
+  if ages.Get('Anna') is some a then WriteLn('Anna: ', a);
+  WriteLn('contains Dora: ', ages.Contains('Dora'), ', Count ', ages.Count);
+  if ages.Remove('Bert') is some a then WriteLn('Bert removed: ', a);
+  WriteLn('Keys[0..1]: ', ages.Keys[0], ' ', ages.Keys[1]);
 
-  map.Setze(2, TKunde.Create('Zwei'));
-  map.Setze(1, TKunde.Create('Eins'));
-  map.Setze(2, TKunde.Create('Zwei neu'));    { alte Zwei wird freigegeben }
-  if map.Hole(2) is some k then WriteLn('map[2]: ', k.Name);
-  WriteLn('Ende');
+  map.Put(2, TCustomer.Create('Zwei'));
+  map.Put(1, TCustomer.Create('Eins'));
+  map.Put(2, TCustomer.Create('Zwei fresh'));    { the old Two is freed }
+  if map.Get(2) is some k then WriteLn('map[2]: ', k.Name);
+  WriteLn('End');
 end.

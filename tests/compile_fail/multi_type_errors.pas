@@ -3,18 +3,18 @@ program E2;
 type
   TFoo = class
     V: Integer;
-    procedure Zeige;
+    procedure Show;
   end;
-procedure TFoo.Zeige; begin WriteLn(V + 'x'); end;
+procedure TFoo.Show; begin WriteLn(V + 'x'); end;
 
 function F(n: Integer): Integer;
 val s: String := 5;
-val wert := 3;
+val value := 3;
 begin
   Result := n * 2;
   Result := 'text';
-  Unbekannt(3);
-  WriteLn(wert + 1);
+  Unknown(3);
+  WriteLn(value + 1);
 end;
 
 val i := 1;

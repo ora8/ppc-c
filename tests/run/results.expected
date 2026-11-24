@@ -1,19 +1,19 @@
 10 / 2 = 5
-Fehler: Division durch 0
+Error: division by 0
 ValueOr: -1 1
 IsOk: TRUE, IsError: TRUE
 -- try
-  frei: Zaehler 20
-Rechne = 200
-  frei: Zaehler 0
-Fehler: Division durch 0
-  frei: Zaehler 20
-Fehler: Division durch 0
--- ohne Wert
-  Kette ok fuer 10
+  freed: Counter 20
+Compute = 200
+  freed: Counter 0
+Error: division by 0
+  freed: Counter 20
+Error: division by 0
+-- without a value
+  Chain ok for 10
   ok
-  Fehler 2
-  zu gross: TRUE
+  Error 2
+  too big: TRUE
 -- Record
   (1,2)
-  kein Punkt
+  no MakePoint

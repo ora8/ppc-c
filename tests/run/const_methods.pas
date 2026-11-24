@@ -1,68 +1,68 @@
 program ConstMethods;
-{ Methoden mit '; const;': aendern Self nicht;
-  und Routinen ohne Seiteneffekte auf globale Variablen }
+{ methods with '; const;': do not change Self;
+  and routines without side effects on global variables }
 type
-  TVektor = record
+  TVector = record
     X, Y: Real;
-    procedure Skaliere(F: Real);
-    function Laenge: Real; const;               { aendert Self nicht }
-    function Normiert: TVektor; const;
-    procedure Zeige; const;
+    procedure Scale(F: Real);
+    function Len: Real; const;               { does not change Self }
+    function Normalized: TVector; const;
+    procedure Show; const;
   end;
 
-  TKonto = class
+  TAccount = class
   private
-    FSaldo: Integer;
+    FBalance: Integer;
   public
     constructor Create(S: Integer);
-    procedure Einzahlen(B: Integer);
-    function Saldo: Integer; const;
-    function Beschreibung: String; const; virtual;
+    procedure Deposit(B: Integer);
+    function Balance: Integer; const;
+    function Description: String; const; virtual;
   end;
-  TSparkonto = class(TKonto)
-    function Beschreibung: String; const; override; { Override bleibt const }
+  TSavings = class(TAccount)
+    function Description: String; const; override; { the override stays const }
   end;
 
-procedure TVektor.Skaliere(F: Real); begin X := X * F; Y := Y * F; end;
-function TVektor.Laenge: Real; const; begin Result := Sqrt(X * X + Y * Y); end;
-function TVektor.Normiert: TVektor; const;
-val l := Laenge;                                 { const Methode ruft const Methode }
+procedure TVector.Scale(F: Real); begin X := X * F; Y := Y * F; end;
+function TVector.Len: Real; const; begin Result := Sqrt(X * X + Y * Y); end;
+function TVector.Normalized: TVector; const;
+val l := Len;                                 { const method calls a const method }
 begin
   Result.X := X / l;
   Result.Y := Y / l;
 end;
-procedure TVektor.Zeige; const; begin WriteLn('(', X:0:2, ', ', Y:0:2, ') Laenge ', Laenge:0:2); end;
+procedure TVector.Show; const; begin WriteLn('(', X:0:2, ', ', Y:0:2, ') Len ', Len:0:2); end;
 
-constructor TKonto.Create(S: Integer); begin inherited Create; FSaldo := S; end;
-procedure TKonto.Einzahlen(B: Integer); begin FSaldo := FSaldo + B; end;
-function TKonto.Saldo: Integer; const; begin Result := FSaldo; end;
-function TKonto.Beschreibung: String; const; begin Result := ClassName + ' ' + IntToStr(Saldo); end;
-function TSparkonto.Beschreibung: String; const; begin Result := 'Spar: ' + inherited Beschreibung; end;
+constructor TAccount.Create(S: Integer); begin inherited Create; FBalance := S; end;
+procedure TAccount.Deposit(B: Integer); begin FBalance := FBalance + B; end;
+function TAccount.Balance: Integer; const; begin Result := FBalance; end;
+function TAccount.Description: String; const; begin Result := ClassName + ' ' + IntToStr(Balance); end;
+function TSavings.Description: String; const; begin Result := 'Spar: ' + inherited Description; end;
 
-{ freie const Funktion: nur Parameter und lokale Variablen, keine Seiteneffekte }
-function Quadrat(N: Integer): Integer; const; begin Result := N * N; end;
-function SummeQuadrate(N: Integer): Integer; const;
+{ free const function: only parameters and local variables, no side effects }
+function SquareOf(N: Integer): Integer; const; begin Result := N * N; end;
+function SumOfSquares(N: Integer): Integer; const;
 begin
   Result := 0;
-  for val i := 1 to N do Result := Result + Quadrat(i);   { ruft nur const Routinen }
+  for val i := 1 to N do Result := Result + SquareOf(i);   { calls only const routines }
 end;
 
-procedure Ausgabe(V: TVektor const);         { T const: nur const Methoden }
+procedure Print(V: TVector const);         { T const: only const methods }
 begin
-  V.Zeige;
-  V.Normiert.Zeige;
+  V.Show;
+  V.Normalized.Show;
 end;
 
 val
-  v: TVektor := default;
+  v: TVector := default;
 vao
-  k := TSparkonto.Create(100);
+  k := TSavings.Create(100);
 begin
   v.X := 3; v.Y := 4;
-  Ausgabe(v);
-  v.Skaliere(2);                                { v selbst ist nicht konstant }
-  v.Zeige;
-  k.Einzahlen(50);
-  WriteLn(k.Beschreibung, ', Saldo ', k.Saldo);
-  WriteLn('SummeQuadrate(4) = ', SummeQuadrate(4));
+  Print(v);
+  v.Scale(2);                                { v itself is not constant }
+  v.Show;
+  k.Deposit(50);
+  WriteLn(k.Description, ', Balance ', k.Balance);
+  WriteLn('SumOfSquares(4) = ', SumOfSquares(4));
 end.

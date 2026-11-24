@@ -20,7 +20,7 @@ begin
 end;
 
 procedure TAccount.Apply(n: Integer);
-  procedure Step(k: Integer);          { verschachtelt in Methode, Zugriff auf Self }
+  procedure Step(k: Integer);          { nested in a method, access to Self }
   begin
     Balance := Balance + k;
   end;
@@ -34,9 +34,9 @@ function IsWeekend(d: TDay): Boolean; forward;
 function Describe(d: TDay): String;
 begin
   case d of
-    Mon..Fri: Result := 'Werktag';
+    Mon..Fri: Result := 'weekday';
   else
-    Result := 'Wochenende';
+    Result := 'weekend';
   end;
   if IsWeekend(d) then Result := Result + '!';
 end;
@@ -60,7 +60,7 @@ val depth: Integer := default;
     function Inner(z: Integer): Integer;
     begin
       depth := depth + 1;
-      Inner := x + y + z;     { greift zwei Ebenen nach aussen }
+      Inner := x + y + z;     { reaches two levels outwards }
     end;
   begin
     Mid := Inner(y * 2);
@@ -92,21 +92,21 @@ begin
   WriteLn(p.Name, ' ', p.A + p.B, ' ', p.B);
 
   arr[1] := 3; arr[2] := 1; arr[3] := -4; arr[4] := 1; arr[5] := -5;
-  WriteLn('erstes negatives an Index ', FirstNeg(arr));
+  WriteLn('first negative at index ', FirstNeg(arr));
   WriteLn('Outer(2) = ', Outer(2));
 
-  s := 'Hallo Welt';
+  s := 'Hello World';
   t := s;
   Delete(t, 1, 6);
-  Insert('schoene ', s, 7);
+  Insert('nice ', s, 7);
   WriteLn(s, ' | ', t, ' | ', UpperCase(t), ' | ', LowerCase('ABC'));
   case t of
     'Welt': WriteLn('String-case ok');
-  else WriteLn('String-case falsch');
+  else WriteLn('string case wrong');
   end;
   Str(3.14159:0:2, s);
   WriteLn('Str: ', s, ' Round(2.5)=', Round(2.5), ' Trunc(-2.7)=', Trunc(-2.7));
   i := StrToInt('123') + 1;
   WriteLn(i, ' ', 'x':5, '|', 42:6, '|', True:6, '|');
-  WriteLn('Ende');
+  WriteLn('End');
 end.

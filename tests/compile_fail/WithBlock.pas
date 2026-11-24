@@ -1,0 +1,3 @@
+module WithBlock;
+begin
+end.

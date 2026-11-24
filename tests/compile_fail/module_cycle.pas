@@ -1,4 +1,4 @@
-{ EXPECT: modules import each other in a cycle: 'ZyklusA' }
+{ EXPECT: modules import each other in a cycle: 'CycleA' }
 program T;
-import ZyklusA;
+import CycleA;
 begin end.

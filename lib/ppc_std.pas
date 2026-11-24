@@ -1,182 +1,182 @@
-{ ppc_std: Standardbibliothek von Perfect Pascal  (einbinden mit 'import ppc_std;')
+{ ppc_std: the standard library of Perfect Pascal  (include it with 'import ppc_std;')
 
-  TListe<T>                 Liste, die mitwächst (Index ab 0)
-  TStapel<T>                Stapel (zuletzt hinein, zuerst heraus)
-  TMap<K: Comparable; V>    Zuordnung Schlüssel -> Wert, nach Schlüssel sortiert
-  Sortiere<T: Comparable>   sortiert ein 'array of T' aufsteigend
-  Suche<T: Equatable>       Position eines Werts in einem 'array of T' oder none
+  TList<T>                  list that grows (index from 0)
+  TStack<T>                 stack (last in, first out)
+  TMap<K: Comparable; V>    map key -> value, sorted by key
+  Sort<T: Comparable>       sorts an 'array of T' in ascending order
+  IndexOf<T: Equatable>     position of a value in an 'array of T', or none
 
-  Alle Container besitzen ihre Elemente (Objekte werden mit dem Container freigegeben).
-  Herausnehmen (Nimm, Pop, Entferne) gibt den Besitz an den Aufrufer weiter. }
+  All containers own their elements (objects are freed with the container).
+  Taking elements out (Extract, Pop, Remove) passes the ownership to the caller. }
 
 module ppc_std;
 
 type
-  TListe<T> = class
-    Elemente: array of optional T;
-    procedure Add(vao x: T);                       { hinten anhängen, übernimmt x }
+  TList<T> = class
+    Items: array of optional T;
+    procedure Add(vao x: T);                       { append, takes over x }
     function Count: Integer; const;
-    function Hole(i: Integer): var optional T;     { Element i (Objekte: ausgeliehen) }
-    function Nimm(i: Integer): optional T;         { Element i herausnehmen }
-    procedure Leeren;                              { alle Elemente freigeben }
+    function Get(i: Integer): var optional T;      { element i (objects: borrowed) }
+    function Extract(i: Integer): optional T;      { take element i out }
+    procedure Clear;                               { free all elements }
   end;
 
-  TStapel<T> = class
-    Elemente: array of optional T;
+  TStack<T> = class
+    Items: array of optional T;
     procedure Push(vao x: T);
-    function Pop: optional T;                      { oberstes Element herausnehmen }
-    function Top: var optional T;                  { oberstes Element ansehen }
+    function Pop: optional T;                      { take the top element out }
+    function Peek: var optional T;                 { look at the top element }
     function Count: Integer; const;
-    function IstLeer: Boolean; const;
+    function IsEmpty: Boolean; const;
   end;
 
   TMap<K: Comparable; V> = class
-    Schluessel: array of K;                        { aufsteigend sortiert }
-    Werte: array of optional V;
-    function Position(k: K): Integer; const;       { erste Stelle mit Schluessel >= k }
-    procedure Setze(k: K; vao v: V);               { einfügen oder ersetzen }
-    function Hole(k: K): var optional V;
-    function Enthaelt(k: K): Boolean; const;
-    function Entferne(k: K): optional V;           { herausnehmen }
+    Keys: array of K;                              { sorted ascending }
+    Values: array of optional V;
+    function Find(k: K): Integer; const;           { first position with Keys[i] >= k }
+    procedure Put(k: K; vao v: V);                 { insert or replace }
+    function Get(k: K): var optional V;
+    function Contains(k: K): Boolean; const;
+    function Remove(k: K): optional V;             { take out }
     function Count: Integer; const;
   end;
 
-{ ------------------------------------------------------------------ TListe<T> }
+{ ------------------------------------------------------------------- TList<T> }
 
-procedure TListe<T>.Add(vao x: T);
+procedure TList<T>.Add(vao x: T);
 begin
-  SetLength(Elemente, Length(Elemente) + 1);
-  Elemente[High(Elemente)] := x;
+  SetLength(Items, Length(Items) + 1);
+  Items[High(Items)] := x;
 end;
 
-function TListe<T>.Count: Integer; const;
+function TList<T>.Count: Integer; const;
 begin
-  Result := Length(Elemente);
+  Result := Length(Items);
 end;
 
-function TListe<T>.Hole(i: Integer): var optional T;
+function TList<T>.Get(i: Integer): var optional T;
 begin
-  Result := Elemente[i];
+  Result := Items[i];
 end;
 
-function TListe<T>.Nimm(i: Integer): optional T;
+function TList<T>.Extract(i: Integer): optional T;
 begin
-  Result := Take(Elemente[i]);
-  for val j := i to High(Elemente) - 1 do Elemente[j] := Take(Elemente[j + 1]);
-  SetLength(Elemente, Length(Elemente) - 1);
+  Result := Take(Items[i]);
+  for val j := i to High(Items) - 1 do Items[j] := Take(Items[j + 1]);
+  SetLength(Items, Length(Items) - 1);
 end;
 
-procedure TListe<T>.Leeren;
+procedure TList<T>.Clear;
 begin
-  SetLength(Elemente, 0);
+  SetLength(Items, 0);
 end;
 
-{ ----------------------------------------------------------------- TStapel<T> }
+{ ------------------------------------------------------------------ TStack<T> }
 
-procedure TStapel<T>.Push(vao x: T);
+procedure TStack<T>.Push(vao x: T);
 begin
-  SetLength(Elemente, Length(Elemente) + 1);
-  Elemente[High(Elemente)] := x;
+  SetLength(Items, Length(Items) + 1);
+  Items[High(Items)] := x;
 end;
 
-function TStapel<T>.Pop: optional T;
+function TStack<T>.Pop: optional T;
 begin
   Result := none;
-  if Length(Elemente) > 0 then
+  if Length(Items) > 0 then
   begin
-    Result := Take(Elemente[High(Elemente)]);
-    SetLength(Elemente, Length(Elemente) - 1);
+    Result := Take(Items[High(Items)]);
+    SetLength(Items, Length(Items) - 1);
   end;
 end;
 
-function TStapel<T>.Top: var optional T;
+function TStack<T>.Peek: var optional T;
 begin
   Result := none;
-  if Length(Elemente) > 0 then Result := Elemente[High(Elemente)];
+  if Length(Items) > 0 then Result := Items[High(Items)];
 end;
 
-function TStapel<T>.Count: Integer; const;
+function TStack<T>.Count: Integer; const;
 begin
-  Result := Length(Elemente);
+  Result := Length(Items);
 end;
 
-function TStapel<T>.IstLeer: Boolean; const;
+function TStack<T>.IsEmpty: Boolean; const;
 begin
-  Result := Length(Elemente) = 0;
+  Result := Length(Items) = 0;
 end;
 
-{ ------------------------------------------------------------------- TMap<K, V> }
+{ ------------------------------------------------------------------ TMap<K, V> }
 
-function TMap<K, V>.Position(k: K): Integer; const;
+function TMap<K, V>.Find(k: K): Integer; const;
 val
   lo := 0;
-  hi := Length(Schluessel);
+  hi := Length(Keys);
 begin
-  while lo < hi do                                 { binäre Suche }
+  while lo < hi do                                 { binary search }
     val m := (lo + hi) div 2;
     begin
-      if Schluessel[m] < k then lo := m + 1 else hi := m;
+      if Keys[m] < k then lo := m + 1 else hi := m;
     end;
   Result := lo;
 end;
 
-procedure TMap<K, V>.Setze(k: K; vao v: V);
-val i := Position(k);
+procedure TMap<K, V>.Put(k: K; vao v: V);
+val i := Find(k);
 begin
-  if (i < Length(Schluessel)) and (Schluessel[i] = k) then
-    Werte[i] := v                                  { ersetzen: der alte Wert wird freigegeben }
+  if (i < Length(Keys)) and (Keys[i] = k) then
+    Values[i] := v                                 { replace: the old value is freed }
   else
   begin
-    SetLength(Schluessel, Length(Schluessel) + 1);
-    SetLength(Werte, Length(Werte) + 1);
-    for val j := High(Schluessel) downto i + 1 do
+    SetLength(Keys, Length(Keys) + 1);
+    SetLength(Values, Length(Values) + 1);
+    for val j := High(Keys) downto i + 1 do
     begin
-      Schluessel[j] := Schluessel[j - 1];
-      Werte[j] := Take(Werte[j - 1]);
+      Keys[j] := Keys[j - 1];
+      Values[j] := Take(Values[j - 1]);
     end;
-    Schluessel[i] := k;
-    Werte[i] := v;
+    Keys[i] := k;
+    Values[i] := v;
   end;
 end;
 
-function TMap<K, V>.Hole(k: K): var optional V;
-val i := Position(k);
+function TMap<K, V>.Get(k: K): var optional V;
+val i := Find(k);
 begin
   Result := none;
-  if (i < Length(Schluessel)) and (Schluessel[i] = k) then Result := Werte[i];
+  if (i < Length(Keys)) and (Keys[i] = k) then Result := Values[i];
 end;
 
-function TMap<K, V>.Enthaelt(k: K): Boolean; const;
-val i := Position(k);
+function TMap<K, V>.Contains(k: K): Boolean; const;
+val i := Find(k);
 begin
-  Result := (i < Length(Schluessel)) and (Schluessel[i] = k);
+  Result := (i < Length(Keys)) and (Keys[i] = k);
 end;
 
-function TMap<K, V>.Entferne(k: K): optional V;
-val i := Position(k);
+function TMap<K, V>.Remove(k: K): optional V;
+val i := Find(k);
 begin
   Result := none;
-  if (i < Length(Schluessel)) and (Schluessel[i] = k) then
+  if (i < Length(Keys)) and (Keys[i] = k) then
   begin
-    Result := Take(Werte[i]);
-    for val j := i to High(Schluessel) - 1 do
+    Result := Take(Values[i]);
+    for val j := i to High(Keys) - 1 do
     begin
-      Schluessel[j] := Schluessel[j + 1];
-      Werte[j] := Take(Werte[j + 1]);
+      Keys[j] := Keys[j + 1];
+      Values[j] := Take(Values[j + 1]);
     end;
-    SetLength(Schluessel, Length(Schluessel) - 1);
-    SetLength(Werte, Length(Werte) - 1);
+    SetLength(Keys, Length(Keys) - 1);
+    SetLength(Values, Length(Values) - 1);
   end;
 end;
 
 function TMap<K, V>.Count: Integer; const;
 begin
-  Result := Length(Schluessel);
+  Result := Length(Keys);
 end;
 
-{ --------------------------------------------------------------- Sortieren, Suchen }
+{ ------------------------------------------------------------- sorting, searching }
 
-procedure SortiereBereich<T: Comparable>(var a: array of T; lo, hi: Integer);
+procedure SortRange<T: Comparable>(var a: array of T; lo, hi: Integer);
 val
   i := lo;
   j := hi;
@@ -184,7 +184,7 @@ begin
   if lo >= hi then Exit;
   val pivot: T := a[(lo + hi) div 2];
   begin
-    while i <= j do                                { Quicksort }
+    while i <= j do                                { quicksort }
     begin
       while a[i] < pivot do Inc(i);
       while pivot < a[j] do Dec(j);
@@ -200,16 +200,16 @@ begin
       end;
     end;
   end;
-  SortiereBereich(a, lo, j);
-  SortiereBereich(a, i, hi);
+  SortRange(a, lo, j);
+  SortRange(a, i, hi);
 end;
 
-procedure Sortiere<T: Comparable>(var a: array of T);
+procedure Sort<T: Comparable>(var a: array of T);
 begin
-  SortiereBereich(a, 0, High(a));
+  SortRange(a, 0, High(a));
 end;
 
-function Suche<T: Equatable>(a: array of T; x: T): optional Integer;
+function IndexOf<T: Equatable>(a: array of T; x: T): optional Integer;
 begin
   Result := none;
   for val i := 0 to High(a) do

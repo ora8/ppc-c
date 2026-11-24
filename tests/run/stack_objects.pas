@@ -1,44 +1,44 @@
 program StackObjects;
-{ Stackobjekte: 'val k := TKlasse.Create(...)' liegt im Stackframe, Destroy am Blockende }
+{ stack objects: 'val k := TClass.Create(...)' lives in the stack frame, Destroy at the end of the block }
 type
-  TFigur = class
+  TFigure = class
     X: Integer;
     constructor Create(AX: Integer);
     destructor Destroy; override;
-    procedure Zeige; virtual;
+    procedure Show; virtual;
   end;
-  TKreis = class(TFigur)
+  TCircle = class(TFigure)
     R: Real;
-    Name: optional TFigur;
+    Name: optional TFigure;
     constructor Create(AX: Integer; AR: Real);
-    procedure Zeige; override;
+    procedure Show; override;
   end;
-constructor TFigur.Create(AX: Integer); begin inherited Create; X := AX; end;
-destructor TFigur.Destroy; begin WriteLn('  Destroy ', ClassName, ' ', X); inherited Destroy; end;
-procedure TFigur.Zeige; begin WriteLn('Figur ', X); end;
-constructor TKreis.Create(AX: Integer; AR: Real); begin inherited Create(AX); R := AR; end;
-procedure TKreis.Zeige; begin WriteLn('Kreis ', X, ' r=', R:0:1); end;
+constructor TFigure.Create(AX: Integer); begin inherited Create; X := AX; end;
+destructor TFigure.Destroy; begin WriteLn('  Destroy ', ClassName, ' ', X); inherited Destroy; end;
+procedure TFigure.Show; begin WriteLn('Figure ', X); end;
+constructor TCircle.Create(AX: Integer; AR: Real); begin inherited Create(AX); R := AR; end;
+procedure TCircle.Show; begin WriteLn('Circle ', X, ' r=', R:0:1); end;
 
-procedure Male(F: TFigur); begin F.Zeige; end;
+procedure Draw(F: TFigure); begin F.Show; end;
 
-procedure Lokal;
-val k := TKreis.Create(1, 2.5);
+procedure Local;
+val k := TCircle.Create(1, 2.5);
 begin
-  Male(k);
-  k.Name := TFigur.Create(99);           { besitzendes Feld eines Stackobjekts }
-  var f: TFigur := k;
+  Draw(k);
+  k.Name := TFigure.Create(99);           { owning field of a stack object }
+  var f: TFigure := k;
   begin f.X := 5; end;
-  k.Zeige;
+  k.Show;
 end;
 
-val g: TFigur := TFigur.Create(7);
+val g: TFigure := TFigure.Create(7);
 begin
-  Lokal;
+  Local;
   for val i := 1 to 2 do
-    val t := TFigur.Create(i * 10);
+    val t := TFigure.Create(i * 10);
     begin
-      t.Zeige;
+      t.Show;
     end;
-  g.Zeige;
-  WriteLn('Ende');
+  g.Show;
+  WriteLn('End');
 end.

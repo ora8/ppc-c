@@ -1,57 +1,57 @@
 program ReadonlyBorrows;
-{ Nur lesbare Objekt-Ausleihen: 'const T' (wie &T in Rust, const T& in C++) }
+{ read-only object borrows: 'T const' (like &T in Rust, const T& in C++) }
 type
   TPerson = class
     Name: String;
-    Alter: Integer;
-    Freund: optional TPerson;               { besitzt den Freund }
-    constructor Create(AName: String const; AAlter: Integer);
-    procedure Geburtstag;                   { aendert das Objekt }
-    function Info: String; const;           { liest nur }
-    function BesterFreund: var optional TPerson const; const;
+    Age: Integer;
+    Friend: optional TPerson;               { owns the Friend }
+    constructor Create(AName: String const; AAge: Integer);
+    procedure Birthday;                   { changes the object }
+    function Info: String; const;           { only reads }
+    function BestFriend: var optional TPerson const; const;
   end;
 
-constructor TPerson.Create(AName: String const; AAlter: Integer);
-begin inherited Create; Name := AName; Alter := AAlter; end;
-procedure TPerson.Geburtstag; begin Inc(Alter); end;
-function TPerson.Info: String; const; begin Result := Name + ' (' + IntToStr(Alter) + ')'; end;
-function TPerson.BesterFreund: var optional TPerson const; const;
-begin Result := Freund; end;                { Freund ist hier nur lesbar }
+constructor TPerson.Create(AName: String const; AAge: Integer);
+begin inherited Create; Name := AName; Age := AAge; end;
+procedure TPerson.Birthday; begin Inc(Age); end;
+function TPerson.Info: String; const; begin Result := Name + ' (' + IntToStr(Age) + ')'; end;
+function TPerson.BestFriend: var optional TPerson const; const;
+begin Result := Friend; end;                { Friend is only readable here }
 
-procedure Zeige(P: TPerson const);          { const-Parameter: Objekt nur lesbar }
+procedure Show(P: TPerson const);          { const parameter: the object is read-only }
 begin
   Write(P.Info);
-  if P.BesterFreund is some f then Write(', Freund: ', f.Info);
+  if P.BestFriend is some f then Write(', Friend: ', f.Info);
   WriteLn;
 end;
 
-procedure Feiern(P: TPerson);               { normale Ausleihe: darf aendern }
-begin P.Geburtstag; end;
+procedure Celebrate(P: TPerson);               { normal borrow: may change it }
+begin P.Birthday; end;
 
-function Aelter(A, B: TPerson const): var TPerson const;
+function Older(A, B: TPerson const): var TPerson const;
 begin
-  if A.Alter >= B.Alter then Result := A else Result := B;
+  if A.Age >= B.Age then Result := A else Result := B;
 end;
 
 vao
   anna := TPerson.Create('Anna', 30);
   bert := TPerson.Create('Bert', 28);
 begin
-  anna.Freund := TPerson.Create('Carla', 31);
-  Zeige(anna);
-  Feiern(bert);
-  Feiern(bert);
-  Zeige(bert);
-  var leser: TPerson const := anna;   { nur lesbare Ausleihe (veraenderbar -> nur lesbar) }
+  anna.Friend := TPerson.Create('Carla', 31);
+  Show(anna);
+  Celebrate(bert);
+  Celebrate(bert);
+  Show(bert);
+  var reader: TPerson const := anna;   { read-only borrow (changeable -> read-only) }
   begin
-    WriteLn('leser: ', leser.Info);
-    WriteLn('aelter: ', Aelter(anna, bert).Info);
-    var k: TPerson const := bert;                         { const-Referenz: Objekt nur lesbar }
+    WriteLn('reader: ', reader.Info);
+    WriteLn('older: ', Older(anna, bert).Info);
+    var k: TPerson const := bert;                         { const reference: the object is read-only }
     begin
       WriteLn('k: ', k.Info);
     end;
-    WriteLn('leser zuletzt: ', leser.Info); { letzte Benutzung von leser }
+    WriteLn('reader last: ', reader.Info); { last use of reader }
   end;
-  anna.Geburtstag;                          { erlaubt: leser wird danach nicht mehr benutzt }
-  WriteLn('anna nach Geburtstag: ', anna.Info);
+  anna.Birthday;                          { allowed: reader is not used any more afterwards }
+  WriteLn('anna after Birthday: ', anna.Info);
 end.

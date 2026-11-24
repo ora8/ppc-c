@@ -1,18 +1,18 @@
-Lokal: a = 1, I = 42
-  frei: 1
--- Liste aus einer Funktion
+Local: a = 1, I = 42
+  freed: 1
+-- list from a function
 3 2 1 
--- Ueberschreiben gibt das alte Objekt frei
-  frei: 3
-  frei: 2
-  frei: 1
+-- overwriting frees the old object
+  freed: 3
+  freed: 2
+  freed: 1
 1 
 -- var-Parameter
-  frei: 5
+  freed: 5
 z = 77
--- temporaeres Objekt
-  frei: 9
+-- temporary object
+  freed: 9
 9
--- Programmende
-  frei: 77
-  frei: 1
+-- end of program
+  freed: 77
+  freed: 1

@@ -1,38 +1,38 @@
 program AliasingOk;
-{ Ausleihregeln wie in Rust: was erlaubt ist }
+{ borrowing rules like in Rust: what is allowed }
 type
-  TKnoten = class
-    Wert: Integer;
-    Links, Rechts: optional TKnoten;
+  TNode = class
+    Value: Integer;
+    Left, Right: optional TNode;
     constructor Create(W: Integer);
-    procedure Erhoehe;
+    procedure Increment;
     function Info: String; const;
   end;
-constructor TKnoten.Create(W: Integer); begin inherited Create; Wert := W; end;
-procedure TKnoten.Erhoehe; begin Inc(Wert); end;
-function TKnoten.Info: String; const; begin Result := IntToStr(Wert); end;
+constructor TNode.Create(W: Integer); begin inherited Create; Value := W; end;
+procedure TNode.Increment; begin Inc(Value); end;
+function TNode.Info: String; const; begin Result := IntToStr(Value); end;
 
 vao
-  a := TKnoten.Create(1);
+  a := TNode.Create(1);
 begin
-  a.Links := TKnoten.Create(10);
-  a.Rechts := TKnoten.Create(20);
+  a.Left := TNode.Create(10);
+  a.Right := TNode.Create(20);
   var
-    l1: TKnoten const := a;      { mehrere lesende Ausleihen gleichzeitig }
-    l2: TKnoten const := a;
+    l1: TNode const := a;      { several read-only borrows at the same time }
+    l2: TNode const := a;
   begin
-    WriteLn('zwei Leser: ', l1.Info, ' ', l2.Info, ' ', a.Info);   { lesen ist mit Lesern vertraeglich }
+    WriteLn('two readers: ', l1.Info, ' ', l2.Info, ' ', a.Info);   { reading is compatible with readers }
   end;
-  var m: TKnoten := a;            { eine aenderbare Ausleihe }
+  var m: TNode := a;            { one changeable borrow }
   begin
-    m.Erhoehe;
-    m.Erhoehe;
+    m.Increment;
+    m.Increment;
   end;
-  WriteLn('nach m: ', a.Info);            { m ist zu Ende, a wieder frei benutzbar }
-  var links: optional TKnoten := a.Links;   { Ausleihe eines Felds ... }
+  WriteLn('after m: ', a.Info);            { m is over, a can be used freely again }
+  var links: optional TNode := a.Left;   { borrow of a field ... }
   begin
-    if a.Rechts is some r then r.Erhoehe; { ... ein anderes Feld darf geaendert werden }
-    if links is some x then begin x.Erhoehe; WriteLn('links: ', x.Info); end;
-    if a.Rechts is some r then WriteLn('rechts: ', r.Info);
+    if a.Right is some r then r.Increment; { ... another field may be changed }
+    if links is some x then begin x.Increment; WriteLn('left: ', x.Info); end;
+    if a.Right is some r then WriteLn('right: ', r.Info);
   end;
 end.
