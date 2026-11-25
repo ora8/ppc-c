@@ -8,7 +8,9 @@
 #include <time.h>
 
 typedef struct { int64_t len; unsigned char *p; } PStr; /* String: length + heap buffer (see strings) */
-struct __VMTHdr { void *parent; const char *name; size_t size; void (*drop)(void *); void (*clonefix)(void *); };
+/* interface tables of a class: the methods of each interface it implements, ended by {0, 0} */
+struct __ITab { const void *iid; void **fns; };
+struct __VMTHdr { void *parent; const char *name; size_t size; void (*drop)(void *); void (*clonefix)(void *); const struct __ITab *itabs; };
 /* drop: frees the owning fields; clonefix: after copying an object, replaces its owned objects by clones */
 
 static void __rt_error(int code, const char *msg) {
@@ -43,6 +45,23 @@ static int __is(void *o, void *vmt) {
 }
 static void *__as(void *o, void *vmt) {
     if (o && !__is(o, vmt)) __rt_error(219, "invalid type cast");
+    return o;
+}
+static void **__itab_find(void *o, const void *iid) {
+    if (!o) return 0;
+    const struct __ITab *t = (*(struct __VMTHdr **)o)->itabs;
+    for (; t && t->iid; t++)
+        if (t->iid == iid) return t->fns;
+    return 0;
+}
+static void **__itab(void *o, const void *iid) {
+    void **f = __itab_find(o, iid);
+    if (!f) __rt_error(219, "object does not implement the interface");
+    return f;
+}
+static int __implements(void *o, const void *iid) { return __itab_find(o, iid) != 0; }
+static void *__as_iface(void *o, const void *iid) {
+    if (o && !__itab_find(o, iid)) __rt_error(219, "invalid type cast: the object does not implement the interface");
     return o;
 }
 static const char *__ppc_srcfile;

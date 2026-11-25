@@ -98,6 +98,49 @@ Reference types, implicitly derived from `TObject`:
 (`TFoo = class;`). Objects are only created in an initializer: as a **stack object**
 `val k := TCircle.Create(1, 2, 3.0)` or as a **heap object** `vao k := TCircle.Create(1, 2, 3.0)`.
 
+### Interfaces
+
+An interface lists methods that unrelated classes can implement (as in Delphi, without
+reference counting: interface values follow the normal `val`/`var`/`vao` rules):
+
+```pascal
+type
+  IShape = interface
+    function Area: Real; const;
+    function Name: String; const;
+  end;
+  ISolid = interface(IShape)                 { extends IShape }
+    function Volume(h: Real): Real; const;
+  end;
+  TCircle = class(IShape)                    { parent TObject, implements IShape }
+    ...
+  end;
+  TCube = class(TShapeBase, ISolid, IScalable) { one parent class, then interfaces }
+    ...
+  end;
+
+procedure Show(s: IShape const);
+begin
+  WriteLn(s.Name, ' ', s.Area:0:1, ' (', s.ClassName, ')');
+end;
+
+vao c := TCircle.Create(1);
+Show(c);                                     { a TCircle is an IShape }
+var s: IShape := c;                          { reference to the object }
+vao shapes: array of optional IShape := ...; { owns objects of different classes }
+if s is ISolid then ...                      { run-time test; also 'as' }
+```
+
+* The class (or an ancestor) needs a method with the same name, parameters and result for every
+  interface method, and `const` where the interface says `const`; a virtual method is called
+  in the version of the object's class.
+* An interface value is a normal object reference: owned by `vao`, borrowed by `var` and
+  parameters, `optional IShape` for an empty one; `ClassName`, `is TCircle`, `as TCircle` work.
+* Interfaces can be generic (`ILess<T> = interface function Less(a, b: T): Boolean; const;
+  end`) and serve as constraints: `function Total<T: IShape>(...)`.
+* A call through an interface looks up the class's table for that interface (a short search in
+  the VMT); calls on the class type itself stay direct.
+
 ### Class methods: `class function` / `class procedure`
 
 As in Delphi, class methods belong to the class, not to an object. They have no `Self` and are
@@ -1191,7 +1234,7 @@ once (in every kind of loop); borrows of them are invalid afterwards.
 * Types: `Integer`/`LongInt` (32 bit), `ShortInt`, `SmallInt`, `Byte`, `Word`, `Cardinal`,
   `Int64`, `Boolean`, `Char`, `Real`/`Double`, `String` (dynamic, any length),
   enumerations (also with data), subranges, static (also multi-dimensional) and dynamic arrays, records (with
-  methods), `class` (with class methods), generics
+  methods), `class` (with class methods), `interface`, generics
 * Procedures/functions, nested to any depth (access to outer variables through static links),
   `var`, `out`, `vao` and `T const` parameters, `forward`, recursion, `Result`/function name,
   `Exit(value)`
@@ -1210,8 +1253,8 @@ once (in every kind of loop); borrows of them are invalid afterwards.
 Not supported: `nil` (replaced by `optional`/`none`), pointers (`^`, `@`, `New`, `Dispose`,
 `Pointer` – replaced by objects, `var` references and `var` parameters), `object` types
 (replaced by `class`), set types (except set literals with `in`), open array parameters
-(`array of T` is a dynamic array), exceptions (replaced by `result T` and `try`), interfaces,
-overloading, closures that capture locals, variant records (replaced by enumerations with data), `goto`, file I/O.
+(`array of T` is a dynamic array), exceptions (replaced by `result T` and `try`), reference-counted
+interfaces, overloading, closures that capture locals, variant records (replaced by enumerations with data), `goto`, file I/O.
 
 ## Structure
 

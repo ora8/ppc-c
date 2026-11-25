@@ -32,7 +32,7 @@ typedef VEC(IdentVec) ConsVec; /* per type parameter: its constraints (Comparabl
 enum { PM_VALUE, PM_VAR, PM_CONST, PM_OUT, PM_OWNED, PM_CONSTREF };
 enum { RK_PROC, RK_FUNC, RK_CTOR, RK_DTOR };
 enum { VIRT_NONE, VIRT_VIRTUAL, VIRT_OVERRIDE };
-enum { SK_RECORD, SK_CLASS };
+enum { SK_RECORD, SK_CLASS, SK_IFACE };
 
 typedef struct {
     IdentVec names;
@@ -77,6 +77,7 @@ typedef struct {
     Ident parent;
     int has_parent;
     TypeExprVec parent_targs; /* class(TListe<TKunde>) */
+    TypeExprVec ifaces;       /* class(TBase, IShape, IOther): the interfaces after the first entry */
     FieldDeclVec fields;
     VEC(MethodDecl) methods;
     VEC(PropDecl) props;
@@ -194,7 +195,7 @@ enum { OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_IDIV, OP_MOD, OP_AND, OP_OR, OP_XOR, O
        OP_EQ, OP_NE, OP_LT, OP_LE, OP_GT, OP_GE, OP_NEG, OP_PLUS, OP_NOT };
 
 /* call modes for E_RCALL */
-enum { CM_NORMAL, CM_STATIC, CM_VIRTUAL, CM_INHERITED, CM_NEWCLASS, CM_CTOR_INST, CM_INDIRECT };
+enum { CM_NORMAL, CM_STATIC, CM_VIRTUAL, CM_INHERITED, CM_NEWCLASS, CM_CTOR_INST, CM_INDIRECT, CM_IFACE };
 
 struct Expr {
     ExprKind kind;
@@ -307,6 +308,8 @@ typedef struct {
 struct Struct {
     int id;
     int is_sum;   /* enumeration with data: a record with a hidden tag field (fields[0]) and the variants' fields */
+    int is_iface; /* interface: methods only; parent = the interface it extends */
+    VEC(Struct *) ifaces; /* class: the interfaces it implements (its own, not the inherited ones) */
     VEC(VariantInfo) variants;
     char *name;
     int kind;

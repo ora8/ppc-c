@@ -245,9 +245,15 @@ int is_owning_temp(Expr *e) {
 
 int is_owning_type(Type *t) { return t && (t->kind == T_CLASS || (t->kind == T_PTR && t->base)); }
 
+/* d is b, a descendant of b, or (b an interface) implements b */
 int struct_descends(Struct *d, Struct *b) {
-    for (; d; d = d->parent)
-        if (d == b) return 1;
+    if (d->is_iface && prog && b == prog->tobject) return 1; /* every object is a TObject */
+    for (Struct *c = d; c; c = c->parent) {
+        if (c == b) return 1;
+        if (b->is_iface)
+            for (int i = 0; i < c->ifaces.len; i++)
+                if (struct_descends(c->ifaces.items[i], b)) return 1;
+    }
     return 0;
 }
 
@@ -447,9 +453,13 @@ static Expr *coerce(Expr *e, Type *to, const char *ctx) {
         w->type = to;
         return w;
     }
-    if (!c)
+    if (!c) {
+        if (to->kind == T_CLASS && to->st->is_iface && e->type->kind == T_CLASS && !e->type->st->is_iface)
+            error_at(e->pos, "\"%s\" does not implement the interface \"%s\" in %s (declare it: '%s = class(..., %s)')",
+                     type_name(e->type), type_name(to), ctx, e->type->st->name, to->st->name);
         error_at(e->pos, "incompatible types in %s: got \"%s\" expected \"%s\"", ctx, type_name(e->type),
                  type_name(to));
+    }
     if (c == 2) return conv(e, to);
     return e;
 }
@@ -502,6 +512,14 @@ static int find_member(Struct *st, const char *name, Field **f, Routine **m, Pro
         for (int i = 0; i < s->props.len; i++)
             if (STREQ(s->props.items[i]->name, name)) {
                 *p = s->props.items[i];
+                return 1;
+            }
+    }
+    if (st->is_iface && prog->tobject) { /* an interface value is an object: ClassName, Free */
+        Struct *o = prog->tobject;
+        for (int i = 0; i < o->methods.len; i++)
+            if (STREQ(o->methods.items[i]->name, name) && o->methods.items[i]->kind != RK_CTOR) {
+                *m = o->methods.items[i];
                 return 1;
             }
     }
@@ -1507,7 +1525,75 @@ static int find_slot(Struct *s, const char *name) {
     return -1;
 }
 
+/* IShape = interface(IBase) function Area: Real; const; end */
+static void define_iface(Struct *s, StructDecl *sd) {
+    s->is_iface = 1;
+    if (sd->has_parent) {
+        Look L = lookup(sd->parent.name);
+        Type *pt = sd->parent_targs.len ? generic_type(&L, sd->parent, &sd->parent_targs, sd->parent.pos)
+                   : (L.kind == LK_SYM && L.sym->kind == SY_TYPE) ? L.sym->type : NULL;
+        if (!pt || pt->kind != T_CLASS || !pt->st->is_iface)
+            error_at(sd->parent.pos, "\"%s\" is not an interface (an interface can only extend an interface)", sd->parent.name);
+        s->parent = pt->st;
+    }
+    if (prog->tobject) /* the C struct of an object reference: its VMT pointer */
+        for (int i = 0; i < prog->tobject->fields.len; i++) vpush(s->fields, prog->tobject->fields.items[i]);
+    for (int i = 0; i < sd->methods.len; i++) {
+        MethodDecl *md = &sd->methods.items[i];
+        if (md->kind == RK_CTOR || md->kind == RK_DTOR)
+            error_at(md->name.pos, "interfaces have no constructors or destructors (objects are created from classes)");
+        if (md->virt != VIRT_NONE || md->is_abstract || md->is_classm || md->is_auto)
+            error_at(md->name.pos, "interface methods are plain headers: no virtual, override, abstract, class or auto");
+        Field *f;
+        Routine *m;
+        Prop *pr;
+        for (int j = 0; j < s->methods.len; j++)
+            if (STREQ(s->methods.items[j]->name, md->name.name))
+                error_at(md->name.pos, "duplicate method \"%s\" (overloading is not supported)", md->name.name);
+        if (s->parent && find_member(s->parent, md->name.name, &f, &m, &pr) && m && m->owner->is_iface)
+            error_at(md->name.pos, "\"%s\" is already declared in \"%s\"", md->name.name, m->owner->name);
+        Routine *r = new_routine(md->name.name, md->kind, md->name.pos);
+        r->is_constm = md->is_const;
+        r->owner = s;
+        r->level = 1;
+        r->cname = sfmt("I%d_%s", s->id, md->name.name);
+        build_params(r, &md->params);
+        if (md->ret) r->ret = resolve_type(md->ret);
+        r->ret_borrowed = md->ret_borrowed;
+        r->is_abstract = 1;
+        r->defined = 1;
+        r->slot = s->methods.len; /* position in the interface table */
+        vpush(s->methods, r);
+    }
+    s->defined = 1;
+    if (!archetype_mode) vpush(prog->structs, s);
+}
+
+/* the class c (or an ancestor) has a matching method for every method of interface i (and of what i extends) */
+static void check_implements(Struct *c, Struct *i, Pos p) {
+    for (; i; i = i->parent)
+        for (int k = 0; k < i->methods.len; k++) {
+            Routine *im = i->methods.items[k];
+            Field *f;
+            Routine *m;
+            Prop *pr;
+            if (!find_member(c, im->name, &f, &m, &pr) || !m || m->owner->is_iface)
+                error_at(p, "\"%s\" does not implement the method \"%s\" of interface \"%s\"", c->name, im->name, i->name);
+            int same_ret = (!im->ret && !m->ret) || (im->ret && m->ret && same_type(im->ret, m->ret));
+            if (m->is_classm || !same_signature(im, m) || !same_ret || im->ret_borrowed != m->ret_borrowed)
+                error_at(p, "\"%s.%s\" has a different signature than \"%s\" of interface \"%s\"", m->owner->name, im->name,
+                         im->name, i->name);
+            if (im->is_constm && !m->is_constm)
+                error_at(p, "\"%s.%s\" must be declared 'const' like \"%s\" of interface \"%s\"", m->owner->name, im->name,
+                         im->name, i->name);
+        }
+}
+
 static void define_struct(Struct *s, StructDecl *sd) {
+    if (sd->kind == SK_IFACE) {
+        define_iface(s, sd);
+        return;
+    }
     Struct *par = NULL;
     if (sd->has_parent && sd->parent_targs.len) { /* class(TListe<TKunde>) */
         Look L = lookup(sd->parent.name);
@@ -1522,6 +1608,20 @@ static void define_struct(Struct *s, StructDecl *sd) {
         if (!par->defined) error_at(sd->parent.pos, "parent type \"%s\" is not completely defined", par->name);
     } else if (s->kind == SK_CLASS && prog->tobject && s != prog->tobject)
         par = prog->tobject;
+    if (par && par->is_iface) { /* class(IShape): implements IShape, parent TObject */
+        vpush(s->ifaces, par);
+        par = prog->tobject;
+    }
+    for (int i = 0; i < sd->ifaces.len; i++) {
+        TypeExpr *te = sd->ifaces.items[i];
+        Type *it = resolve_type(te);
+        if (it->kind != T_CLASS || !it->st->is_iface)
+            error_at(te->pos, "\"%s\" is not an interface (a class has one parent class, then interfaces: class(TBase, IShape))",
+                     type_name(it));
+        for (int k = 0; k < s->ifaces.len; k++)
+            if (s->ifaces.items[k] == it->st) error_at(te->pos, "interface \"%s\" is listed twice", it->st->name);
+        vpush(s->ifaces, it->st);
+    }
     s->parent = par;
     if (par) {
         for (int i = 0; i < par->fields.len; i++) vpush(s->fields, par->fields.items[i]);
@@ -1588,6 +1688,7 @@ static void define_struct(Struct *s, StructDecl *sd) {
         if (r->is_abstract) r->defined = 1;
         vpush(s->methods, r);
     }
+    for (int i = 0; i < s->ifaces.len; i++) check_implements(s, s->ifaces.items[i], s->pos);
     for (int i = 0; i < sd->props.len; i++) {
         PropDecl *pd = &sd->props.items[i];
         Prop *p = NEW(Prop);
@@ -1648,7 +1749,7 @@ static Expr *make_call(Routine *rt, Expr *base, ExprVec *args, int mode, Type *n
     if (mode < 0) {
         if (rt->owner) {
             if (rt->kind == RK_CTOR) mode = newcls ? CM_NEWCLASS : CM_CTOR_INST;
-            else mode = rt->slot >= 0 ? CM_VIRTUAL : CM_STATIC;
+            else mode = rt->owner->is_iface ? CM_IFACE : rt->slot >= 0 ? CM_VIRTUAL : CM_STATIC;
         } else
             mode = CM_NORMAL;
     }
@@ -1854,6 +1955,8 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
                     if (find_member(t->st, name, &M.f, &M.m, &M.p) && M.m && M.m->is_classm)
                         return make_call(M.m, NULL, args, CM_NORMAL, NULL, p);
                 }
+                if (t->kind == T_CLASS && t->st->is_iface)
+                    error_at(p, "\"%s\" is an interface: create an object of a class that implements it", t->st->name);
                 if (t->kind == T_CLASS) {
                     Look M = {0};
                     if (!find_member(t->st, name, &M.f, &M.m, &M.p) || !M.m || M.m->kind != RK_CTOR)

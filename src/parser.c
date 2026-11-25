@@ -437,11 +437,16 @@ static void parse_decl_type(VarDecl *v) {
 static StructDecl *parse_struct(int kind) {
     StructDecl *sd = NEW(StructDecl);
     sd->kind = kind;
-    if (kind == SK_CLASS && accept_sym("(")) {
+    if ((kind == SK_CLASS || kind == SK_IFACE) && accept_sym("(")) {
         sd->parent = ident();
         sd->has_parent = 1;
         if (is_sym("<")) sd->parent_targs = parse_targs();
-        if (is_sym(",")) error_at(pos(), "interfaces are not supported");
+        while (kind == SK_CLASS && accept_sym(",")) { /* class(TBase, IShape, IOther) */
+            TypeExpr *t = new_te(TE_NAMED, pos());
+            t->name = ident();
+            if (is_sym("<")) t->targs = parse_targs();
+            vpush(sd->ifaces, t);
+        }
         expect_sym(")");
     }
     for (;;) {
@@ -455,7 +460,10 @@ static StructDecl *parse_struct(int kind) {
         if (is_kw("class") && !(T.items[P + 1].kind == TK_KW && (STREQ(T.items[P + 1].s, "function") ||
                                                               STREQ(T.items[P + 1].s, "procedure"))))
             error_at(pos(), "class fields are not supported (only 'class function' / 'class procedure')");
-        if (kind == SK_RECORD && is_kw("case")) error_at(pos(), "variant records are not supported");
+        if (kind == SK_RECORD && is_kw("case"))
+            error_at(pos(), "variant records are not supported: use an enumeration with data, (Circle(Radius: Real), Empty)");
+        if (kind == SK_IFACE && !is_routine_kw())
+            error_at(pos(), "an interface contains only method headers (procedure/function), found %s", describe());
         if (is_routine_kw()) {
             MethodDecl m = {0};
             m.kind = routine_kind();
@@ -626,6 +634,11 @@ static TypeExpr *parse_type_core(void) {
     }
     if (is_kw("object"))
         error_at(p, "'object' types are not supported: use 'class' (objects are created with 'vao x := TFoo.Create(...)')");
+    if (accept_kw("interface")) { /* IShape = interface function Area: Real; const; end */
+        TypeExpr *t = new_te(TE_STRUCT, p);
+        t->sd = parse_struct(SK_IFACE);
+        return t;
+    }
     if (accept_kw("class")) {
         if (is_sym(";")) return new_te(TE_CLASSFWD, p);
         if (is_kw("of")) error_at(pos(), "class references ('class of') are not supported");

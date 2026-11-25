@@ -1333,7 +1333,7 @@ static void call_effects(Expr *e, State *s, Origins *out) {
         if (p) invalidate(s, p, sfmt("'%s' was passed as var parameter to '%s' at line %d", desc_of(a), r->name, e->pos.line));
     }
     /* effects on non-local variables */
-    if (e->cmode == CM_VIRTUAL) {
+    if (e->cmode == CM_VIRTUAL || e->cmode == CM_IFACE) {
         for (int i = 0; i < prog->routines.len; i++) {
             Routine *q = prog->routines.items[i];
             if (q->owner && STREQ(q->name, r->name)) reads_check(q, s, e->pos);

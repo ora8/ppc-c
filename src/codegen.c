@@ -609,6 +609,7 @@ static char *gcall(Expr *e) {
     return gcall_core(e, selfp, sst, buf_str(&args));
 }
 
+static char *slot_type(Routine *r, const char *name);
 static char *gcall_core(Expr *e, const char *selfp, Struct *sst, const char *as) {
     Routine *r = e->rt;
     const char *dflag = "";
@@ -625,6 +626,8 @@ static char *gcall_core(Expr *e, const char *selfp, Struct *sst, const char *as)
             return sfmt("(%s, %s = 1, %s)", call, var_aux(e->a->var, "__live"), selfp);
         return call;
     }
+    case CM_IFACE: /* the method from the object's table for the interface */
+        return sfmt("((%s)__itab((void*)(%s), &IID%d)[%d])((void*)(%s)%s)", slot_type(r, NULL), selfp, r->owner->id, r->slot, selfp, as);
     case CM_VIRTUAL:
         if (r->kind == RK_DTOR) dflag = ", 1";
         return sfmt("((struct VMT%d*)((%s)->__vmt))->v%d(%s%s%s)", sst->id, selfp, r->slot, selfp, dflag, as);
@@ -946,8 +949,13 @@ static char *gx(Expr *e) {
         if (!s->args.len) buf_put(&c, "0");
         return sfmt("({ int64_t __i%d = (%s); (%s); })", id, gx(e->a), buf_str(&c));
     }
-    case E_IS: return sfmt("__is((void*)(%s), &VMTI%d)", gx(e->a), e->ctype->st->id);
-    case E_AS: return sfmt("((struct S%d*)__as((void*)(%s), &VMTI%d))", e->ctype->st->id, gx(e->a), e->ctype->st->id);
+    case E_IS:
+        if (e->ctype->st->is_iface) return sfmt("__implements((void*)(%s), &IID%d)", gx(e->a), e->ctype->st->id);
+        return sfmt("__is((void*)(%s), &VMTI%d)", gx(e->a), e->ctype->st->id);
+    case E_AS:
+        if (e->ctype->st->is_iface)
+            return sfmt("((struct S%d*)__as_iface((void*)(%s), &IID%d))", e->ctype->st->id, gx(e->a), e->ctype->st->id);
+        return sfmt("((struct S%d*)__as((void*)(%s), &VMTI%d))", e->ctype->st->id, gx(e->a), e->ctype->st->id);
     case E_OK:
         if (e->a) return sfmt("((%s){.err = 0, .v = %s})", ctype(e->type), gx(e->a));
         return sfmt("((%s){.err = 0})", ctype(e->type));
@@ -1491,18 +1499,47 @@ void codegen(Program *p, FILE *f) {
     for (int i = 0; i < p->structs.len; i++) ensure_struct(p->structs.items[i]);
 
     /* VMTs */
+    for (int i = 0; i < p->structs.len; i++)
+        if (p->structs.items[i]->is_iface) buf_printf(&b_globals, "static const char IID%d = 0; /* %s */\n", p->structs.items[i]->id, p->structs.items[i]->name);
     for (int i = 0; i < p->structs.len; i++) {
         Struct *s = p->structs.items[i];
         if (!s->has_vmt) continue;
+        /* interface tables: for every interface of the class and its ancestors (and what they extend) */
+        VEC(Struct *) ifs = {0};
+        for (Struct *c = s; c; c = c->parent)
+            for (int k = 0; k < c->ifaces.len; k++)
+                for (Struct *it = c->ifaces.items[k]; it; it = it->parent) {
+                    int dup = 0;
+                    for (int j = 0; j < ifs.len; j++) dup |= ifs.items[j] == it;
+                    if (!dup) vpush(ifs, it);
+                }
+        for (int k = 0; k < ifs.len; k++) {
+            Struct *it = ifs.items[k];
+            buf_printf(&b_vmti, "static void *ITF%d_%d[] = {", s->id, it->id);
+            for (int j = 0; j < it->methods.len; j++) {
+                Routine *im = it->methods.items[j], *m = NULL;
+                for (Struct *c = s; c && !m; c = c->parent)
+                    for (int q = 0; q < c->methods.len && !m; q++)
+                        if (STREQ(c->methods.items[q]->name, im->name)) m = c->methods.items[q];
+                if (m && m->slot >= 0) m = s->slots.items[m->slot].impl; /* virtual: this class's version */
+                buf_printf(&b_vmti, " (void*)%s,", !m || m->is_abstract ? "__abstract_err" : m->cname);
+            }
+            buf_put(&b_vmti, " 0 };\n");
+        }
+        if (ifs.len) {
+            buf_printf(&b_vmti, "static const struct __ITab ITABS%d[] = {", s->id);
+            for (int k = 0; k < ifs.len; k++) buf_printf(&b_vmti, " { &IID%d, ITF%d_%d },", ifs.items[k]->id, s->id, ifs.items[k]->id);
+            buf_put(&b_vmti, " { 0, 0 } };\n");
+        }
         buf_printf(&b_vmtt, "struct VMT%d { /* %s */\n  struct __VMTHdr h;\n", s->id, s->name);
         for (int k = 0; k < s->slots.len; k++) buf_printf(&b_vmtt, "  %s;\n", slot_type(s->slots.items[k].intro, sfmt("v%d", k)));
         buf_put(&b_vmtt, "};\n");
         buf_printf(&b_globals, "extern struct VMT%d VMTI%d;\n", s->id, s->id);
         int cl = needs_clone(s);
         if (cl) gen_clonefix(s);
-        buf_printf(&b_vmti, "struct VMT%d VMTI%d = {\n  { %s, \"%s\", sizeof(struct S%d), D%d, %s },\n", s->id, s->id,
+        buf_printf(&b_vmti, "struct VMT%d VMTI%d = {\n  { %s, \"%s\", sizeof(struct S%d), D%d, %s, %s },\n", s->id, s->id,
                    s->parent && s->parent->has_vmt ? sfmt("&VMTI%d", s->parent->id) : "NULL", s->name, s->id, s->id,
-                   cl ? sfmt("K%d", s->id) : "0");
+                   cl ? sfmt("K%d", s->id) : "0", ifs.len ? sfmt("ITABS%d", s->id) : "0");
         /* drop function: frees the fields that own an object (runs after Destroy) */
         buf_printf(&b_protos, "static void D%d(void *o);\n", s->id);
         Buf db = {0}; /* nested drop functions are emitted first */

@@ -1,0 +1,19 @@
+circle 3.0 (TCircle)
+square 4.0 (TSquare)
+circle 27.0 (TCircle)
+40.0
+square 4.0 (TSquare)
+TRUE FALSE
+free circle
+circle 3.0 (TCircle)
+ring 12.0 (TRing)
+square 9.0 (TSquare)
+circle is a circle
+ring is a circle
+square is solid
+24.0
+ring 75.0 (TRing)
+free ring
+end
+free circle
+free ring
