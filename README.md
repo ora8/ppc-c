@@ -798,7 +798,8 @@ end.
 ### Standard library: `import ppc_std`
 
 The standard library is itself a Perfect Pascal module ([lib/ppc_std.pas](lib/ppc_std.pas)), with
-an interface and an implementation section, and is embedded into the compiler. It consists of generic containers and algorithms:
+an interface and an implementation section, and is embedded into the compiler. It contains generic
+containers and algorithms, string and math functions, whole-file I/O, time and program parameters:
 
 ```pascal
 program Example;
@@ -826,6 +827,47 @@ end.                                                 { all containers free their
 | `Filter<T: Copy>(a: array of T; Keep: function(x: T): Boolean): array of T` | the elements for which `Keep` is true |
 | `IndexOf<T: Equatable>(a: array of T; x: T): optional Integer` | first position of `x`, or `none` |
 
+**Strings**
+
+| Name | Contents |
+|---|---|
+| `Trim`, `TrimLeft`, `TrimRight` | without spaces and control characters at the ends |
+| `StartsWith(s, p)`, `EndsWith(s, p)`, `Contains(s, sub)` | Boolean tests |
+| `PosFrom(sub, s, from)` | first position at or after `from` (0: none) |
+| `ReplaceStr(s, old, new)` | replaces every occurrence |
+| `Split(s, sep): array of String`, `Join(parts, sep)`, `SplitLines(s)` | splitting and joining |
+| `ReverseString`, `DupeString(s, n)`, `PadLeft(s, w, c)`, `PadRight(s, w, c)`, `IntToHex(v, digits)` | building strings |
+| `TryStrToInt(s): optional Int64`, `TryStrToFloat(s): optional Real`, `StrToFloat(s)` | parsing (`StrToFloat`: run-time error 106 if invalid) |
+| `IsDigit`, `IsLetter`, `IsSpace` | character classes |
+
+**Math:** `Pi`, `Min<T: Comparable>`, `Max`, `EnsureRange(x, lo, hi)`, `Floor`, `Ceil` (Int64),
+`Power`, `Tan`, `ArcSin`, `ArcCos`, `ArcTan2`, `Log10`, `Log2`, `Hypot`, `Sign`, `IsNan`
+(besides the built-in `Abs`, `Sqr`, `Sqrt`, `Sin`, `Cos`, `ArcTan`, `Exp`, `Ln`, `Round`, `Trunc`,
+`Random`).
+
+**Files** – whole files; errors are results:
+
+```pascal
+case WriteFile('notes.txt', 'one'#10'two'#10) of
+  ok: WriteLn('saved');
+  error e: WriteLn(e);                 { cannot open 'notes.txt': Permission denied }
+end;
+val lines := ReadLines('notes.txt');   { result array of String }
+if lines is ok ls then for val l in ls do WriteLn(l);
+```
+
+`ReadFile(name): result String`, `ReadLines(name): result array of String`,
+`WriteFile(name, text): result`, `AppendFile(name, text): result`, `DeleteFile(name): result`,
+`FileExists(name): Boolean`.
+
+**Time:** `MilliSeconds: Int64` (monotonic, for measuring), `UnixTime: Int64`, `Sleep(ms)`,
+`Now: TDateTime` (a record with `Year`, `Month`, `Day`, `Hour`, `Minute`, `Second`,
+`MilliSecond`), `DateToStr`, `TimeToStr`, `DateTimeToStr` (`2026-11-25 14:05:09`).
+
+**Program:** `ParamCount`, `ParamStr(i)` (0: the program), `GetEnv(name)` (`''` if not set).
+
+* The C primitives behind these routines are declared `external` in the library; only the
+  standard library may declare external routines.
 * The containers own their elements; `Extract`, `Pop` and `Remove` pass the ownership to the
   caller (`optional T`), `Get` and `Peek` only borrow.
 * Names of the program hide those of the library; the library itself keeps using its own.
@@ -1254,7 +1296,8 @@ Not supported: `nil` (replaced by `optional`/`none`), pointers (`^`, `@`, `New`,
 `Pointer` – replaced by objects, `var` references and `var` parameters), `object` types
 (replaced by `class`), set types (except set literals with `in`), open array parameters
 (`array of T` is a dynamic array), exceptions (replaced by `result T` and `try`), reference-counted
-interfaces, overloading, closures that capture locals, variant records (replaced by enumerations with data), `goto`, file I/O.
+interfaces, overloading, closures that capture locals, variant records (replaced by enumerations with data), `goto`, Pascal file types (`TextFile`,
+`Assign`/`Reset`; whole-file I/O is in `ppc_std`).
 
 ## Structure
 

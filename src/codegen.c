@@ -1005,7 +1005,7 @@ static char *gx(Expr *e) {
         if (e->a->type->kind == T_RES) { /* r is ok v / r is error e */
             if (!k) return sfmt("(%s(%s).err)", e->op == 1 ? "!" : "", gx(e->a));
             int id = ++tmpc;
-            if (has_str(k->type))
+            if (has_str(k->type) && !has_owned(k->type))
                 return sfmt("({ %s __s%d = %s; %s__s%d.err ? (%s, %s = __s%d.%s, %s, 1) : 0; })", ctype(e->a->type), id, gx(e->a),
                             e->op == 1 ? "!" : "", id, agg_drop(k->type, var_ref(k)), var_ref(k), id, e->op == 1 ? "v" : "e",
                             agg_copy(k->type, var_ref(k)));
@@ -1105,7 +1105,7 @@ static void gassign(Expr *lhs, Expr *rhs) {
         int id = ++tmpc;
         char *ct = ctype(lhs->type);
         Expr *src = rhs;
-        while (src->kind == E_CONV) src = src->a;
+        while ((src->kind == E_CONV || src->kind == E_OK || src->kind == E_ERR) && src->a) src = src->a; /* ok(x) moves x too */
         Buf b = {0};
         buf_printf(&b, "{ %s __n%d = %s; ", ct, id, r);
         if (cg_lvalue(src)) {
@@ -1577,12 +1577,12 @@ void codegen(Program *p, FILE *f) {
     /* prototypes and bodies */
     for (int i = 0; i < p->routines.len; i++) {
         Routine *r = p->routines.items[i];
-        if (r->is_abstract || r->is_auto || r->is_sig) continue;
+        if (r->is_abstract || r->is_auto || r->is_sig || r->is_external) continue;
         buf_printf(&b_protos, "static %s;\n", sig(r, 0));
     }
     for (int i = 0; i < p->routines.len; i++) {
         Routine *r = p->routines.items[i];
-        if (r->is_abstract || r->is_auto || r->is_sig) continue;
+        if (r->is_abstract || r->is_auto || r->is_sig || r->is_external) continue;
         buf_put(&b_funcs, "static ");
         gen_routine(r);
     }
@@ -1600,7 +1600,7 @@ void codegen(Program *p, FILE *f) {
     indent = 0;
     line("int main(int argc, char **argv) {");
     indent = 1;
-    line("(void)argc; (void)argv;");
+    line("__ppc_argc = argc; __ppc_argv = argv;");
     line("size_t __sm = __ppc_mark();");
     for (int i = 0; i < p->globals.len; i++) stack_init(p->globals.items[i]);
     gstmts(&p->init);

@@ -708,6 +708,7 @@ static TypeExpr *parse_type_core(void) {
 
 static Expr *parse_init(void) { return parse_expr(); }
 
+int g_allow_external;
 static int in_interface; /* parsing a module's interface section: routine headers only */
 static RoutineDecl *parse_routine(void) {
     RoutineDecl *d = NEW(RoutineDecl);
@@ -746,6 +747,16 @@ static RoutineDecl *parse_routine(void) {
     expect_sym(";");
     int virt = 0, abs = 0;
     parse_directives(&virt, &abs, &d->forward, &d->is_const, NULL);
+    if (is_ident("external")) { /* function Floor(x: Real): Int64; external '__std_floor'; */
+        Pos ep = pos();
+        next();
+        if (CUR.kind != TK_STR) error_at(pos(), "the C name of the external routine expected (a string)");
+        d->external = xstrndup(CUR.str, (size_t)CUR.slen);
+        next();
+        expect_sym(";");
+        if (!g_allow_external) error_at(ep, "external routines are not supported (only the standard library uses them)");
+        return d;
+    }
     if (in_interface) { /* module interface: only the header, the body is in the implementation */
         if (d->has_cls)
             error_at(d->pos, "method bodies belong to the implementation section; the interface only declares '%s' in its class", d->name.name);
@@ -756,7 +767,6 @@ static RoutineDecl *parse_routine(void) {
         return d;
     }
     if (d->forward) return d;
-    if (is_ident("external")) error_at(pos(), "external routines are not supported");
     d->body = parse_block();
     expect_sym(";");
     return d;

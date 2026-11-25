@@ -1919,7 +1919,7 @@ int borrow_check(Program *p) {
 
     for (int i = 0; i < p->routines.len; i++) {
         Routine *r = p->routines.items[i];
-        if (r->prelude || r->is_abstract || !r->defined) continue;
+        if (r->prelude || r->is_abstract || r->is_external || !r->defined) continue;
         unit = r;
         unit_name = r->owner ? sfmt("%s.%s", r->owner->name, r->name) : r->name;
         cfields.len = 0;

@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <errno.h>
+#include <unistd.h>
 
 typedef struct { int64_t len; unsigned char *p; } PStr; /* String: length + heap buffer (see strings) */
 /* interface tables of a class: the methods of each interface it implements, ended by {0, 0} */
@@ -287,4 +289,116 @@ static int64_t __sqri(int64_t v) { return v * v; }
 static double __sqrr(double v) { return v * v; }
 static int64_t __round(double v) { return (int64_t)llrint(v); }
 static double __frac(double v) { return v - trunc(v); }
+/* ---- standard library primitives (declared 'external' in ppc_std) ---- */
+static int __ppc_argc;
+static char **__ppc_argv;
+static char *__cz(PStr s) { char *c = (char *)malloc((size_t)s.len + 1); if (s.len) memcpy(c, s.p, (size_t)s.len); c[s.len] = 0; return c; }
+static int64_t __std_floor(double x) { return (int64_t)floor(x); }
+static int64_t __std_ceil(double x) { return (int64_t)ceil(x); }
+static double __std_power(double x, double y) { return pow(x, y); }
+static double __std_tan(double x) { return tan(x); }
+static double __std_arcsin(double x) { return asin(x); }
+static double __std_arccos(double x) { return acos(x); }
+static double __std_arctan2(double y, double x) { return atan2(y, x); }
+static double __std_log10(double x) { return log10(x); }
+static double __std_log2(double x) { return log2(x); }
+static double __std_hypot(double x, double y) { return hypot(x, y); }
+static uint8_t __std_isnan(double x) { return isnan(x) != 0; }
+static int32_t __std_posfrom(PStr sub, PStr s, int64_t from) { /* first position of sub in s at or after from (1-based), 0 if none */
+    if (from < 1) from = 1;
+    if (sub.len == 0) return from <= s.len + 1 ? (int32_t)from : 0;
+    for (int64_t i = from - 1; i + sub.len <= s.len; i++)
+        if (s.p[i] == sub.p[0] && memcmp(s.p + i, sub.p, (size_t)sub.len) == 0) return (int32_t)(i + 1);
+    return 0;
+}
+static PStr __std_inttohex(int64_t v, int32_t digits) { char b[40]; int n = snprintf(b, sizeof b, "%0*llX", digits < 0 ? 0 : digits > 16 ? 16 : digits, (unsigned long long)v); return __pstr_mem(b, n); }
+static uint8_t __std_trystrtoint(PStr s, int64_t *v) {
+    char *c = __cz(s), *end;
+    char *b = c;
+    while (isspace((unsigned char)*b)) b++;
+    errno = 0;
+    long long r = strtoll(b, &end, 10);
+    int ok = *b && end != b && errno == 0;
+    while (ok && isspace((unsigned char)*end)) end++;
+    ok = ok && *end == 0;
+    free(c);
+    if (ok) *v = r;
+    return ok;
+}
+static uint8_t __std_trystrtofloat(PStr s, double *v) {
+    char *c = __cz(s), *end;
+    char *b = c;
+    while (isspace((unsigned char)*b)) b++;
+    double r = strtod(b, &end);
+    int ok = *b && end != b;
+    while (ok && isspace((unsigned char)*end)) end++;
+    ok = ok && *end == 0;
+    free(c);
+    if (ok) *v = r;
+    return ok;
+}
+/* files: whole-file reading and writing; the last error message is kept for the Pascal wrappers */
+static char __std_err[512];
+static void __std_seterr(const char *what, PStr name) {
+    char *n = __cz(name);
+    snprintf(__std_err, sizeof __std_err, "%s '%s': %s", what, n, strerror(errno));
+    free(n);
+}
+static PStr __std_ioerror(void) { return __pstr_mem(__std_err, (int64_t)strlen(__std_err)); }
+static PStr __std_readfile(PStr name) {
+    __std_err[0] = 0;
+    char *n = __cz(name);
+    FILE *f = fopen(n, "rb");
+    free(n);
+    if (!f) { __std_seterr("cannot open", name); return __pstr_lit("", 0); }
+    size_t cap = 4096, len = 0;
+    char *buf = (char *)malloc(cap);
+    size_t k;
+    while ((k = fread(buf + len, 1, cap - len, f)) > 0) {
+        len += k;
+        if (len == cap) buf = (char *)realloc(buf, cap *= 2);
+    }
+    if (ferror(f)) __std_seterr("cannot read", name);
+    fclose(f);
+    PStr r = __pstr_mem(buf, (int64_t)len);
+    free(buf);
+    return r;
+}
+static uint8_t __std_writefile(PStr name, PStr text, uint8_t append) {
+    __std_err[0] = 0;
+    char *n = __cz(name);
+    FILE *f = fopen(n, append ? "ab" : "wb");
+    free(n);
+    if (!f) { __std_seterr("cannot open", name); return 0; }
+    int ok = text.len == 0 || fwrite(text.p, 1, (size_t)text.len, f) == (size_t)text.len;
+    if (fclose(f) != 0) ok = 0;
+    if (!ok) __std_seterr("cannot write", name);
+    return ok;
+}
+static uint8_t __std_fileexists(PStr name) { char *n = __cz(name); FILE *f = fopen(n, "rb"); free(n); if (f) fclose(f); return f != NULL; }
+static uint8_t __std_deletefile(PStr name) {
+    __std_err[0] = 0;
+    char *n = __cz(name);
+    int ok = remove(n) == 0;
+    free(n);
+    if (!ok) __std_seterr("cannot delete", name);
+    return ok;
+}
+/* time */
+static int64_t __std_milliseconds(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000; }
+static int64_t __std_unixtime(void) { return (int64_t)time(NULL); }
+static void __std_sleep(int32_t ms) { if (ms > 0) { struct timespec t = {ms / 1000, (long)(ms % 1000) * 1000000L}; nanosleep(&t, NULL); } }
+static void __std_now(int32_t *y, int32_t *mo, int32_t *d, int32_t *h, int32_t *mi, int32_t *s, int32_t *ms) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    time_t t = ts.tv_sec;
+    struct tm tm;
+    localtime_r(&t, &tm);
+    *y = tm.tm_year + 1900; *mo = tm.tm_mon + 1; *d = tm.tm_mday;
+    *h = tm.tm_hour; *mi = tm.tm_min; *s = tm.tm_sec; *ms = (int32_t)(ts.tv_nsec / 1000000);
+}
+/* program parameters and environment */
+static int32_t __std_paramcount(void) { return __ppc_argc - 1; }
+static PStr __std_paramstr(int32_t i) { if (i < 0 || i >= __ppc_argc) return __pstr_lit("", 0); return __pstr_mem(__ppc_argv[i], (int64_t)strlen(__ppc_argv[i])); }
+static PStr __std_getenv(PStr name) { char *n = __cz(name); const char *v = getenv(n); free(n); return v ? __pstr_mem(v, (int64_t)strlen(v)) : __pstr_lit("", 0); }
 /* ---- end of runtime ---- */

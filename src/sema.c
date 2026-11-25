@@ -222,6 +222,7 @@ int has_owned(Type *t) {
     case T_DYN: return 1; /* owns its buffer */
     case T_ARRAY: return is_ref_type(t->base) || has_owned(t->base);
     case T_OPT: return has_owned(t->base);
+    case T_RES: return (t->base && has_owned(t->base)) || (t->err && has_owned(t->err));
     case T_RECORD:
         for (int i = 0; i < t->st->fields.len; i++) {
             Field *f = t->st->fields.items[i];
@@ -3076,7 +3077,7 @@ static Expr *bind_some(Expr *e) {
     /* unpacking a place borrows its content; unpacking a fresh owned object takes ownership */
     k->borrowed = t->kind == T_CLASS && !is_owning_temp(e->a);
     k->is_const = k->borrowed || t->kind == T_OPT || t->kind == T_RES;
-    k->no_drop = t->kind == T_OPT && has_owned(kt); /* a copy of the value: the original keeps owning (strings are copied) */
+    k->no_drop = (t->kind == T_OPT || t->kind == T_RES) && has_owned(kt); /* a copy of the value: the original keeps owning (strings are copied) */
     if (cur) vpush(cur->locals, k);
     else vpush(prog->globals, k);
     add_sym(SY_VAR, e->id.name, e->id.pos)->var = k;
@@ -3785,6 +3786,13 @@ static void routine_decl(RoutineDecl *d) {
         }
         Sym *s = add_sym(SY_ROUTINE, d->name.name, d->name.pos);
         s->rt = rt;
+    }
+    if (d->external) {
+        if (rt->level != 1) error_at(d->pos, "external routines must be declared at the top level");
+        rt->cname = d->external;
+        rt->is_external = 1;
+        rt->defined = 1;
+        return;
     }
     if (d->forward) {
         rt->forward = 1;

@@ -8,6 +8,15 @@
   IndexOf<T: Equatable>     position of a value in an 'array of T', or none
   Filter<T: Copy>           the elements for which a function returns True
 
+  Strings     Trim, TrimLeft, TrimRight, StartsWith, EndsWith, Contains, PosFrom, ReplaceStr,
+              Split, Join, SplitLines, ReverseString, DupeString, PadLeft, PadRight, IntToHex,
+              TryStrToInt, TryStrToFloat, StrToFloat, IsDigit, IsLetter, IsSpace
+  Math        Pi, Min, Max, EnsureRange, Floor, Ceil, Power, Tan, ArcSin, ArcCos, ArcTan2, Log10,
+              Log2, Hypot, Sign, IsNan
+  Files       ReadFile, ReadLines, WriteFile, AppendFile, FileExists, DeleteFile
+  Time        MilliSeconds, UnixTime, Sleep, Now (TDateTime), DateToStr, TimeToStr, DateTimeToStr
+  Program     ParamCount, ParamStr, GetEnv
+
   SortRange is private to the implementation.
 
   All containers own their elements (objects are freed with the container).
@@ -51,6 +60,73 @@ procedure Sort<T: Comparable>(var a: array of T);
 procedure SortBy<T>(var a: array of T; Less: function(x, y: T): Boolean);
 function IndexOf<T: Equatable>(a: array of T; x: T): optional Integer;
 function Filter<T: Copy>(a: array of T; Keep: function(x: T): Boolean): array of T;
+{ ---- strings ---- }
+function Trim(s: String): String;                  { without spaces/control characters at both ends }
+function TrimLeft(s: String): String;
+function TrimRight(s: String): String;
+function StartsWith(s, Prefix: String): Boolean;
+function EndsWith(s, Suffix: String): Boolean;
+function Contains(s, Sub: String): Boolean;
+function PosFrom(Sub, s: String; From: Integer): Integer; external '__std_posfrom'; { first position >= From, 0 if none }
+function ReplaceStr(s, Old, New: String): String;  { every occurrence }
+function Split(s, Sep: String): array of String;    { Split('a,b,,c', ',') = ('a', 'b', '', 'c') }
+function Join(Parts: array of String; Sep: String): String;
+function SplitLines(s: String): array of String;    { at LF or CR LF; no empty last line }
+function ReverseString(s: String): String;
+function DupeString(s: String; Count: Integer): String;
+function PadLeft(s: String; Width: Integer; Fill: Char): String;
+function PadRight(s: String; Width: Integer; Fill: Char): String;
+function IntToHex(Value: Int64; Digits: Integer): String; external '__std_inttohex';
+function TryStrToInt(s: String): optional Int64;    { none if s is not a whole number }
+function TryStrToFloat(s: String): optional Real;
+function StrToFloat(s: String): Real;               { run-time error 106 if s is not a number }
+function IsDigit(c: Char): Boolean;
+function IsLetter(c: Char): Boolean;
+function IsSpace(c: Char): Boolean;
+
+{ ---- math ---- }
+const Pi = 3.14159265358979323846;
+function Min<T: Comparable>(a, b: T): T;
+function Max<T: Comparable>(a, b: T): T;
+function EnsureRange<T: Comparable>(x, Lo, Hi: T): T;
+function Floor(x: Real): Int64; external '__std_floor';
+function Ceil(x: Real): Int64; external '__std_ceil';
+function Power(x, y: Real): Real; external '__std_power';
+function Tan(x: Real): Real; external '__std_tan';
+function ArcSin(x: Real): Real; external '__std_arcsin';
+function ArcCos(x: Real): Real; external '__std_arccos';
+function ArcTan2(y, x: Real): Real; external '__std_arctan2';
+function Log10(x: Real): Real; external '__std_log10';
+function Log2(x: Real): Real; external '__std_log2';
+function Hypot(x, y: Real): Real; external '__std_hypot';
+function IsNan(x: Real): Boolean; external '__std_isnan';
+function Sign(x: Real): Integer;                    { -1, 0 or 1 }
+
+{ ---- files (whole files; errors as results) ---- }
+function ReadFile(Name: String): result String;
+function ReadLines(Name: String): result array of String;
+function WriteFile(Name, Text: String): result;
+function AppendFile(Name, Text: String): result;
+function DeleteFile(Name: String): result;
+function FileExists(Name: String): Boolean; external '__std_fileexists';
+
+{ ---- time ---- }
+type
+  TDateTime = record
+    Year, Month, Day, Hour, Minute, Second, MilliSecond: Integer;
+  end;
+function MilliSeconds: Int64; external '__std_milliseconds'; { monotonic clock, for measuring }
+function UnixTime: Int64; external '__std_unixtime';         { seconds since 1970-01-01 UTC }
+procedure Sleep(ms: Integer); external '__std_sleep';
+function Now: TDateTime;                                      { local time }
+function DateToStr(t: TDateTime): String;                     { 2026-11-25 }
+function TimeToStr(t: TDateTime): String;                     { 14:05:09 }
+function DateTimeToStr(t: TDateTime): String;                 { 2026-11-25 14:05:09 }
+
+{ ---- program ---- }
+function ParamCount: Integer; external '__std_paramcount';
+function ParamStr(i: Integer): String; external '__std_paramstr'; { 0: the program }
+function GetEnv(Name: String): String; external '__std_getenv';   { '' if not set }
 
 implementation
 
@@ -253,6 +329,258 @@ begin
   Result := none;
   for val i := 0 to High(a) do
     if (a[i] = x) and not Result.HasValue then Result := i;
+end;
+
+{ ------------------------------------------------------------------- strings }
+
+function TrimLeft(s: String): String;
+val i := 1;
+begin
+  while (i <= Length(s)) and (s[i] <= ' ') do Inc(i);
+  Result := Copy(s, i, Length(s) - i + 1);
+end;
+
+function TrimRight(s: String): String;
+val n := Length(s);
+begin
+  while (n > 0) and (s[n] <= ' ') do Dec(n);
+  Result := Copy(s, 1, n);
+end;
+
+function Trim(s: String): String;
+begin
+  Result := TrimLeft(TrimRight(s));
+end;
+
+function StartsWith(s, Prefix: String): Boolean;
+begin
+  Result := (Length(Prefix) <= Length(s)) and (Copy(s, 1, Length(Prefix)) = Prefix);
+end;
+
+function EndsWith(s, Suffix: String): Boolean;
+begin
+  Result := (Length(Suffix) <= Length(s)) and (Copy(s, Length(s) - Length(Suffix) + 1, Length(Suffix)) = Suffix);
+end;
+
+function Contains(s, Sub: String): Boolean;
+begin
+  Result := PosFrom(Sub, s, 1) > 0;
+end;
+
+function ReplaceStr(s, Old, New: String): String;
+val start := 1;
+begin
+  Result := '';
+  if Old = '' then Exit(s);
+  loop
+    val p := PosFrom(Old, s, start);
+    begin
+      if p = 0 then Break;
+      Result := Result + Copy(s, start, p - start) + New;
+      start := p + Length(Old);
+    end;
+  Result := Result + Copy(s, start, Length(s) - start + 1);
+end;
+
+function Split(s, Sep: String): array of String;
+val start := 1;
+begin
+  if Sep = '' then
+  begin
+    SetLength(Result, 1);
+    Result[0] := s;
+    Exit;
+  end;
+  loop
+    val p := PosFrom(Sep, s, start);
+    begin
+      SetLength(Result, Length(Result) + 1);
+      if p = 0 then
+      begin
+        Result[High(Result)] := Copy(s, start, Length(s) - start + 1);
+        Break;
+      end;
+      Result[High(Result)] := Copy(s, start, p - start);
+      start := p + Length(Sep);
+    end;
+end;
+
+function Join(Parts: array of String; Sep: String): String;
+begin
+  Result := '';
+  for val i := 0 to High(Parts) do
+    if i = 0 then Result := Parts[i] else Result := Result + Sep + Parts[i];
+end;
+
+function SplitLines(s: String): array of String;
+val start := 1;
+begin
+  for val i := 1 to Length(s) do
+    if s[i] = #10 then
+      val e := i - 1;
+      begin
+        if (e >= start) and (s[e] = #13) then Dec(e);
+        SetLength(Result, Length(Result) + 1);
+        Result[High(Result)] := Copy(s, start, e - start + 1);
+        start := i + 1;
+      end;
+  if start <= Length(s) then
+  begin
+    SetLength(Result, Length(Result) + 1);
+    Result[High(Result)] := Copy(s, start, Length(s) - start + 1);
+  end;
+end;
+
+function ReverseString(s: String): String;
+begin
+  Result := s;
+  for val i := 1 to Length(s) do Result[i] := s[Length(s) - i + 1];
+end;
+
+function DupeString(s: String; Count: Integer): String;
+begin
+  Result := '';
+  for val i := 1 to Count do Result := Result + s;
+end;
+
+function PadLeft(s: String; Width: Integer; Fill: Char): String;
+begin
+  Result := s;
+  while Length(Result) < Width do Result := Fill + Result;
+end;
+
+function PadRight(s: String; Width: Integer; Fill: Char): String;
+begin
+  Result := s;
+  while Length(Result) < Width do Result := Result + Fill;
+end;
+
+function __TryStrToInt(s: String; var v: Int64): Boolean; external '__std_trystrtoint';
+function __TryStrToFloat(s: String; var v: Real): Boolean; external '__std_trystrtofloat';
+
+function TryStrToInt(s: String): optional Int64;
+val v: Int64 := 0;
+begin
+  Result := none;
+  if __TryStrToInt(s, v) then Result := v;
+end;
+
+function TryStrToFloat(s: String): optional Real;
+val v: Real := 0;
+begin
+  Result := none;
+  if __TryStrToFloat(s, v) then Result := v;
+end;
+
+function StrToFloat(s: String): Real;
+val v: Real := 0;
+begin
+  if not __TryStrToFloat(s, v) then
+  begin
+    WriteLn('Runtime error 106: invalid number ''', s, '''');
+    Halt(106);
+  end;
+  Result := v;
+end;
+
+function IsDigit(c: Char): Boolean;
+begin
+  Result := (c >= '0') and (c <= '9');
+end;
+
+function IsLetter(c: Char): Boolean;
+begin
+  Result := ((c >= 'a') and (c <= 'z')) or ((c >= 'A') and (c <= 'Z'));
+end;
+
+function IsSpace(c: Char): Boolean;
+begin
+  Result := (c = ' ') or (c = #9) or (c = #10) or (c = #13);
+end;
+
+{ ---------------------------------------------------------------------- math }
+
+function Min<T: Comparable>(a, b: T): T;
+begin
+  if b < a then Result := b else Result := a;
+end;
+
+function Max<T: Comparable>(a, b: T): T;
+begin
+  if a < b then Result := b else Result := a;
+end;
+
+function EnsureRange<T: Comparable>(x, Lo, Hi: T): T;
+begin
+  if x < Lo then Result := Lo
+  else if Hi < x then Result := Hi
+  else Result := x;
+end;
+
+function Sign(x: Real): Integer;
+begin
+  if x > 0 then Result := 1 else if x < 0 then Result := -1 else Result := 0;
+end;
+
+{ --------------------------------------------------------------------- files }
+
+function __ReadFile(Name: String): String; external '__std_readfile';
+function __WriteFile(Name, Text: String; Append: Boolean): Boolean; external '__std_writefile';
+function __DeleteFile(Name: String): Boolean; external '__std_deletefile';
+function __IOError: String; external '__std_ioerror';
+
+function ReadFile(Name: String): result String;
+val t := __ReadFile(Name);
+begin
+  if __IOError <> '' then Result := error(__IOError) else Result := ok(t);
+end;
+
+function ReadLines(Name: String): result array of String;
+val
+  t := __ReadFile(Name);
+  ls := SplitLines(t);
+begin
+  if __IOError <> '' then Result := error(__IOError) else Result := ok(ls);
+end;
+
+function WriteFile(Name, Text: String): result;
+begin
+  if __WriteFile(Name, Text, False) then Result := ok else Result := error(__IOError);
+end;
+
+function AppendFile(Name, Text: String): result;
+begin
+  if __WriteFile(Name, Text, True) then Result := ok else Result := error(__IOError);
+end;
+
+function DeleteFile(Name: String): result;
+begin
+  if __DeleteFile(Name) then Result := ok else Result := error(__IOError);
+end;
+
+{ ---------------------------------------------------------------------- time }
+
+procedure __Now(var y, mo, d, h, mi, s, ms: Integer); external '__std_now';
+
+function Now: TDateTime;
+begin
+  Result := default;
+  __Now(Result.Year, Result.Month, Result.Day, Result.Hour, Result.Minute, Result.Second, Result.MilliSecond);
+end;
+
+function DateToStr(t: TDateTime): String;
+begin
+  Result := PadLeft(IntToStr(t.Year), 4, '0') + '-' + PadLeft(IntToStr(t.Month), 2, '0') + '-' + PadLeft(IntToStr(t.Day), 2, '0');
+end;
+
+function TimeToStr(t: TDateTime): String;
+begin
+  Result := PadLeft(IntToStr(t.Hour), 2, '0') + ':' + PadLeft(IntToStr(t.Minute), 2, '0') + ':' + PadLeft(IntToStr(t.Second), 2, '0');
+end;
+
+function DateTimeToStr(t: TDateTime): String;
+begin
+  Result := DateToStr(t) + ' ' + TimeToStr(t);
 end;
 
 end.

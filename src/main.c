@@ -44,7 +44,9 @@ static void load_module(Ident *name) {
     const char *save = g_filename;
     g_filename = file;
     Ident mname;
+    g_allow_external = src == PPC_STD;
     Block *b = parse_module(src, &mname);
+    g_allow_external = 0;
     if (!STREQ(mname.name, name->name))
         error_at(mname.pos, "the file declares 'module %s', but it is imported as '%s'", mname.name, name->name);
     g_filename = save;

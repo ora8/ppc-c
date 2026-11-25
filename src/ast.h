@@ -146,6 +146,7 @@ typedef struct {
     IdentVec tparams;     /* generic routine: function Max<T>(a, b: T): T */
     ConsVec tcons;
     int iface;            /* header in a module's interface section: defined in the implementation */
+    char *external;       /* 'external 'c_name'': implemented in the runtime (standard library only) */
     void *toks;           /* tokens to parse the routine again for each instance */
     int tok_start;
 } RoutineDecl;
@@ -381,6 +382,7 @@ struct Routine {
     int is_constm; /* '; const;': method does not change Self, routine has no side effects */
     int is_classm; /* class method: no Self, called as TClass.Name(...) */
     int is_auto;   /* generated body (Clone: deep copy) */
+    int is_external; /* implemented in C by the runtime (cname) */
     int is_sig;    /* signature of a procedural type: no body; it stands for every routine used as a value */
     int addr_taken; /* used as a function value */
     int has_frame;
@@ -432,6 +434,7 @@ Stmt *new_stmt(StmtKind k, Pos p);
 Program *sema_program(Block *prelude, Block **libs, int nlibs, Block *prog, const char *name);
 int is_owning_type(Type *t);
 int struct_descends(Struct *d, Struct *b);
+extern int g_allow_external; /* the standard library may declare 'external' routines */
 const char *type_name(Type *t);
 
 /* borrow.c */
