@@ -130,7 +130,7 @@ end;
 type or the routine – like Rust and C++. `TList<TCustomer>` and `TList<Integer>` become two C
 structs with their own functions and their own VMT. This costs nothing at run time.
 
-* Names in the C code: `S12` with the comment `/* TList<TCustomer> */`; `ClassName` returns
+* Names in the C code: `struct TList_TCustomer12` (the name with its number; other characters become `_`); `ClassName` returns
   `'TList<TCustomer>'`.
 * Equal instances are created only once (key: name + type arguments).
 * Recursive instances (`TTree<T>` with a field `optional TTree<T>`) work through the existing
