@@ -398,7 +398,7 @@ static int routine_kind(void) {
     if (is_kw("function")) k = RK_FUNC;
     else if (is_kw("constructor")) k = RK_CTOR;
     else if (is_kw("destructor")) k = RK_DTOR;
-    next/();
+    next();
     return k;
 }
 
