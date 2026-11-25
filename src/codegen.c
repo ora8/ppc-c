@@ -868,6 +868,7 @@ static char *gbuiltin(Expr *e) {
     case BI_STRTOINT: return sfmt("__str_to_int(%s)", G(0));
     case BI_FLOATTOSTR: return sfmt("__float_to_str(%s)", G(0));
     case BI_HASH: return hash_of(A->items[0]->type, G(0));
+    case BI_TOUCH: return "1";
     case BI_INCLUDE: return sfmt("__set_incl(&(%s), (int64_t)(%s), %lld, %lld)", G(0), G(1), A->items[0]->type->lo, A->items[0]->type->hi);
     case BI_EXCLUDE: return sfmt("__set_excl(&(%s), (int64_t)(%s), %lld, %lld)", G(0), G(1), A->items[0]->type->lo, A->items[0]->type->hi);
     case BI_FORMAT: {

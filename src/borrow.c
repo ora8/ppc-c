@@ -321,6 +321,9 @@ static void check_var_use(Var *v, Pos p, State *s) {
         int maybe = s->bor[i] & B_VALID;
         berror(p, "borrowed reference '%s' is used after its owner %s%s", v->name, maybe ? "may have been invalidated: " : "",
                s->why[i] ? s->why[i] : "was invalidated");
+    } else if ((s->bor[i] & B_CONFLICT) && strncmp(v->name, "__src", 5) == 0) { /* the collection of 'for ... in' (GetEnumerator) */
+        berror(p, "the collection of this 'for ... in' loop must not change while the loop runs, but %s",
+               s->why[i] ? s->why[i] : "it was changed");
     } else if (s->bor[i] & B_CONFLICT) {
         berror(p, "borrowed reference '%s' is used here, but %s", v->name, s->why[i] ? s->why[i] : "its object was used otherwise");
     }
@@ -333,6 +336,7 @@ static void check_var_use(Var *v, Pos p, State *s) {
 static int in_base; /* >0 while the container part of a place expression is being evaluated */
 
 enum { ACC_READ, ACC_WRITE, ACC_BORROW_MUT, ACC_BORROW_CONST };
+static const char *vdisp(Var *v) { return strncmp(v->name, "__src", 5) == 0 ? "the loop" : v->name; } /* hidden for-in variable */
 static void access_path(State *s, const char *path, Var *ex1, Var *ex2, int kind, Pos p, const char *desc) {
     int write = kind == ACC_WRITE || kind == ACC_BORROW_MUT;
     if (!s->reach || !path) return;
@@ -348,7 +352,7 @@ static void access_path(State *s, const char *path, Var *ex1, Var *ex2, int kind
             if (o->root == v) continue;
             if (!(s->bor[i] & B_CONFLICT)) { /* report the first conflict */
                 if (kind == ACC_WRITE)
-                    s->why[i] = sfmt("'%s' was changed at line %d while '%s' was borrowing it%s", desc, p.line, v->name,
+                    s->why[i] = sfmt("'%s' was changed at line %d while '%s' was borrowing it%s", desc, p.line, vdisp(v),
                                      shared ? " (a read-only borrow forbids changes)" : "");
                 else if (kind == ACC_BORROW_MUT)
                     s->why[i] = sfmt("'%s' was borrowed again as changeable at line %d while '%s' was borrowing it", desc, p.line,
@@ -358,7 +362,7 @@ static void access_path(State *s, const char *path, Var *ex1, Var *ex2, int kind
                                      v->name);
                 else
                     s->why[i] = sfmt("'%s' was used at line %d while '%s' held a changeable borrow of it (borrow it as 'const' to share it)",
-                                     desc, p.line, v->name);
+                                     desc, p.line, vdisp(v));
             }
             s->bor[i] = (unsigned char)((s->bor[i] & ~B_VALID) | B_CONFLICT);
             break;
@@ -951,6 +955,8 @@ static void field_store(Expr *lhs, Origins *o, State *s, Pos p) {
         if (inside) continue; /* the holder is part of the object it refers to */
         Var *r = x->root;
         if (r && r->is_global && slot(r) < 0) continue; /* a global of the program (not tracked here) */
+        if (unit && unit->enum_self && hroot && hroot->vkind == VK_RESULT && r && r->vkind == VK_SELF)
+            continue; /* GetEnumerator: Result.List := Self (only 'for ... in' uses it, while the container is borrowed) */
         if (local_owner(hroot)) {
             if (local_owner(r) && r->id > hroot->id) {
                 berror(p, "'%s' would refer to '%s', which is freed before '%s' (declare '%s' before '%s')", desc_of(lhs), x->desc,
@@ -1334,7 +1340,14 @@ static void borrowed_from_arg(Expr *a, const char *path, Var *root, Origins *out
     else if (t->kind == T_RECORD) origin_add(out, path, desc_of(a), root, 0);
 }
 
+static void call_effects_inner(Expr *e, State *s, Origins *out);
 static void call_effects(Expr *e, State *s, Origins *out) {
+    if (e->rt && e->rt->enum_self && !e->forin)
+        berror(e->pos, "'%s.GetEnumerator' gives an enumerator that refers to the %s: only 'for ... in' can use it",
+               e->rt->owner->name, e->rt->owner->name);
+    call_effects_inner(e, s, out);
+}
+static void call_effects_inner(Expr *e, State *s, Origins *out) {
     Routine *r = e->rt;
     VEC(ArgPath) ap = {0};
     if (unit && unit->kind == RK_CTOR && e->a && is_self_expr(e->a)) {

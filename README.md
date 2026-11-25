@@ -1692,7 +1692,8 @@ Internally the value is a record with a tag and the fields of all variants.
 ## Loops over collections: `for val x in …`
 
 `for val x in c do …` runs through the elements of an array (fixed or dynamic), a string (the
-characters) or a container with the methods `Count` and `Get(i)` (such as `TList<T>`). `x` is a
+characters), a container with the methods `Count` and `Get(i)` (such as `TList<T>`) or a type with
+`GetEnumerator` (below). `x` is a
 **reference** to the element, nothing is copied:
 
 * `for val x in c` – read-only: `x := …`, `x.Field := …` and changing methods are errors.
@@ -1713,6 +1714,50 @@ skipped. The loop is an index loop underneath, so it is as fast as `for i := …
 borrow checker knows that `x` borrows the collection: shrinking it with `SetLength` or changing
 the container (`people.Clear`) while `x` is still used is an error. `for x in c` without `val` or
 `var` is an error.
+
+### Own iterators: `GetEnumerator`
+
+A type can be used in `for … in` by providing `GetEnumerator` (as in Delphi). The enumerator – a
+record or an object – has `function MoveNext: Boolean` and `Current` (a function or a property):
+
+```pascal
+type
+  TRangeEnum = record
+    Cur, Hi: Integer;
+    function MoveNext: Boolean;              { Inc(Cur); Result := Cur <= Hi }
+    property Current: Integer read Cur;
+  end;
+  TRange = record
+    Lo, Hi: Integer;
+    function GetEnumerator: TRangeEnum; const;
+  end;
+
+for val i in Range(1, 10) do Write(i, ' ');
+
+  TBagEnum = record
+    Bag: var optional TBag;                  { refers to its container }
+    I: Integer;
+    function MoveNext: Boolean;
+    function Current: Integer; const;
+  end;
+
+function TBag.GetEnumerator: TBagEnum;
+begin
+  Result.I := -1;
+  Result.Bag := Self;                        { allowed in GetEnumerator }
+end;
+
+for val x in bag do Write(x, ' ');
+```
+
+* An enumerator object is owned by the loop and freed after it; an optional `Current` skips
+  empty elements, a `var` result of `Current` gives a reference (`for var x in …`), otherwise
+  only `for val` is possible.
+* `GetEnumerator` may store `Self` in a `var` field of its result; such an enumerator can only be
+  used by `for … in`. While the loop runs, the collection is borrowed read-only: changing it in
+  the loop body is an error (`the collection of this 'for ... in' loop must not change while the
+  loop runs`).
+* `GetEnumerator` takes precedence over `Count`/`Get(i)`.
 
 ## Endless loop: `loop`
 

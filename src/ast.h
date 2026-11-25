@@ -229,6 +229,7 @@ struct Expr {
     int in_range; /* E_INDEX: constant index, checked at compile time */
     int ro_bind;  /* E_ISSOME from "for val x in": the object is bound read-only */
     int pat_var;  /* E_IDENT 'var x' in a pattern: a changeable binding */
+    int forin;    /* E_RCALL of GetEnumerator made by 'for ... in' */
     Expr *a, *b, *c;
     ExprVec args;
     ExprVec args2; /* set literal: upper bounds (NULL entries for single values) */
@@ -413,6 +414,7 @@ struct Routine {
     int is_overload;   /* '; overload;': one of several routines/methods with this name */
     int captures;      /* lambda nested in a routine: uses its variables through the frame (a closure) */
     int is_operator;   /* class operator: used by +, -, =, ... */
+    int enum_self;     /* GetEnumerator whose result refers to Self: only for 'for ... in' */
     Routine *ovl_next; /* routine (not method): the next one with the same name in its scope */
     int ret_ref;   /* 'var' result of a value that owns objects: returns a pointer into a container (NULL: none) */
     int is_sig;    /* signature of a procedural type: no body; it stands for every routine used as a value */
@@ -452,7 +454,7 @@ enum {
     BI_INSERT, BI_INTTOSTR, BI_STRTOINT, BI_FLOATTOSTR, BI_STR, BI_UPCASE, BI_UPPERCASE,
     BI_LOWERCASE, BI_CONCAT, BI_HALT, BI_RANDOM, BI_RANDOMIZE, BI_ASSIGNED, BI_NEW, BI_DISPOSE,
     BI_FREEANDNIL, BI_TAKE, BI_SETLENGTH, BI_CLASSNAME, BI_PI, BI_EXIT, BI_BREAK, BI_CONTINUE,
-    BI_HASVALUE, BI_VALUEOR, BI_BOXNEW, BI_BOXFREE, BI_ISOK, BI_ISERROR, BI_ARRCLONE, BI_FORMAT, BI_INCLUDE, BI_EXCLUDE, BI_HASH, BI_CLASSTYPE, BI_REFNAME
+    BI_HASVALUE, BI_VALUEOR, BI_BOXNEW, BI_BOXFREE, BI_ISOK, BI_ISERROR, BI_ARRCLONE, BI_FORMAT, BI_INCLUDE, BI_EXCLUDE, BI_HASH, BI_CLASSTYPE, BI_REFNAME, BI_TOUCH
 };
 
 /* parser.c */

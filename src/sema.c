@@ -148,6 +148,9 @@ static Expr *mk_bin(int op, Expr *a, Expr *b, Pos p);
 #define l_pos(arm) ((arm)->body->pos)
 static void stmt(Stmt *s);
 static Type *proc_type(Routine *sig);
+static Routine *enumerator_of(Struct *st);
+static void for_enumerator(Stmt *s, Expr *coll, Routine *ge);
+static Expr *forin_call; /* the GetEnumerator call made by 'for ... in' (it may refer to its container) */
 static void no_closure(Type *t, Pos p, const char *where);
 static int is_aggregate(Type *t);
 static int same_agg(Type *a, Type *b);
@@ -2687,6 +2690,11 @@ static Expr *ex(Expr *e) {
     case E_IDENT:
     case E_MEMBER: return resolve_ref(e, NULL);
     case E_CALL:
+        if (e == forin_call) {
+            Expr *r = resolve_ref(e->a, &e->args);
+            r->forin = 1;
+            return r;
+        }
         if (e->a->kind == E_IDENT || e->a->kind == E_MEMBER) return resolve_ref(e->a, &e->args);
         if (e->a->kind == E_TYPEREF) return cast_expr(e->a->ctype, &e->args, e->pos); /* made by the compiler: T(x) */
         {
@@ -3351,6 +3359,109 @@ static Expr *mk_member(Expr *base, const char *name, ExprVec *args, Pos p) {
     c->args = *args;
     return c;
 }
+
+/* ---- for val x in c with c.GetEnumerator (MoveNext, Current) ---- */
+static Routine *enumerator_of(Struct *st) {
+    Field *f;
+    Routine *m;
+    Prop *pr;
+    if (find_member(st, "GetEnumerator", &f, &m, &pr) && m && m->kind == RK_FUNC && !m->params.len && !m->is_classm) return m;
+    return NULL;
+}
+/* begin  var __src := c;  val __e := c.GetEnumerator;
+          while __e.MoveNext and __Touch(__src) do  <x := __e.Current>  body  end */
+static void for_enumerator(Stmt *s, Expr *coll, Routine *ge) {
+    Pos p = s->pos;
+    Type *et = ge->ret;
+    if (!et || (et->kind != T_CLASS && et->kind != T_RECORD))
+        error_at(s->a->pos, "GetEnumerator of \"%s\" must return a record or an object", type_name(coll->type));
+    Field *f;
+    Routine *mn, *cm;
+    Prop *cp;
+    if (!find_member(et->st, "MoveNext", &f, &mn, &cp) || !mn || mn->kind != RK_FUNC || mn->params.len || !mn->ret || mn->ret->kind != T_BOOL)
+        error_at(s->a->pos, "the enumerator \"%s\" needs 'function MoveNext: Boolean'", type_name(et));
+    Type *ct = NULL;
+    int borrowed = 0;
+    if (find_member(et->st, "Current", &f, &cm, &cp) && cm && cm->kind == RK_FUNC && !cm->params.len) ct = cm->ret, borrowed = cm->ret_borrowed;
+    else if (cp && !cp->idx.len) {
+        ct = cp->type;
+        Routine *rd;
+        if (cp->read && find_member(et->st, cp->read, &f, &rd, &cp) && rd) borrowed = rd->ret_borrowed;
+    }
+    if (!ct) error_at(s->a->pos, "the enumerator \"%s\" needs 'function Current: T' or 'property Current: T'", type_name(et));
+    char *src = sfmt("__src%d_%d", p.line, p.col), *en = sfmt("__en%d_%d", p.line, p.col);
+    Block *ob = NEW(Block);
+    Decl *d = NEW(Decl);
+    d->kind = D_VAR;
+    VarDecl sv = {0}; /* the collection, borrowed read-only for the whole loop */
+    vpush(sv.names, ((Ident){src, p}));
+    sv.init = coll;
+    if (is_lvalue(coll)) {
+        sv.borrowed = 1;
+        sv.ro = 1;
+    }
+    if (!is_lvalue(coll)) vpush(d->vars, sv); /* a computed collection: a hidden copy first, the enumerator from it */
+    VarDecl ev = {0};
+    vpush(ev.names, ((Ident){en, p}));
+    Expr *call = new_expr(E_CALL, p);
+    call->a = new_expr(E_MEMBER, p);
+    call->a->a = is_lvalue(coll) ? coll : mk_ident(src, p);
+    call->a->id = (Ident){"GetEnumerator", p};
+    ev.init = call;
+    ev.is_heap = et->kind == T_CLASS; /* an enumerator object: owned by the loop */
+    ev.ctor = NULL;
+    vpush(d->vars, ev);
+    if (is_lvalue(coll)) vpush(d->vars, sv); /* a variable: borrowed after the enumerator is made, for the whole loop */
+    vpush(ob->decls, d);
+    /* the element */
+    Expr *cur = new_expr(E_MEMBER, p);
+    cur->a = mk_ident(en, p);
+    cur->id = (Ident){"Current", p};
+    Stmt *body;
+    if (is_optional(ct)) {
+        Expr *is = new_expr(E_ISSOME, p);
+        is->a = cur;
+        is->id = s->var;
+        is->has_id = 1;
+        is->ro_bind = s->decl_var == 1;
+        body = new_stmt(S_IF, p);
+        body->a = is;
+        body->s1 = s->s1;
+    } else {
+        if (s->decl_var == 2 && !borrowed && ct->kind != T_CLASS)
+            error_at(s->pos, "Current of \"%s\" gives a copy: write 'for val %s in ...' (or let Current return 'var T')", type_name(et), s->var.name);
+        Block *b = NEW(Block);
+        Decl *bd = NEW(Decl);
+        bd->kind = D_VAR;
+        VarDecl xv = {0};
+        vpush(xv.names, s->var);
+        xv.init = cur;
+        xv.borrowed = borrowed || ct->kind == T_CLASS;
+        xv.ro = s->decl_var == 1;
+        vpush(bd->vars, xv);
+        vpush(b->decls, bd);
+        vpush(b->body, s->s1);
+        body = new_stmt(S_BLOCK, p);
+        body->blk = b;
+    }
+    Expr *mv = new_expr(E_CALL, p);
+    mv->a = new_expr(E_MEMBER, p);
+    mv->a->a = mk_ident(en, p);
+    mv->a->id = (Ident){"MoveNext", p};
+    Expr *touch = new_expr(E_CALL, p);
+    touch->a = mk_ident("__Touch", p);
+    vpush(touch->args, mk_ident(src, p));
+    Stmt *w = new_stmt(S_WHILE, p);
+    w->a = mk_bin(OP_AND, mv, touch, p);
+    w->s1 = body;
+    vpush(ob->body, w);
+    Stmt *blk = new_stmt(S_BLOCK, p);
+    blk->blk = ob;
+    *s = *blk;
+    forin_call = call;
+    stmt(s);
+    forin_call = NULL;
+}
 static int find_member(Struct *st, const char *name, Field **f, Routine **m, Prop **p);
 static void for_in(Stmt *s) {
     Pos p = s->pos;
@@ -3414,6 +3525,9 @@ static void for_in(Stmt *s) {
         loop->s1 = iff;
         *s = *loop;
         stmt(s);
+        return;
+    } else if ((t->kind == T_CLASS || t->kind == T_RECORD) && enumerator_of(t->st)) {
+        for_enumerator(s, coll, enumerator_of(t->st));
         return;
     } else if (t->kind == T_CLASS || t->kind == T_RECORD) { /* a container with Count and Get(i) */
         Field *f;
@@ -3752,7 +3866,7 @@ static const struct {
     {"Trunc", BI_TRUNC}, {"Round", BI_ROUND}, {"Frac", BI_FRAC}, {"Int", BI_INT}, {"Odd", BI_ODD},
     {"High", BI_HIGH}, {"Low", BI_LOW}, {"SizeOf", BI_SIZEOF}, {"Copy", BI_COPY}, {"Pos", BI_POS},
     {"Delete", BI_DELETE}, {"Insert", BI_INSERT}, {"IntToStr", BI_INTTOSTR}, {"StrToInt", BI_STRTOINT},
-    {"FloatToStr", BI_FLOATTOSTR}, {"Format", BI_FORMAT}, {"Hash", BI_HASH}, {"Include", BI_INCLUDE}, {"Exclude", BI_EXCLUDE}, {"Str", BI_STR}, {"UpCase", BI_UPCASE}, {"UpperCase", BI_UPPERCASE},
+    {"FloatToStr", BI_FLOATTOSTR}, {"Format", BI_FORMAT}, {"__Touch", BI_TOUCH}, {"Hash", BI_HASH}, {"Include", BI_INCLUDE}, {"Exclude", BI_EXCLUDE}, {"Str", BI_STR}, {"UpCase", BI_UPCASE}, {"UpperCase", BI_UPPERCASE},
     {"LowerCase", BI_LOWERCASE}, {"Concat", BI_CONCAT}, {"Halt", BI_HALT}, {"Random", BI_RANDOM},
     {"Randomize", BI_RANDOMIZE}, {"Assigned", BI_ASSIGNED}, {"New", BI_NEW}, {"Dispose", BI_DISPOSE},
     {"FreeAndNil", BI_FREEANDNIL}, {"Take", BI_TAKE}, {"SetLength", BI_SETLENGTH},
@@ -3944,6 +4058,11 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
         NARGS(1, 1);
         vpush(e->args, coerce(value(A(0)), t_str, nm));
         e->type = t_int;
+        return e;
+    case BI_TOUCH: /* made by 'for ... in': a use of the collection in every step (borrow checker) */
+        NARGS(1, 1);
+        vpush(e->args, value(A(0)));
+        e->type = t_bool;
         return e;
     case BI_HASH: { /* Hash(x): Int64 for keys of hash maps */
         NARGS(1, 1);
@@ -4374,6 +4493,9 @@ static void stmt(Stmt *s) {
         assign(s);
         if (s->kind == S_ASSIGN && !s->bind) move_check(s->b, "assignment"); /* a 'var' result refers, it does not move */
         if (s->kind == S_ASSIGN && s->b) no_method_value(s->b);
+        if (s->kind == S_ASSIGN && cur && cur->owner && STREQ(cur->name, "GetEnumerator") && s->a->kind == E_FIELD &&
+            s->a->field->borrowed && root_var(s->a) == cur->result)
+            cur->enum_self = 1; /* Result.List := Self: the enumerator refers to its container */
         if (s->kind == S_ASSIGN && s->a->kind == E_VAR && s->a->type->kind == T_PROC && s->a->type->closure && s->a->var->level < level)
             error_at(s->a->pos, "a closure variable can only be assigned in the routine that declares it ('%s' belongs to an outer routine)",
                      s->a->var->name);
