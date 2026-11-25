@@ -33,6 +33,8 @@ typedef struct {
     Routine *arch_rt;
     int broken;               /* the generic itself has errors: its instances are not checked again */
     int iface_only;           /* generic routine declared in a module interface, defined in its implementation */
+    Struct *owner;            /* generic method: its class or record */
+    MethodDecl *mdecl;        /* generic method: its declaration in the type */
 } Generic;
 static VEC(Generic *) all_generics;
 static int cur_gen_id;           /* the generic whose instance is being made */
@@ -67,8 +69,14 @@ typedef struct {
     Field *f;
     Routine *m;
     Prop *p;
+    Generic *gm; /* a generic method of Self */
 } Look;
 static void check_visible(Look *L, Pos p, const char *name);
+static Generic *find_gmethod(Struct *st, const char *name);
+static Expr *gmethod_call(Generic *g, Expr *base, TypeExprVec *targs, ExprVec *args, Pos p);
+static void generic_method(Struct *s, MethodDecl *md);
+static void gmethod_impl(Generic *g);
+static Routine *infer_routine(Generic *g, ExprVec *args, Pos p);
 
 static Program *prog;
 static Scope *scope;
@@ -582,6 +590,13 @@ static Look lookup(const char *name) {
                 L.p = p;
                 return L;
             }
+            Generic *gm = find_gmethod(s->self_obj->type->st, name);
+            if (gm) {
+                L.kind = LK_MEMBER;
+                L.base = s->self_obj;
+                L.gm = gm;
+                return L;
+            }
         }
         if (s->cls) {
             Field *f;
@@ -981,6 +996,10 @@ static void define_record(Struct *s, TypeExpr *te) {
         error_at(te->pos, "records with methods must be declared as a named type");
     for (int i = 0; sd && i < sd->methods.len; i++) {
         MethodDecl *md = &sd->methods.items[i];
+        if (md->tparams.len) { /* generic method: an instance for every type combination used */
+            generic_method(s, md);
+            continue;
+        }
         if (md->kind == RK_CTOR || md->kind == RK_DTOR)
             error_at(md->name.pos, "records cannot have constructors or destructors (records are values: use a procedure such as Init or a function that returns the record)");
         if (md->virt != VIRT_NONE || md->is_abstract)
@@ -1223,13 +1242,43 @@ static Routine *instantiate_routine(Generic *g, Type **args, int n, Pos p) {
     enter_generic(g, args, &ss, &sc, &sl);
     const char *save_ctx = g_err_context;
     g_err_context = inst_name(g, args, n);
-    RoutineDecl *d = reparse_routine(g->toks, g->tok);
-    d->tparams = (IdentVec){0};
-    d->forward = 1; /* the header now: calls (also recursive ones) can be checked right away */
-    inst_cname = sfmt("G%d_%s", ++counter, g->name);
-    routine_decl(d);
-    inst_cname = NULL;
-    Routine *rt = find_local(d->name.name)->rt;
+    Routine *rt;
+    RoutineDecl *d;
+    if (g->owner) { /* generic method: a method of its type, with the type arguments bound */
+        if (!g->toks) gmethod_impl(g);
+        d = reparse_routine(g->toks, g->tok);
+        d->tparams = (IdentVec){0};
+        MethodDecl *md = g->mdecl;
+        rt = new_routine(g->name, md->kind, md->name.pos);
+        rt->owner = g->owner;
+        rt->level = 1;
+        rt->cname = sfmt("G%d_%s", ++counter, g->name);
+        rt->is_classm = md->is_classm;
+        rt->is_constm = md->is_const;
+        rt->vis = md->vis;
+        rt->forward = 1;
+        build_params(rt, &md->params);
+        if (md->ret) rt->ret = resolve_type(md->ret);
+        rt->ret_borrowed = md->ret_borrowed;
+        if (rt->ret_borrowed && !is_owning_type(rt->ret)) {
+            if (has_owned(rt->ret)) rt->ret_ref = 1;
+            else rt->ret_borrowed = 0;
+        }
+        Routine tmp = {0};
+        tmp.name = rt->name;
+        build_params(&tmp, &d->params);
+        if (!same_params(rt, &tmp) || d->kind != md->kind || d->is_classm != md->is_classm)
+            error_at(d->pos, "the implementation of \"%s.%s\" does not match its declaration", g->owner->name, g->name);
+        for (int i = 0; i < rt->params.len; i++) rt->params.items[i].name = tmp.params.items[i].name;
+    } else {
+        d = reparse_routine(g->toks, g->tok);
+        d->tparams = (IdentVec){0};
+        d->forward = 1; /* the header now: calls (also recursive ones) can be checked right away */
+        inst_cname = sfmt("G%d_%s", ++counter, g->name);
+        routine_decl(d);
+        inst_cname = NULL;
+        rt = find_local(d->name.name)->rt;
+    }
     g_err_context = save_ctx;
     leave_generic(ss, sc, sl);
     Instance in = {NULL, (Type **)xcalloc(n ? n : 1, sizeof(Type *))};
@@ -1313,6 +1362,72 @@ static void unify(Generic *g, TypeExpr *te, Type *at, Type **b, Pos p) {
 static Expr *make_call(Routine *rt, Expr *base, ExprVec *args, int mode, Type *newcls, Pos p);
 static Expr *value(Expr *e);
 /* Max(3, 7): the type arguments come from the arguments */
+
+/* ---- generic methods: function Id<T>(x: T): T in a class or record ---- */
+static VEC(RoutineDecl *) gm_impls; /* their implementations (function TA.Id<T>...), known before they are checked */
+static Generic *find_gmethod(Struct *st, const char *name) {
+    for (Struct *c = st; c; c = c->parent)
+        for (int i = 0; i < c->gmethods.len; i++)
+            if (STREQ(((Generic *)c->gmethods.items[i])->name, name)) return c->gmethods.items[i];
+    return NULL;
+}
+static void generic_method(Struct *s, MethodDecl *md) {
+    if (s->is_iface) error_at(md->name.pos, "interfaces cannot have generic methods");
+    if (md->virt != VIRT_NONE || md->is_abstract) error_at(md->name.pos, "generic methods cannot be virtual (an instance is made for each type)");
+    if (md->kind == RK_CTOR || md->kind == RK_DTOR) error_at(md->name.pos, "constructors and destructors cannot be generic");
+    if (generic_depth) error_at(md->name.pos, "generic methods of generic types are not supported (yet)");
+    for (int j = 0; j < s->methods.len; j++)
+        if (STREQ(s->methods.items[j]->name, md->name.name)) error_at(md->name.pos, "duplicate method \"%s\"", md->name.name);
+    if (find_gmethod(s, md->name.name)) error_at(md->name.pos, "duplicate method \"%s\"", md->name.name);
+    Generic *g = NEW(Generic);
+    g->name = md->name.name;
+    g->params = md->tparams;
+    g->cons = md->tcons;
+    g->pos = md->name.pos;
+    g->is_routine = 1;
+    g->owner = s;
+    g->mdecl = md;
+    g->scope = scope;
+    RoutineDecl *rd = NEW(RoutineDecl); /* the declaration: parameter types for inference */
+    rd->kind = md->kind;
+    rd->name = md->name;
+    rd->params = md->params;
+    rd->has_params = 1;
+    rd->ret = md->ret;
+    g->rdecl = rd;
+    validate_constraints(g);
+    vpush(all_generics, g);
+    vpush(s->gmethods, g);
+}
+static void gmethod_impl(Generic *g) {
+    for (int i = 0; i < gm_impls.len; i++) {
+        RoutineDecl *d = gm_impls.items[i];
+        if (STREQ(d->cls.name, g->owner->name) && STREQ(d->name.name, g->name)) {
+            g->toks = d->toks;
+            g->tok = d->tok_start;
+            return;
+        }
+    }
+    error_at(g->pos, "the generic method \"%s.%s\" is not implemented ('function %s.%s<...>(...)')", g->owner->name, g->name,
+             g->owner->name, g->name);
+}
+static Expr *gmethod_call(Generic *g, Expr *base, TypeExprVec *targs, ExprVec *args, Pos p) {
+    Routine *r;
+    if (targs && targs->len) {
+        Type **ta = (Type **)xcalloc(targs->len, sizeof(Type *));
+        for (int i = 0; i < targs->len; i++) ta[i] = resolve_type(targs->items[i]);
+        r = instantiate_routine(g, ta, targs->len, p);
+    } else
+        r = infer_routine(g, args, p);
+    if (r->vis != VIS_PUBLIC) {
+        Look V = {0};
+        V.m = r;
+        check_visible(&V, p, g->name);
+    }
+    if (r->is_classm) base = NULL;
+    else if (!base) error_at(p, "the method \"%s\" needs an instance", g->name);
+    return make_call(r, base, args, r->is_classm ? CM_NORMAL : -1, NULL, p);
+}
 static Routine *infer_routine(Generic *g, ExprVec *args, Pos p) {
     RoutineDecl *d = g->rdecl;
     int np = 0;
@@ -1637,6 +1752,10 @@ static void define_iface(Struct *s, StructDecl *sd) {
         for (int i = 0; i < prog->tobject->fields.len; i++) vpush(s->fields, prog->tobject->fields.items[i]);
     for (int i = 0; i < sd->methods.len; i++) {
         MethodDecl *md = &sd->methods.items[i];
+        if (md->tparams.len) { /* generic method: an instance for every type combination used */
+            generic_method(s, md);
+            continue;
+        }
         if (md->kind == RK_CTOR || md->kind == RK_DTOR)
             error_at(md->name.pos, "interfaces have no constructors or destructors (objects are created from classes)");
         if (md->virt != VIRT_NONE || md->is_abstract || md->is_classm || md->is_auto)
@@ -1751,6 +1870,10 @@ static void define_struct(Struct *s, StructDecl *sd) {
 
     for (int i = 0; i < sd->methods.len; i++) {
         MethodDecl *md = &sd->methods.items[i];
+        if (md->tparams.len) { /* generic method: an instance for every type combination used */
+            generic_method(s, md);
+            continue;
+        }
         int novl = method_overload(s, md, md->kind == RK_CTOR ? "constructor" : "method");
         Routine *r = new_routine(md->name.name, md->kind, md->name.pos);
         r->is_overload = md->is_overload;
@@ -2087,6 +2210,8 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
             }
             error_at(p, "identifier not found \"%s\"", name);
         }
+        if (L.kind == LK_MEMBER && L.gm) /* Id(5) / Id<Integer>(5) inside a method: a generic method of Self */
+            return gmethod_call(L.gm, var_expr(L.base, p), &e->targs, args, p);
         if (L.kind == LK_MEMBER) {
             check_visible(&L, p, name);
             return member_ref(L.base ? var_expr(L.base, p) : NULL, &L, args, p, name);
@@ -2176,6 +2301,8 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
                         if (STREQ(t->st->variants.items[i].name, name)) return variant_value(t, i, args, p);
                     error_at(p, "\"%s\" has no variant \"%s\" (%s)", type_name(t), name, variant_list(t->st));
                 }
+                if ((t->kind == T_CLASS || t->kind == T_RECORD) && find_gmethod(t->st, name)) /* TFactory.Make<TItem>() */
+                    return gmethod_call(find_gmethod(t->st, name), NULL, &e->targs, args, p);
                 if (t->kind == T_CLASS || t->kind == T_RECORD) {
                     Look M = {0};
                     if (find_member(t->st, name, &M.f, &M.m, &M.p) && M.m && M.m->is_classm) {
@@ -2264,6 +2391,8 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
         if (bt->kind != T_RECORD && bt->kind != T_CLASS)
             error_at(p, "illegal qualifier: \"%s\" has no members", type_name(bt));
         Look L = {0};
+        if (!find_member(bt->st, name, &L.f, &L.m, &L.p) && find_gmethod(bt->st, name))
+            return gmethod_call(find_gmethod(bt->st, name), base, &e->targs, args, p);
         if (!find_member(bt->st, name, &L.f, &L.m, &L.p))
 {
             if (bt->st->is_sum)
@@ -4116,6 +4245,25 @@ static void check_settled(Var **vars, int n) {
 
 static void routine_decl(RoutineDecl *d) {
     Routine *rt = NULL;
+    if (d->has_cls && d->tparams.len) { /* function TA.Id<T>(x: T): T: instances are made from it when it is used */
+        if (d->cls_tparams.len) error_at(d->pos, "generic methods of generic types are not supported (yet)");
+        if (cur) error_at(d->pos, "method implementations must be at program level");
+        Look L = lookup(d->cls.name);
+        if (L.kind != LK_SYM || L.sym->kind != SY_TYPE || (L.sym->type->kind != T_CLASS && L.sym->type->kind != T_RECORD))
+            error_at(d->cls.pos, "\"%s\" is not a class or record type", d->cls.name);
+        Struct *st = L.sym->type->st;
+        Generic *g = NULL;
+        for (int i = 0; i < st->gmethods.len; i++)
+            if (STREQ(((Generic *)st->gmethods.items[i])->name, d->name.name)) g = st->gmethods.items[i];
+        if (!g) error_at(d->name.pos, "\"%s\" has no generic method \"%s\"", st->name, d->name.name);
+        if (g->params.len != d->tparams.len)
+            error_at(d->pos, "\"%s.%s\" has %d type parameter(s) in its declaration", st->name, g->name, g->params.len);
+        if (g->toks && g->toks != d->toks) error_at(d->pos, "\"%s.%s\" is already implemented", st->name, g->name);
+        g->toks = d->toks;
+        g->tok = d->tok_start;
+        g->scope = scope;
+        return;
+    }
     if (d->tparams.len) { /* function Max<T>(...): kept, made for every type combination it is called with */
         if (cur) error_at(d->pos, "generic routines must be declared at program level");
         if (d->forward && !d->iface) error_at(d->pos, "generic routines cannot be forward declared");
@@ -4380,6 +4528,9 @@ static void routine_body(Routine *rt, RoutineDecl *d) {
 }
 
 static void decls(Block *b, int has_frame) {
+    for (int di = 0; di < b->decls.len; di++) /* implementations of generic methods: needed when they are used */
+        if (b->decls.items[di]->kind == D_ROUTINE && b->decls.items[di]->rt->has_cls && b->decls.items[di]->rt->tparams.len)
+            vpush(gm_impls, b->decls.items[di]->rt);
     for (int di = 0; di < b->decls.len; di++) {
         RECOVER_BEGIN
         decl1(b->decls.items[di], has_frame);

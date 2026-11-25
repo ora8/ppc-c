@@ -841,6 +841,36 @@ end;
   and free the objects of their elements.
 * `ClassName` returns the name of the instance, e.g. `'TList<TCustomer>'`.
 
+### Generic methods
+
+Classes and records that are not generic themselves can have generic methods (as in Delphi):
+
+```pascal
+type
+  TPrinter = class
+    Prefix: String;
+    function Show<T>(x: T): String;
+    function Pick<T: Comparable>(a, b: T): T; const;
+    procedure Each<T>(a: array of T; Visit: reference to procedure(x: T));
+    class function Make<T: class>(n: Integer): TPrinter;
+  end;
+
+function TPrinter.Pick<T>(a, b: T): T; const;   { the implementation repeats <T> }
+begin
+  if a < b then Result := b else Result := a;
+end;
+
+WriteLn(p.Pick(3, 9), p.Pick('b', 'a'));        { T from the arguments }
+WriteLn(p.Show<Real>(2.5));                     { or written out }
+vao q := TPrinter.Make<TItem>(7);               { class method }
+```
+
+* An instance is made for every type combination used; the body is checked once on its own
+  (constraints, borrow checker), like a generic routine. Inside the class it is called without
+  `Self.` (`Wrap<T>(x)`), descendants inherit it, visibility applies.
+* Generic methods cannot be virtual, abstract, constructors or interface methods, and generic
+  types cannot have generic methods yet.
+
 ## Modules: `module` and `import`
 
 A program includes modules with **`import`**. A module is a file of its own that starts with

@@ -477,6 +477,7 @@ static StructDecl *parse_struct(int kind) {
             m.kind = routine_kind();
             m.is_classm = last_classm;
             m.name = ident();
+            if (is_sym("<")) parse_tparams(&m.tparams, &m.tcons); /* generic method */
             m.params = parse_params();
             if (m.kind == RK_FUNC) {
                 expect_sym(":");
@@ -755,6 +756,7 @@ static RoutineDecl *parse_routine(void) {
         d->cls = d->name;
         d->has_cls = 1;
         d->name = ident();
+        if (is_sym("<")) parse_tparams(&d->tparams, &d->tcons); /* generic method: function TA.Id<T>(x: T): T */
     }
     if (is_sym("(")) {
         d->has_params = 1;
@@ -1387,6 +1389,7 @@ static Expr *parse_postfix(void) {
             Expr *m = new_expr(E_MEMBER, p);
             m->a = e;
             m->id = ident();
+            if (generic_args_ahead()) m->targs = parse_targs(); /* x.Map<String>(...) */
             e = m;
         } else if (accept_sym("[")) {
             Expr *x = new_expr(E_INDEX, p);

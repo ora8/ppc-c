@@ -1121,6 +1121,7 @@ static void do_bind(Var *v, Expr *rhs, State *s, Pos p) {
     }
     int kind = (v->type->readonly || (v->is_alias && v->is_const)) ? ACC_BORROW_CONST : ACC_BORROW_MUT;
     for (int k = 0; k < o.len; k++) access_path(s, o.items[k].path, v, root, kind, p, o.items[k].desc);
+    s->nn[i] = nil_bits(rhs, s); /* the reference holds what the place holds */
     s->bor[i] = B_VALID;
     s->why[i] = NULL;
     s->org[i] = o;
