@@ -66,6 +66,7 @@ typedef struct {
     Routine *m;
     Prop *p;
 } Look;
+static void check_visible(Look *L, Pos p, const char *name);
 
 static Program *prog;
 static Scope *scope;
@@ -408,6 +409,11 @@ static Expr *literal_to(Expr *e, Type *to, const char *ctx) {
         Prop *pr;
         if (!find_member(to->st, e->fnames.items[i].name, &f, &m, &pr) || !f)
             error_at(e->fnames.items[i].pos, "\"%s\" has no field \"%s\"", type_name(to), e->fnames.items[i].name);
+        if (f->vis != VIS_PUBLIC) {
+            Look V = {0};
+            V.f = f;
+            check_visible(&V, e->fnames.items[i].pos, f->name);
+        }
         for (int j = 0; j < i; j++)
             if (STREQ(e->fnames.items[j].name, e->fnames.items[i].name))
                 error_at(e->fnames.items[i].pos, "field \"%s\" is given twice", e->fnames.items[i].name);
@@ -873,6 +879,7 @@ static void add_fields(Struct *s, FieldDeclVec *fields) {
             f->type = t;
             f->borrowed = fborrowed;
             f->owner = s;
+            f->vis = fd->vis;
             vpush(s->fields, f);
         }
     }
@@ -961,6 +968,7 @@ static void define_record(Struct *s, TypeExpr *te) {
         r->owner = s;
         r->level = 1;
         r->cname = sfmt("M%d_%s", s->id, md->name.name);
+        r->vis = md->vis;
         build_params(r, &md->params);
         if (md->ret) r->ret = resolve_type(md->ret);
         r->ret_borrowed = md->ret_borrowed;
@@ -975,6 +983,8 @@ static void define_record(Struct *s, TypeExpr *te) {
         pr->read = pd->has_read ? pd->read.name : NULL;
         pr->write = pd->has_write ? pd->write.name : NULL;
         pr->pos = pd->name.pos;
+        pr->vis = pd->vis;
+        pr->owner = s;
         vpush(s->props, pr);
     }
     s->defined = 1;
@@ -1657,6 +1667,7 @@ static void define_struct(Struct *s, StructDecl *sd) {
         r->owner = s;
         r->level = 1;
         r->cname = sfmt("M%d_%s", s->id, md->name.name);
+        r->vis = md->vis;
         build_params(r, &md->params);
         if (md->ret) r->ret = resolve_type(md->ret);
         r->ret_borrowed = md->ret_borrowed;
@@ -1698,6 +1709,8 @@ static void define_struct(Struct *s, StructDecl *sd) {
         p->read = pd->has_read ? pd->read.name : NULL;
         p->write = pd->has_write ? pd->write.name : NULL;
         p->pos = pd->name.pos;
+        p->vis = pd->vis;
+        p->owner = s;
         vpush(s->props, p);
     }
     s->defined = 1;
@@ -1794,6 +1807,21 @@ static Expr *autoderef(Expr *e) {
     return e;
 }
 
+/* private members: only in the methods of their class; protected: also in its descendants */
+static Routine *enclosing_method(void);
+static void check_visible(Look *L, Pos p, const char *name) {
+    int vis = L->f ? L->f->vis : L->m ? L->m->vis : L->p ? L->p->vis : VIS_PUBLIC;
+    if (vis == VIS_PUBLIC) return;
+    Struct *owner = L->f ? L->f->owner : L->m ? L->m->owner : L->p->owner;
+    Routine *m = enclosing_method();
+    Struct *ctx = m ? m->owner : NULL;
+    if (ctx == owner) return;
+    if (vis == VIS_PROTECTED && ctx && struct_descends(ctx, owner)) return;
+    const char *what = L->f ? "field" : L->m ? (L->m->kind == RK_CTOR ? "constructor" : "method") : "property";
+    error_at(p, "the %s \"%s\" of \"%s\" is %s%s", what, name, owner->name, vis == VIS_PRIVATE ? "private" : "protected",
+             vis == VIS_PRIVATE ? " (only its own methods can use it)" : " (only its methods and those of its descendants can use it)");
+}
+
 static Expr *member_ref(Expr *base, Look *L, ExprVec *args, Pos p, const char *name) {
     if (L->f) {
         if (args && L->f->type->kind == T_PROC) {
@@ -1873,7 +1901,10 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
             }
             error_at(p, "identifier not found \"%s\"", name);
         }
-        if (L.kind == LK_MEMBER) return member_ref(L.base ? var_expr(L.base, p) : NULL, &L, args, p, name);
+        if (L.kind == LK_MEMBER) {
+            check_visible(&L, p, name);
+            return member_ref(L.base ? var_expr(L.base, p) : NULL, &L, args, p, name);
+        }
         if (e->targs.len && L.kind == LK_SYM && L.sym->kind == SY_GENERIC && L.sym->gen->is_routine) { /* Max<Real>(...) */
             Type **ta = (Type **)xcalloc(e->targs.len, sizeof(Type *));
             for (int i = 0; i < e->targs.len; i++) ta[i] = resolve_type(e->targs.items[i]);
@@ -1953,8 +1984,10 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
                 }
                 if (t->kind == T_CLASS || t->kind == T_RECORD) {
                     Look M = {0};
-                    if (find_member(t->st, name, &M.f, &M.m, &M.p) && M.m && M.m->is_classm)
+                    if (find_member(t->st, name, &M.f, &M.m, &M.p) && M.m && M.m->is_classm) {
+                        check_visible(&M, p, name);
                         return make_call(M.m, NULL, args, CM_NORMAL, NULL, p);
+                    }
                 }
                 if (t->kind == T_CLASS && t->st->is_iface)
                     error_at(p, "\"%s\" is an interface: create an object of a class that implements it", t->st->name);
@@ -1962,6 +1995,7 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
                     Look M = {0};
                     if (!find_member(t->st, name, &M.f, &M.m, &M.p) || !M.m || M.m->kind != RK_CTOR)
                         error_at(p, "\"%s.%s\" is neither a constructor nor a class method", t->st->name, name);
+                    check_visible(&M, p, name);
                     return make_call(M.m, NULL, args, CM_NEWCLASS, t, p);
                 }
                 if (STREQ(name, "Create")) { /* T.Create(init): allocate a heap value */
@@ -2042,6 +2076,7 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
                 error_at(p, "\"%s\" is an enumeration with data: its fields are read with 'case' or 'if x is Variant(a, b)'", bt->st->name);
             error_at(p, "identifier \"%s\" is not a member of \"%s\"", name, bt->st->name);
             }
+        check_visible(&L, p, name);
         return member_ref(base, &L, args, p, name);
     }
     if (args) {
@@ -3186,7 +3221,10 @@ static void assign(Stmt *s) {
     const char *name = NULL;
     if (l->kind == E_IDENT) {
         L = lookup(l->id.name);
-        if (L.kind == LK_MEMBER && L.p) base = var_expr(L.base, l->pos);
+        if (L.kind == LK_MEMBER && L.p) {
+            check_visible(&L, l->pos, l->id.name);
+            base = var_expr(L.base, l->pos);
+        }
         name = l->id.name;
     } else if (l->kind == E_MEMBER) {
         int is_type = 0;
@@ -3199,6 +3237,7 @@ static void assign(Stmt *s) {
             if (b->type->kind == T_RECORD || b->type->kind == T_CLASS) {
                 if (!find_member(b->type->st, l->id.name, &L.f, &L.m, &L.p))
                     error_at(l->pos, "identifier \"%s\" is not a member of \"%s\"", l->id.name, b->type->st->name);
+                check_visible(&L, l->pos, l->id.name);
                 if (L.p) base = b;
                 else {
                     s->a = member_ref(b, &L, NULL, l->pos, l->id.name);

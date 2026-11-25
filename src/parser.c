@@ -435,6 +435,7 @@ static void parse_decl_type(VarDecl *v) {
 }
 
 static StructDecl *parse_struct(int kind) {
+    int vis = VIS_PUBLIC;
     StructDecl *sd = NEW(StructDecl);
     sd->kind = kind;
     if ((kind == SK_CLASS || kind == SK_IFACE) && accept_sym("(")) {
@@ -451,8 +452,11 @@ static StructDecl *parse_struct(int kind) {
     }
     for (;;) {
         if (accept_kw("end")) break;
-        if (is_ident("private") || is_ident("protected") || is_ident("public") ||
-            is_ident("published") || is_ident("strict")) {
+        if (is_ident("strict") && (peek_is_ident(1))) next(); /* 'strict private': private is always strict */
+        if (is_ident("private") || is_ident("protected") || is_ident("public") || is_ident("published")) {
+            if (kind == SK_IFACE) error_at(pos(), "interface methods are always public");
+            vis = is_ident("private") ? VIS_PRIVATE : is_ident("protected") ? VIS_PROTECTED : VIS_PUBLIC;
+            if (kind == SK_RECORD && vis == VIS_PROTECTED) error_at(pos(), "records have no descendants: use 'private' or 'public'");
             next();
             continue;
         }
@@ -478,6 +482,7 @@ static StructDecl *parse_struct(int kind) {
             expect_sym(";");
             int fwd = 0;
             parse_directives(&m.virt, &m.is_abstract, &fwd, &m.is_const, &m.is_auto);
+            m.vis = vis;
             vpush(sd->methods, m);
             continue;
         }
@@ -499,6 +504,7 @@ static StructDecl *parse_struct(int kind) {
                     break;
             }
             expect_sym(";");
+            pd.vis = vis;
             vpush(sd->props, pd);
             continue;
         }
@@ -509,6 +515,7 @@ static StructDecl *parse_struct(int kind) {
             f.borrowed = accept_borrowed();
             f.ty = parse_type();
             if (!(kind == SK_RECORD && is_kw("end"))) expect_sym(";"); /* records: last ';' optional */
+            f.vis = vis;
             vpush(sd->fields, f);
             continue;
         }

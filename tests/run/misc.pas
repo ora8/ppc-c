@@ -9,6 +9,7 @@ type
     procedure SetBalance(V: Integer);
   public
     property Balance: Integer read FBalance write SetBalance;
+    property Log: String read FLog;
     procedure Apply(n: Integer);
   end;
   TRec = class A, B: Integer; Name: String; end;
@@ -82,7 +83,7 @@ begin
   
   acc.Balance := 100;
   acc.Apply(3);
-  WriteLn('Kontostand: ', acc.Balance, ' Log: ', acc.FLog);
+  WriteLn('Kontostand: ', acc.Balance, ' Log: ', acc.Log);
 
   for d := Mon to Sun do WriteLn(d, ': ', Describe(d), ' ord=', Ord(d));
   WriteLn('Succ(Mon)=', Succ(Mon), ' High=', High(TDay));

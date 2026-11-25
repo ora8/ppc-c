@@ -94,9 +94,33 @@ prog.pas: 3 syntax error(s), compilation aborted
 Reference types, implicitly derived from `TObject`:
 `constructor Create`, `destructor Destroy; override;`, `Free`, `ClassName`,
 `virtual`/`override`/`abstract`, `inherited`, properties with field or method access,
-`is`/`as`, `Self`, visibility sections (parsed, not enforced), forward classes
+`is`/`as`, `Self`, visibility sections (see below), forward classes
 (`TFoo = class;`). Objects are only created in an initializer: as a **stack object**
 `val k := TCircle.Create(1, 2, 3.0)` or as a **heap object** `vao k := TCircle.Create(1, 2, 3.0)`.
+
+### Visibility: `private`, `protected`, `public`
+
+```pascal
+type
+  TAccount = class
+  private
+    FBalance: Integer;                 { only the methods of TAccount }
+    procedure Log(s: String);
+  protected
+    FOwner: String;                    { also the methods of descendants }
+  public
+    constructor Create(AOwner: String);
+    property Balance: Integer read FBalance;
+  end;
+```
+
+* `private`: only the class's own methods (and routines nested in them) can use the member –
+  like `strict private` in Delphi; `strict` is accepted and changes nothing. In Delphi, plain
+  `private` is open to the whole unit; Perfect Pascal enforces it per class.
+* `protected`: the class and its descendants. `public` and `published`: everyone (the default).
+* It applies to fields, methods, constructors and properties, also through `with` and in record
+  literals: `the field "FBalance" of "TAccount" is private (only its own methods can use it)`.
+* Records know `private` and `public`. A property may read or write a private field.
 
 ### Interfaces
 
