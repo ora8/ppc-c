@@ -484,7 +484,7 @@ static int agg_owner_var(Var *v) {
 
 /* variable that owns what it refers to (and frees it at the end of its scope) */
 /* owning bindings made by the condition of an 'if' ('if Open(n) is ok f'): freed when the 'if' ends */
-static void cond_owners(Expr *c, VEC(Var *) *out) {
+static void cond_owners(Expr *c, VarList *out) {
     if (!c) return;
     if (c->kind == E_BINARY && c->op == OP_AND) {
         cond_owners(c->a, out);
@@ -1207,7 +1207,7 @@ static void leave_blocks(void) {
 
 static void gs(Stmt *s) {
     switch (s->kind) {
-    case S_EMPTY: return;
+    case S_EMPTY: case S_FORIN: return; /* for-in loops are rewritten by sema */
     case S_ASSIGN:
         if (s->bind == 3) { /* val k := h: the heap object moves into the frame, its memory is given back */
             Var *k = s->a->var, *mv = move_source(s->b);
@@ -1297,8 +1297,8 @@ static void gs(Stmt *s) {
         }
         line("}");
         {
-            VEC(Var *) ow = {0};
-            cond_owners(s->a, (void *)&ow);
+            VarList ow = {0};
+            cond_owners(s->a, &ow);
             for (int i = 0; i < ow.len; i++)
                 if (is_ref_type(ow.items[i]->type))
                     line("if (%s) { %s; %s = 0; }", var_ref(ow.items[i]), drop_code(ow.items[i]->type, var_ref(ow.items[i])), var_ref(ow.items[i]));
@@ -1581,8 +1581,14 @@ void codegen(Program *p, FILE *f) {
             for (int j = 0; j < it->methods.len; j++) {
                 Routine *im = it->methods.items[j], *m = NULL;
                 for (Struct *c = s; c && !m; c = c->parent)
-                    for (int q = 0; q < c->methods.len && !m; q++)
-                        if (STREQ(c->methods.items[q]->name, im->name)) m = c->methods.items[q];
+                    for (int q = 0; q < c->methods.len && !m; q++) {
+                        Routine *cm = c->methods.items[q];
+                        if (!STREQ(cm->name, im->name) || cm->params.len != im->params.len) continue;
+                        int same = 1; /* overloads: the variant with the interface's parameters */
+                        for (int a = 0; a < cm->params.len; a++)
+                            same &= STREQ(ctype(cm->params.items[a].type), ctype(im->params.items[a].type));
+                        if (same) m = cm;
+                    }
                 if (m && m->slot >= 0) m = s->slots.items[m->slot].impl; /* virtual: this class's version */
                 buf_printf(&b_vmti, " (void*)%s,", !m || m->is_abstract ? "__abstract_err" : m->cname);
             }

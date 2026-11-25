@@ -260,7 +260,7 @@ static int tracked_borrow(Var *v) {
 }
 
 /* owning bindings made by the condition of an 'if' ('if Open(n) is ok f'): freed when the 'if' ends */
-static void cond_owners(Expr *c, VEC(Var *) *out) {
+static void cond_owners(Expr *c, VarList *out) {
     if (!c) return;
     if (c->kind == E_BINARY && c->op == OP_AND) {
         cond_owners(c->a, out);
@@ -534,7 +534,7 @@ static void call_effects(Expr *e, State *s, Origins *out);
 
 static void origin_add(Origins *o, const char *path, const char *desc, Var *root, int stack) {
     if (!path || org_has(o, path)) return;
-    Origin x = {(char *)path, (char *)desc, root, stack};
+    Origin x = {(char *)path, (char *)desc, root, stack, NULL};
     vpush(*o, x);
 }
 
@@ -1694,7 +1694,7 @@ static void leave_block(Stmt *st, State *s, Pos endp) {
 static void an_stmt(Stmt *st, State *s) {
     if (!s->reach) return;
     switch (st->kind) {
-    case S_EMPTY: return;
+    case S_EMPTY: case S_FORIN: return; /* for-in loops are rewritten by sema */
     case S_ASSIGN:
         if (st->bind == 3) do_heap_to_stack(st->a->var, st->b, s, st->pos);
         else if (st->bind == 2) do_stack_move(st->a->var, st->b->var, s, st->pos);
@@ -1721,8 +1721,8 @@ static void an_stmt(Stmt *st, State *s) {
         if (st->s2) an_stmt(st->s2, s);
         st_join(s, &t);
         {
-            VEC(Var *) ow = {0};
-            cond_owners(st->a, (void *)&ow);
+            VarList ow = {0};
+            cond_owners(st->a, &ow);
             for (int i = 0; i < ow.len; i++)
                 invalidate_root(s, ow.items[i], sfmt("'%s' was freed at the end of the 'if' at line %d", ow.items[i]->name, st->pos.line));
         }

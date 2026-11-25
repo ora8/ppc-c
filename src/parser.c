@@ -318,7 +318,9 @@ static int is_directive(void) {
 }
 
 /* directives after a routine header: virtual; override; abstract; forward; const; */
+static int last_overload; /* the last directive list contained 'overload' */
 static void parse_directives(int *virt, int *abs, int *fwd, int *cnst, int *autog) {
+    last_overload = 0;
     for (;;) {
         if (is_kw("const") && T.items[P + 1].kind == TK_SYM && STREQ(T.items[P + 1].s, ";")) {
             next(); /* const;  -- method does not change Self / routine has no side effects */
@@ -333,6 +335,7 @@ static void parse_directives(int *virt, int *abs, int *fwd, int *cnst, int *auto
         else if (STREQ(d, "override")) *virt = VIRT_OVERRIDE;
         else if (STREQ(d, "abstract")) *abs = 1;
         else if (STREQ(d, "forward")) *fwd = 1;
+        else if (STREQ(d, "overload")) last_overload = 1;
         else if (STREQ(d, "auto")) {
             if (!autog) error_at(pos(), "'auto' belongs to the declaration in the class or record ('function Clone: T; const; auto;')");
             *autog = 1;
@@ -482,6 +485,7 @@ static StructDecl *parse_struct(int kind) {
             expect_sym(";");
             int fwd = 0;
             parse_directives(&m.virt, &m.is_abstract, &fwd, &m.is_const, &m.is_auto);
+            m.is_overload = last_overload;
             m.vis = vis;
             vpush(sd->methods, m);
             continue;
@@ -754,6 +758,7 @@ static RoutineDecl *parse_routine(void) {
     expect_sym(";");
     int virt = 0, abs = 0;
     parse_directives(&virt, &abs, &d->forward, &d->is_const, NULL);
+    d->is_overload = last_overload;
     if (is_ident("external")) { /* function Floor(x: Real): Int64; external '__std_floor'; */
         Pos ep = pos();
         next();

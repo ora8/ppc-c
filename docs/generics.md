@@ -19,7 +19,7 @@ WriteLn(Max(3, 7), ' ', Max('Anna', 'Bert'));          { Max<Integer>, Max<Strin
 ```
 
 **Non-goals:** no template metaprogramming as in C++, no specialization for single types, no
-type parameters that are values (`array[1..N]` with a generic `N`), no overloading.
+type parameters that are values (`array[1..N]` with a generic `N`).
 
 ## 2. Syntax
 

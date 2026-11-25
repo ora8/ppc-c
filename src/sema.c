@@ -160,6 +160,13 @@ static const char *res_name(Type *base, Type *err) {
 }
 
 static int same_signature(Routine *a, Routine *b);
+static Routine *pick_overload(Routine *rt, Expr *base, ExprVec *args, int mode, Type *newcls, Pos p);
+static int in_overloads(Routine *first, Routine *r);
+static Routine *find_routine_sym(const char *name);
+static char *sig_text(Routine *r);
+static int same_params(Routine *a, Routine *b);
+static int method_overload(Struct *s, MethodDecl *md, const char *what);
+static void overload_unique(Struct *s, Routine *r);
 /* function(Integer, Integer): Integer */
 static const char *proc_name(Routine *r) {
     Buf b = {0};
@@ -966,9 +973,7 @@ static void define_record(Struct *s, TypeExpr *te) {
             error_at(md->name.pos, "records cannot have constructors or destructors (records are values: use a procedure such as Init or a function that returns the record)");
         if (md->virt != VIRT_NONE || md->is_abstract)
             error_at(md->name.pos, "record methods cannot be virtual, abstract or override (records have no inheritance)");
-        for (int j = 0; j < s->methods.len; j++)
-            if (STREQ(s->methods.items[j]->name, md->name.name))
-                error_at(md->name.pos, "duplicate method \"%s\" (overloading is not supported)", md->name.name);
+        int novl = method_overload(s, md, "method");
         for (int j = 0; j < s->fields.len; j++)
             if (STREQ(s->fields.items[j]->name, md->name.name))
                 error_at(md->name.pos, "\"%s\" is already a field of \"%s\"", md->name.name, s->name);
@@ -980,12 +985,14 @@ static void define_record(Struct *s, TypeExpr *te) {
             error_at(md->name.pos, "constructors and destructors cannot be const");
         r->owner = s;
         r->level = 1;
-        r->cname = sfmt("M%d_%s", s->id, md->name.name);
+        r->cname = novl ? sfmt("M%d_%s_%d", s->id, md->name.name, novl + 1) : sfmt("M%d_%s", s->id, md->name.name);
         r->vis = md->vis;
+        r->is_overload = md->is_overload;
         build_params(r, &md->params);
         if (md->ret) r->ret = resolve_type(md->ret);
         r->ret_borrowed = md->ret_borrowed;
         auto_rules(md, s, r);
+        overload_unique(s, r);
         vpush(s->methods, r);
     }
     for (int i = 0; sd && i < sd->props.len; i++) {
@@ -1523,6 +1530,44 @@ static void build_params(Routine *rt, ParamGroupVec *pg) {
     }
 }
 
+/* overloading: the parameter types alone tell the variants apart */
+static int same_params(Routine *a, Routine *b) {
+    if (a->params.len != b->params.len) return 0;
+    for (int i = 0; i < a->params.len; i++)
+        if (!same_type(a->params.items[i].type, b->params.items[i].type)) return 0;
+    return 1;
+}
+static char *sig_text(Routine *r) {
+    Buf b = {0};
+    buf_printf(&b, "%s(", r->name);
+    for (int i = 0; i < r->params.len; i++) {
+        Param *pm = &r->params.items[i];
+        buf_printf(&b, "%s%s%s", i ? "; " : "", pm->mode == PM_VAR ? "var " : pm->mode == PM_OUT ? "out " : pm->mode == PM_OWNED ? "vao " : "",
+                   type_name(pm->type));
+    }
+    buf_put(&b, ")");
+    return xstrdup(buf_str(&b));
+}
+/* a new method md of s with the name of existing ones: allowed if all are marked 'overload' */
+static int method_overload(Struct *s, MethodDecl *md, const char *what) {
+    int n = 0;
+    for (int j = 0; j < s->methods.len; j++)
+        if (STREQ(s->methods.items[j]->name, md->name.name)) {
+            if (!(md->is_overload || md->virt == VIRT_OVERRIDE) || !s->methods.items[j]->is_overload)
+                error_at(md->name.pos, "duplicate %s \"%s\" (to give several %ss the same name, mark each of them with 'overload')", what,
+                         md->name.name, what);
+            n++;
+        }
+    return n;
+}
+static void overload_unique(Struct *s, Routine *r) {
+    for (int j = 0; j < s->methods.len; j++) {
+        Routine *o = s->methods.items[j];
+        if (o != r && STREQ(o->name, r->name) && same_params(o, r))
+            error_at(r->pos, "\"%s\" is overloaded twice with the same parameters", sig_text(r));
+    }
+}
+
 static int same_signature(Routine *a, Routine *b) {
     if (a->params.len != b->params.len || a->kind != b->kind) return 0;
     for (int i = 0; i < a->params.len; i++) {
@@ -1579,7 +1624,8 @@ static void define_iface(Struct *s, StructDecl *sd) {
         Prop *pr;
         for (int j = 0; j < s->methods.len; j++)
             if (STREQ(s->methods.items[j]->name, md->name.name))
-                error_at(md->name.pos, "duplicate method \"%s\" (overloading is not supported)", md->name.name);
+                error_at(md->name.pos, "duplicate method \"%s\" (interfaces cannot overload methods)", md->name.name);
+        if (md->is_overload) error_at(md->name.pos, "interfaces cannot overload methods");
         if (s->parent && find_member(s->parent, md->name.name, &f, &m, &pr) && m && m->owner->is_iface)
             error_at(md->name.pos, "\"%s\" is already declared in \"%s\"", md->name.name, m->owner->name);
         Routine *r = new_routine(md->name.name, md->kind, md->name.pos);
@@ -1609,6 +1655,15 @@ static void check_implements(Struct *c, Struct *i, Pos p) {
             Prop *pr;
             if (!find_member(c, im->name, &f, &m, &pr) || !m || m->owner->is_iface)
                 error_at(p, "\"%s\" does not implement the method \"%s\" of interface \"%s\"", c->name, im->name, i->name);
+            if (m->is_overload) { /* overloaded: the variant with the interface's parameters */
+                int found = 0;
+                for (Struct *x = c; x && !found; x = x->parent)
+                    for (int q = 0; q < x->methods.len && !found; q++)
+                        if (STREQ(x->methods.items[q]->name, im->name) && same_params(x->methods.items[q], im)) {
+                            m = x->methods.items[q];
+                            found = 1;
+                        }
+            }
             int same_ret = (!im->ret && !m->ret) || (im->ret && m->ret && same_type(im->ret, m->ret));
             if (m->is_classm || !same_signature(im, m) || !same_ret || im->ret_borrowed != m->ret_borrowed)
                 error_at(p, "\"%s.%s\" has a different signature than \"%s\" of interface \"%s\"", m->owner->name, im->name,
@@ -1674,10 +1729,9 @@ static void define_struct(Struct *s, StructDecl *sd) {
 
     for (int i = 0; i < sd->methods.len; i++) {
         MethodDecl *md = &sd->methods.items[i];
-        for (int j = 0; j < s->methods.len; j++)
-            if (STREQ(s->methods.items[j]->name, md->name.name))
-                error_at(md->name.pos, "duplicate method \"%s\" (overloading is not supported)", md->name.name);
+        int novl = method_overload(s, md, md->kind == RK_CTOR ? "constructor" : "method");
         Routine *r = new_routine(md->name.name, md->kind, md->name.pos);
+        r->is_overload = md->is_overload;
         r->is_constm = md->is_const;
         r->is_classm = md->is_classm;
         classm_rules(md);
@@ -1685,12 +1739,13 @@ static void define_struct(Struct *s, StructDecl *sd) {
             error_at(md->name.pos, "constructors and destructors cannot be const");
         r->owner = s;
         r->level = 1;
-        r->cname = sfmt("M%d_%s", s->id, md->name.name);
+        r->cname = novl ? sfmt("M%d_%s_%d", s->id, md->name.name, novl + 1) : sfmt("M%d_%s", s->id, md->name.name);
         r->vis = md->vis;
         build_params(r, &md->params);
         if (md->ret) r->ret = resolve_type(md->ret);
         r->ret_borrowed = md->ret_borrowed;
         auto_rules(md, s, r);
+        overload_unique(s, r);
         if (md->ret_borrowed && !is_owning_type(r->ret)) {
             if (has_owned(r->ret)) r->ret_ref = 1; /* a value that owns objects: a reference to it */
             else {
@@ -1706,6 +1761,11 @@ static void define_struct(Struct *s, StructDecl *sd) {
             error_at(md->name.pos, "abstract methods must be virtual");
         if (md->virt == VIRT_OVERRIDE) {
             int idx = find_slot(s, md->name.name);
+            for (int k = s->slots.len - 1; k >= 0; k--) /* overloads: the one with the same parameters */
+                if (STREQ(s->slots.items[k].name, md->name.name) && same_params(s->slots.items[k].intro, r)) {
+                    idx = k;
+                    break;
+                }
             if (idx < 0) error_at(md->name.pos, "there is no method in an ancestor class to be overridden: \"%s\"", md->name.name);
             if (s->slots.items[idx].intro->is_constm != r->is_constm)
                 error_at(md->name.pos, "overriding method \"%s\" must %sbe declared 'const' like the method it overrides",
@@ -1714,6 +1774,7 @@ static void define_struct(Struct *s, StructDecl *sd) {
                 error_at(md->name.pos, "overriding method \"%s\" has a different signature", md->name.name);
             s->slots.items[idx].impl = r;
             r->slot = idx;
+            if (s->slots.items[idx].intro->is_overload) r->is_overload = 1; /* overrides one of several overloads */
         } else if (md->virt == VIRT_VIRTUAL) {
             Slot sl = {r->name, r, r};
             vpush(s->slots, sl);
@@ -1756,9 +1817,90 @@ static int var_compat(Type *formal, Type *actual) {
     return 0;
 }
 
+/* ---- overloading: the variant whose parameters fit the arguments best ---- */
+static int lit_fits(Expr *a, Type *t) {
+    switch (a->kind) {
+    case E_LIST: return t->kind == T_ARRAY || t->kind == T_DYN || (t->kind == T_OPT && lit_fits(a, t->base));
+    case E_RECLIT: return t->kind == T_RECORD || (t->kind == T_OPT && t->base->kind == T_RECORD);
+    case E_OK: case E_ERR: return t->kind == T_RES;
+    default: return 1; /* default fits every type */
+    }
+}
+/* 0: the same type, 1: a widening (Integer to Int64, an object to its base class), 2: a conversion, -1: does not fit */
+static int arg_cost(Param *pm, Expr *a) {
+    Type *t = a->type;
+    if (pm->mode == PM_VAR || pm->mode == PM_OUT) return is_lvalue(a) && var_compat(pm->type, t) ? 0 : -1;
+    if (t->kind == T_LIT) return lit_fits(a, pm->type) ? 1 : -1;
+    if (same_type(pm->type, t)) return 0;
+    if (pm->type->kind == T_PARAM) return -1;
+    int c = assign_compat(pm->type, t);
+    if (!c && pm->type->kind == T_OPT && same_type(pm->type->base, t)) return 1; /* a value for an optional parameter */
+    if (!c) return -1;
+    return c == 1 ? 1 : 2;
+}
+static int in_overloads(Routine *first, Routine *r) {
+    for (Routine *o = first; o; o = o->ovl_next)
+        if (o == r) return 1;
+    return 0;
+}
+static Routine *find_routine_sym(const char *name) {
+    Sym *s = find_local(name);
+    if (!s && iface_scope) s = find_in(iface_scope, name);
+    return s && s->kind == SY_ROUTINE ? s->rt : NULL;
+}
+static Routine *pick_overload(Routine *rt, Expr *base, ExprVec *args, int mode, Type *newcls, Pos p) {
+    VEC(Routine *) cands = {0};
+    if (!rt->owner) {
+        Routine *first = rt;
+        Look L = lookup(rt->name);
+        if (L.kind == LK_SYM && L.sym->kind == SY_ROUTINE && in_overloads(L.sym->rt, rt)) first = L.sym->rt;
+        for (Routine *o = first; o; o = o->ovl_next) vpush(cands, o);
+    } else { /* methods: this class and its ancestors, as long as they overload the name */
+        Struct *from = rt->owner;
+        if (mode != CM_INHERITED) {
+            if (newcls && newcls->st) from = newcls->st;
+            else if (base && base->type && (base->type->kind == T_CLASS || base->type->kind == T_RECORD)) from = base->type->st;
+        }
+        int stop = 0;
+        for (Struct *c = from; c && !stop; c = c->parent)
+            for (int i = 0; i < c->methods.len; i++) {
+                Routine *m = c->methods.items[i];
+                if (!STREQ(m->name, rt->name)) continue;
+                if (!m->is_overload) stop = 1; /* a method without 'overload' hides the ancestors' ones */
+                int dup = 0;
+                for (int k = 0; k < cands.len; k++) dup |= same_params(cands.items[k], m); /* overridden */
+                if (!dup) vpush(cands, m);
+            }
+    }
+    if (cands.len == 1) return cands.items[0];
+    for (int i = 0; i < args->len; i++) args->items[i] = value(args->items[i]);
+    Routine *best = NULL;
+    int bestc = 0, tie = 0;
+    for (int k = 0; k < cands.len; k++) {
+        Routine *c = cands.items[k];
+        if (c->params.len != args->len) continue;
+        int cost = 0;
+        for (int i = 0; i < args->len && cost >= 0; i++) {
+            int a = arg_cost(&c->params.items[i], args->items[i]);
+            cost = a < 0 ? -1 : cost + a;
+        }
+        if (cost < 0) continue;
+        if (!best || cost < bestc) best = c, bestc = cost, tie = 0;
+        else if (cost == bestc) tie = 1;
+    }
+    Buf b = {0};
+    for (int k = 0; k < cands.len; k++) buf_printf(&b, "%s%s", k ? ", " : "", sig_text(cands.items[k]));
+    Buf at = {0};
+    for (int i = 0; i < args->len; i++) buf_printf(&at, "%s%s", i ? ", " : "", type_name(args->items[i]->type));
+    if (!best) error_at(p, "no overload of \"%s\" fits the arguments (%s); there are: %s", rt->name, buf_str(&at), buf_str(&b));
+    if (tie) error_at(p, "the call of \"%s\" with (%s) is ambiguous; there are: %s", rt->name, buf_str(&at), buf_str(&b));
+    return best;
+}
+
 static Expr *make_call(Routine *rt, Expr *base, ExprVec *args, int mode, Type *newcls, Pos p) {
     ExprVec empty = {0};
     if (!args) args = &empty;
+    if (rt->is_overload) rt = pick_overload(rt, base, args, mode, newcls, p);
     if (args->len != rt->params.len)
         error_at(p, "wrong number of arguments calling \"%s\" (expected %d, got %d)", rt->name, rt->params.len,
                  args->len);
@@ -1974,6 +2116,14 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
             }
         case SY_VARIANT: return variant_value(s->type, s->vidx, args, p);
         case SY_ROUTINE:
+            if (s->rt->ovl_next) { /* overloaded: 'F' is a call of the variant without parameters */
+                if (!args) {
+                    for (Routine *o = s->rt; o; o = o->ovl_next)
+                        if (!o->params.len) return make_call(o, NULL, NULL, -1, NULL, p);
+                    error_at(p, "\"%s\" is overloaded and cannot be used as a value (wrap the call in a lambda)", name);
+                }
+                return make_call(s->rt, NULL, args, -1, NULL, p);
+            }
             if (!args && s->rt->params.len) return routine_ref(s->rt, p); /* used as a value */
             return make_call(s->rt, NULL, args, -1, NULL, p);
         }
@@ -3254,7 +3404,7 @@ static void assign(Stmt *s) {
         Look L = lookup(l->id.name);
         if (L.kind == LK_SYM && L.sym->kind == SY_ROUTINE) {
             for (Routine *q = cur; q; q = q->parent)
-                if (q == L.sym->rt && q->result) {
+                if (q->result && in_overloads(L.sym->rt, q)) {
                     s->a = var_expr(q->result, l->pos);
                     s->b = coerce(value(s->b), q->result->type, "assignment");
                     return;
@@ -3804,9 +3954,21 @@ static void routine_decl(RoutineDecl *d) {
                 error_at(d->cls.pos, "\"%s\" is not a class or record type", d->cls.name);
             st = L.sym->type->st;
         }
+        int ncand = 0;
         for (int i = 0; i < st->methods.len; i++)
-            if (STREQ(st->methods.items[i]->name, d->name.name)) rt = st->methods.items[i];
+            if (STREQ(st->methods.items[i]->name, d->name.name)) rt = st->methods.items[i], ncand++;
         if (!rt) error_at(d->name.pos, "method \"%s\" is not declared in \"%s\"", d->name.name, st->name);
+        if (ncand > 1) { /* overloaded: the declaration with the same parameters */
+            Routine tmp = {0};
+            tmp.name = rt->name;
+            build_params(&tmp, &d->params);
+            rt = NULL;
+            for (int i = 0; i < st->methods.len && !rt; i++) {
+                Routine *m = st->methods.items[i];
+                if (STREQ(m->name, d->name.name) && same_params(m, &tmp)) rt = m;
+            }
+            if (!rt) error_at(d->name.pos, "\"%s.%s\" is not declared with these parameters", st->name, sig_text(&tmp));
+        }
         if (rt->kind != d->kind) error_at(d->pos, "method kind does not match declaration of \"%s\"", rt->name);
         if (rt->is_classm != d->is_classm)
             error_at(d->pos, "\"%s.%s\" is declared %sas class method: the implementation must match ('%s')", st->name,
@@ -3835,7 +3997,38 @@ static void routine_decl(RoutineDecl *d) {
     if (d->is_classm) error_at(d->pos, "'class' is only allowed for methods ('class function TFoo.%s')", d->name.name);
     Sym *ex_sym = find_local(d->name.name);
     if (!ex_sym && iface_scope) ex_sym = find_in(iface_scope, d->name.name); /* defines an interface header */
-    if (ex_sym && ex_sym->kind == SY_ROUTINE && ex_sym->rt->forward && !ex_sym->rt->defined) {
+    Routine *ovl_prev = NULL; /* a new overload is added after this one */
+    if (ex_sym && ex_sym->kind == SY_ROUTINE && (d->is_overload || ex_sym->rt->ovl_next)) {
+        Routine tmp = {0};
+        tmp.name = ex_sym->rt->name;
+        build_params(&tmp, &d->params);
+        Routine *match = NULL;
+        for (Routine *o = ex_sym->rt; o; o = o->ovl_next) {
+            if (same_params(o, &tmp)) match = o;
+            ovl_prev = o;
+        }
+        if (!(match && match->forward && !match->defined)) /* not the definition of a header: a new overload */
+            for (Routine *o = ex_sym->rt; o; o = o->ovl_next)
+                if (!o->is_overload || !d->is_overload)
+                    error_at(d->pos, "duplicate routine \"%s\" (to give several routines the same name, mark each of them with 'overload')",
+                             d->name.name);
+        if (match && !(match->forward && !match->defined))
+            error_at(d->pos, "\"%s\" is overloaded twice with the same parameters", sig_text(&tmp));
+        if (match) { /* the definition of a forward or interface header */
+            ex_sym = NULL;
+            rt = match;
+            if (d->forward) error_at(d->pos, "duplicate forward declaration");
+            if (d->kind == RK_FUNC && d->ret && !same_type(resolve_type(d->ret), rt->ret))
+                error_at(d->pos, "declaration of \"%s\" differs from forward declaration", rt->name);
+            for (int i = 0; i < rt->params.len; i++) rt->params.items[i].name = tmp.params.items[i].name;
+            ovl_prev = NULL;
+        } else
+            ex_sym = NULL; /* a new overload */
+    }
+    if (!rt && ex_sym && ex_sym->kind == SY_ROUTINE && !(ex_sym->rt->forward && !ex_sym->rt->defined))
+        error_at(d->pos, "duplicate routine \"%s\" (to give several routines the same name, mark each of them with 'overload')", d->name.name);
+    if (rt) {
+    } else if (ex_sym && ex_sym->kind == SY_ROUTINE && ex_sym->rt->forward && !ex_sym->rt->defined) {
         rt = ex_sym->rt;
         if (d->forward) error_at(d->pos, "duplicate forward declaration");
         if (d->has_params) {
@@ -3869,8 +4062,16 @@ static void routine_decl(RoutineDecl *d) {
                 rt->ret_borrowed = 0;
             }
         }
-        Sym *s = add_sym(SY_ROUTINE, d->name.name, d->name.pos);
-        s->rt = rt;
+        rt->is_overload = d->is_overload;
+        if (ovl_prev) { /* another overload: it shares the symbol of the first one */
+            ovl_prev->ovl_next = rt;
+            int n = 1;
+            for (Routine *o = find_routine_sym(d->name.name); o && o != rt; o = o->ovl_next) n++;
+            rt->cname = sfmt("%s_%d", rt->cname, n);
+        } else {
+            Sym *s = add_sym(SY_ROUTINE, d->name.name, d->name.pos);
+            s->rt = rt;
+        }
     }
     if (d->external) {
         if (rt->level != 1) error_at(d->pos, "external routines must be declared at the top level");

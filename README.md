@@ -1243,6 +1243,51 @@ if r is ok f then f.Write('z');               { ... f only borrows it }
   `OpenAppend` return `result TTextFile` with `ReadLine: optional String`, `Write`,
   `WriteLine`, `EndOfFile`; the file is closed when the object is freed.
 
+## Overloading: `overload`
+
+Routines and methods (also constructors) may share a name if **each** variant is marked
+`overload`, as in Delphi:
+
+```pascal
+function Show(i: Integer): String; overload;
+begin Result := 'integer ' + IntToStr(i); end;
+function Show(s: String): String; overload;
+begin Result := 'string ' + s; end;
+function Show(a, b: Integer): String; overload;
+begin Result := 'two ' + IntToStr(a + b); end;
+
+type
+  TShape = class
+    constructor Create; overload;
+    constructor Create(AName: String); overload;
+    function Describe: String; overload; virtual;
+    function Describe(Prefix: String): String; overload;
+  end;
+  TCircle = class(TShape)
+    function Describe: String; override;              { overrides the variant without parameters }
+    function Describe(Times: Integer): String; overload; { a third variant }
+  end;
+
+WriteLn(Show(5), Show('hi'), Show(1, 2));
+vao b := TShape.Create('box');
+```
+
+* The variants must differ in their **parameter types** (the result type and `var`/`vao` do
+  not count): `"P(Integer)" is overloaded twice with the same parameters`.
+* At a call the variant whose parameters fit the arguments best is chosen: the exact type
+  first, then a widening (`Integer` to `Int64`, an object to its base class), then a conversion
+  (`Integer` to `Real`, `Char` to `String`). If two variants fit equally well the call is an
+  error: `the call of "P" with (Integer, Integer) is ambiguous; there are: P(Int64; Real), P(Real; Int64)`.
+  If none fits, the message lists all variants.
+* A descendant adds variants to those of its ancestors; `override` replaces the variant with
+  the same parameters (it needs no extra `overload`). A method without `overload` hides the
+  ancestors' methods of that name.
+* The implementation of an overloaded method or forward routine is found by its parameters
+  (`procedure TShape.Describe(Prefix: String)`), so it must repeat them.
+* Overloads work in modules (interface headers), generic classes and for implementing
+  interfaces. Interfaces themselves cannot overload, and an overloaded routine cannot be used
+  as a function value (wrap the call in a lambda).
+
 ## Function values and lambdas
 
 Procedural types describe routines that can be stored, passed and called; routines at program or
@@ -1411,7 +1456,7 @@ Not supported: `nil` (replaced by `optional`/`none`), pointers (`^`, `@`, `New`,
 (replaced by `class`), set types (except set literals with `in`), open array parameters
 (`array of T` is a dynamic array), `with` (name the variable, or take a short reference
 `var q := a.Inner`), exceptions (replaced by `result T` and `try`), reference-counted
-interfaces, overloading, closures that capture locals, variant records (replaced by enumerations with data), `goto`, Pascal file types (`TextFile`,
+interfaces, closures that capture locals, variant records (replaced by enumerations with data), `goto`, Pascal file types (`TextFile`,
 `Assign`/`Reset`; whole-file I/O is in `ppc_std`).
 
 ## Structure
