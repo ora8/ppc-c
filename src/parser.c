@@ -349,7 +349,7 @@ static ParamGroupVec parse_params(void) {
         ParamGroup g = {0};
         if (accept_kw("var")) g.mode = PM_VAR;
         else if (accept_kw("vao")) g.mode = PM_OWNED; /* takes over the ownership */
-        else if (is_kw("const") || is_ident("constref"))
+        else if (is_kw("const"))
             error_at(pos(), "read-only parameters are written 'x: T const' (passed by reference, not copied)");
         else if (is_ident("owned"))
             error_at(pos(), "'owned' was replaced by 'vao' (for example 'procedure Add(vao Item: TItem)')");
