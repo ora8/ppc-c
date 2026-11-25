@@ -281,6 +281,7 @@ Stmt *new_stmt(StmtKind k, Pos p) {
 }
 
 static Expr *parse_expr(void);
+static void parse_args(ExprVec *args);
 static Expr *parse_simple(void);
 static Expr *parse_postfix(void);
 static Stmt *parse_stmt(void);
@@ -634,9 +635,39 @@ static TypeExpr *parse_type_core(void) {
     }
     if (is_kw("set")) error_at(pos(), "set types are not supported (set literals in 'in' tests are)");
     if (accept_sym("(")) {
-        TypeExpr *t = new_te(TE_ENUM, p);
-        t->enums = ident_list();
+        /* enumeration (Red, Green) or enumeration with data (Circle(Radius: Real), Empty) */
+        VEC(VariantDecl) vs = {0};
+        int data = 0;
+        for (;;) {
+            VariantDecl v = {0};
+            v.name = ident();
+            if (accept_sym("(")) {
+                data = 1;
+                for (;;) {
+                    FieldDecl fd = {0};
+                    fd.names = ident_list();
+                    expect_sym(":");
+                    fd.ty = parse_type();
+                    vpush(v.fields, fd);
+                    if (!accept_sym(";")) break;
+                    if (is_sym(")")) break;
+                }
+                expect_sym(")");
+            }
+            vpush(vs, v);
+            if (!accept_sym(",")) break;
+        }
         expect_sym(")");
+        if (data) {
+            TypeExpr *t = new_te(TE_RECORD, p);
+            t->is_sum = 1;
+            t->variants.items = vs.items;
+            t->variants.len = vs.len;
+            t->variants.cap = vs.cap;
+            return t;
+        }
+        TypeExpr *t = new_te(TE_ENUM, p);
+        for (int i = 0; i < vs.len; i++) vpush(t->enums, vs.items[i].name);
         return t;
     }
     if (is_ident("String")) {
@@ -1077,6 +1108,10 @@ static Expr *parse_expr(void) {
         Expr *e = new_expr(E_IS, p);
         e->a = l;
         e->id = ident();
+        if (accept_sym("(")) { /* s is Circle(r): a variant pattern */
+            e->has_args = 1;
+            parse_args(&e->args);
+        }
         return e;
     }
     return l;
@@ -1168,6 +1203,15 @@ static void parse_args(ExprVec *args) {
     if (accept_sym(")")) return;
     for (;;) {
         Pos p = pos();
+        if (is_kw("var") && T.items[P + 1].kind == TK_IDENT) { /* Circle(var r): changeable binding in a pattern */
+            next();
+            Expr *e = new_expr(E_IDENT, p);
+            e->id = ident();
+            e->pat_var = 1;
+            vpush(*args, e);
+            if (!accept_sym(",")) break;
+            continue;
+        }
         Expr *e = parse_expr();
         if (accept_sym(":")) {
             Expr *f = new_expr(E_FMT, p);

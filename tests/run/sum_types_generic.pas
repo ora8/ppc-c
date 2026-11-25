@@ -1,0 +1,21 @@
+program sum_types_generic;
+type
+  TMaybe<T> = (Just(Value: T), Nothing);
+function First<T: Copy>(a: array of T): TMaybe<T>;
+begin
+  if Length(a) = 0 then Result := TMaybe<T>.Nothing
+  else Result := TMaybe<T>.Just(a[0]);
+end;
+function OrElse<T: Copy>(m: TMaybe<T>; d: T): T;
+begin
+  case m of
+    Just(v): Result := v;
+    Nothing: Result := d;
+  end;
+end;
+val
+  e: array of String := default;
+  d: array of String := ('x', 'y');
+begin
+  WriteLn(OrElse<String>(First(d), 'none'), ' ', OrElse<String>(First(e), 'none'));
+end.

@@ -5,7 +5,7 @@
 #include <ctype.h>
 #include <limits.h>
 
-typedef enum { SY_VAR, SY_CONST, SY_TYPE, SY_ROUTINE, SY_GENERIC } SymKind;
+typedef enum { SY_VAR, SY_CONST, SY_TYPE, SY_ROUTINE, SY_GENERIC, SY_VARIANT } SymKind; /* SY_VARIANT: type, vidx */
 
 /* a generic type: parsed again for every instance (monomorphization) */
 typedef struct {
@@ -47,6 +47,7 @@ typedef struct {
     Type *type;
     Expr *cval;
     Routine *rt;
+    int vidx;
 } Sym;
 
 typedef struct Scope {
@@ -104,6 +105,13 @@ static Expr *routine_ref(Routine *rt, Pos p);
 static Expr *indirect_call(Expr *callee, ExprVec *args, Pos p);
 static Expr *lambda_expr(Expr *e);
 static void for_in(Stmt *s);
+static Expr *variant_value(Type *t, int vi, ExprVec *args, Pos p);
+static char *variant_list(Struct *st);
+static Expr *variant_test(Expr *e);
+static void sum_case(Stmt *s, int from_if);
+static Expr *mk_ident(const char *name, Pos p);
+static Expr *mk_bin(int op, Expr *a, Expr *b, Pos p);
+#define l_pos(arm) ((arm)->body->pos)
 static void stmt(Stmt *s);
 static Type *proc_type(Routine *sig);
 static void move_check(Expr *src, const char *ctx);
@@ -855,7 +863,60 @@ static void build_params(Routine *rt, ParamGroupVec *pg);
 static Routine *new_routine(const char *name, int kind, Pos p);
 
 /* records: value types; methods are static (no inheritance, no virtual methods) */
+/* enumeration with data: (Circle(Radius: Real), Rect(W, H: Real), Empty)
+   = a record with a hidden tag and the fields of all variants ("Circle.Radius") */
+static void define_sum(Struct *s, TypeExpr *te) {
+    s->is_sum = 1;
+    Field *tag = NEW(Field);
+    tag->name = "#tag";
+    tag->cname = "tag";
+    tag->type = t_int;
+    tag->owner = s;
+    vpush(s->fields, tag);
+    for (int i = 0; i < te->variants.len; i++) {
+        VariantDecl *vd = &te->variants.items[i];
+        for (int j = 0; j < i; j++)
+            if (STREQ(te->variants.items[j].name.name, vd->name.name))
+                error_at(vd->name.pos, "duplicate variant \"%s\"", vd->name.name);
+        VariantInfo vi = {vd->name.name, s->fields.len, 0, vd->name.pos};
+        for (int k = 0; k < vd->fields.len; k++) {
+            FieldDecl *fd = &vd->fields.items[k];
+            Type *t = resolve_type(fd->ty);
+            check_complete(t, fd->ty->pos);
+            require_nilable(t, fd->ty->pos, "variant field");
+            if (t->readonly && t->kind != T_CLASS) error_at(fd->ty->pos, "fields cannot be 'const'");
+            for (int n = 0; n < fd->names.len; n++) {
+                Ident *id = &fd->names.items[n];
+                for (int j = vi.first; j < s->fields.len; j++)
+                    if (STREQ(s->fields.items[j]->name, sfmt("%s.%s", vd->name.name, id->name)))
+                        error_at(id->pos, "duplicate field \"%s\" in variant \"%s\"", id->name, vd->name.name);
+                Field *f = NEW(Field);
+                f->name = sfmt("%s.%s", vd->name.name, id->name);
+                f->cname = sfmt("f_%s_%s", vd->name.name, id->name);
+                f->type = t;
+                f->owner = s;
+                vpush(s->fields, f);
+                vi.n++;
+            }
+        }
+        vpush(s->variants, vi);
+    }
+    /* the variant names construct values: Circle(2.0), Empty (generic instances: TOpt<Integer>.Some(5)) */
+    if (!generic_depth && !archetype_mode)
+        for (int i = 0; i < s->variants.len; i++) {
+            Sym *v = add_sym(SY_VARIANT, s->variants.items[i].name, s->variants.items[i].pos);
+            v->type = s->type;
+            v->vidx = i;
+        }
+    s->defined = 1;
+    if (!archetype_mode) vpush(prog->structs, s);
+}
+
 static void define_record(Struct *s, TypeExpr *te) {
+    if (te->is_sum) {
+        define_sum(s, te);
+        return;
+    }
     add_fields(s, &te->fields);
     StructDecl *sd = te->sd;
     if (sd && (sd->methods.len || sd->props.len) && strncmp(s->name, "record", 6) == 0 && isdigit((unsigned char)s->name[6]))
@@ -1756,6 +1817,7 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
                 t->type = s->type;
                 return t;
             }
+        case SY_VARIANT: return variant_value(s->type, s->vidx, args, p);
         case SY_ROUTINE:
             if (!args && s->rt->params.len) return routine_ref(s->rt, p); /* used as a value */
             return make_call(s->rt, NULL, args, -1, NULL, p);
@@ -1782,6 +1844,11 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
             }
             if (L.kind == LK_SYM && L.sym->kind == SY_TYPE) {
                 Type *t = L.sym->type;
+                if (t->kind == T_RECORD && t->st->is_sum) { /* TShape.Circle(2.0) */
+                    for (int i = 0; i < t->st->variants.len; i++)
+                        if (STREQ(t->st->variants.items[i].name, name)) return variant_value(t, i, args, p);
+                    error_at(p, "\"%s\" has no variant \"%s\" (%s)", type_name(t), name, variant_list(t->st));
+                }
                 if (t->kind == T_CLASS || t->kind == T_RECORD) {
                     Look M = {0};
                     if (find_member(t->st, name, &M.f, &M.m, &M.p) && M.m && M.m->is_classm)
@@ -1866,7 +1933,11 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
             error_at(p, "illegal qualifier: \"%s\" has no members", type_name(bt));
         Look L = {0};
         if (!find_member(bt->st, name, &L.f, &L.m, &L.p))
+{
+            if (bt->st->is_sum)
+                error_at(p, "\"%s\" is an enumeration with data: its fields are read with 'case' or 'if x is Variant(a, b)'", bt->st->name);
             error_at(p, "identifier \"%s\" is not a member of \"%s\"", name, bt->st->name);
+            }
         return member_ref(base, &L, args, p, name);
     }
     if (args) {
@@ -2087,6 +2158,8 @@ static Expr *ex(Expr *e) {
                  e->op == 0 ? "some x" : e->op == 1 ? "ok v" : "error e", e->op == 0 ? "optional" : "result");
     case E_IS: case E_AS: {
         e->a = value(e->a);
+        if (e->kind == E_IS && e->a->type->kind == T_RECORD && e->a->type->st->is_sum) return variant_test(e);
+        if (e->kind == E_IS && e->has_args) error_at(e->pos, "'is Name(...)' tests a variant of an enumeration with data");
         if (e->a->type->kind != T_CLASS) error_at(e->pos, "class instance expected before 'is'/'as'");
         Look L = lookup(e->id.name);
         if (L.kind != LK_SYM || L.sym->kind != SY_TYPE || L.sym->type->kind != T_CLASS)
@@ -2135,6 +2208,190 @@ static Expr *param_binary(Expr *e) {
         error_at(e->pos, "operator not applicable to \"%s\" and \"%s\" (a type parameter only combines with itself)",
                  type_name(ta), type_name(tb));
     return e;
+}
+
+/* ---- enumerations with data ---- */
+static char *variant_list(Struct *st) {
+    Buf b = {0};
+    buf_put(&b, "variants: ");
+    for (int i = 0; i < st->variants.len; i++) {
+        VariantInfo *v = &st->variants.items[i];
+        if (i) buf_put(&b, ", ");
+        buf_put(&b, v->name);
+        if (v->n) buf_put(&b, "(...)");
+    }
+    return xstrdup(buf_str(&b));
+}
+static char *variant_sig(Struct *st, int vi) {
+    VariantInfo *v = &st->variants.items[vi];
+    Buf b = {0};
+    buf_printf(&b, "%s(", v->name);
+    for (int i = 0; i < v->n; i++) {
+        Field *f = st->fields.items[v->first + i];
+        buf_printf(&b, "%s%s: %s", i ? "; " : "", strchr(f->name, '.') + 1, type_name(f->type));
+    }
+    buf_put(&b, ")");
+    return xstrdup(buf_str(&b));
+}
+/* Circle(2.0): a record literal with the tag and the fields of the variant */
+static Expr *variant_value(Type *t, int vi, ExprVec *args, Pos p) {
+    Struct *st = t->st;
+    VariantInfo *v = &st->variants.items[vi];
+    int n = args ? args->len : 0;
+    if (n != v->n) {
+        if (!v->n) error_at(p, "\"%s\" has no data: write '%s' without parentheses", v->name, v->name);
+        error_at(p, "\"%s\" needs %d value%s: %s", v->name, v->n, v->n == 1 ? "" : "s", variant_sig(st, vi));
+    }
+    Expr *r = new_expr(E_RECLIT, p);
+    vpush(r->fnames, ((Ident){"#tag", p}));
+    vpush(r->args, lit_int(vi, t_int, p));
+    for (int i = 0; i < n; i++) {
+        vpush(r->fnames, ((Ident){st->fields.items[v->first + i]->name, args->items[i]->pos}));
+        vpush(r->args, args->items[i]);
+    }
+    return literal_to(r, t, "variant");
+}
+static int find_variant(Struct *st, Ident id) {
+    for (int i = 0; i < st->variants.len; i++)
+        if (STREQ(st->variants.items[i].name, id.name)) return i;
+    error_at(id.pos, "\"%s\" is not a variant of \"%s\" (%s)", id.name, st->name, variant_list(st));
+}
+static Expr *tag_is(Expr *x, int vi, Pos p) {
+    Expr *m = new_expr(E_MEMBER, p);
+    m->a = x;
+    m->id = (Ident){"#tag", p};
+    Expr *c = new_expr(E_BINARY, p);
+    c->op = OP_EQ;
+    c->a = m;
+    c->b = lit_int(vi, t_int, p);
+    return c;
+}
+/* 's is Empty' (a test without bindings); 's is Circle(r)' with bindings only as the condition of 'if' */
+static Expr *variant_test(Expr *e) {
+    Struct *st = e->a->type->st;
+    int vi = find_variant(st, e->id);
+    if (e->has_args && e->args.len)
+        error_at(e->pos, "a pattern with names ('is %s(...)') can only be the whole condition of an 'if' (or use 'case')", e->id.name);
+    if (!is_lvalue(e->a) && (has_owned(e->a->type) || has_str(e->a->type)))
+        error_at(e->pos, "store the value in a variable before testing its variant");
+    return value(tag_is(e->a, vi, e->pos));
+}
+/* case s of Circle(r): A; Rect(w, h): B; Empty: C end
+   ==>  begin var __s := s; if __s.#tag = 0 then var r := __s.Circle.Radius; A else if ... end */
+static void sum_case(Stmt *s, int from_if) {
+    Pos p = s->pos;
+    Type *t = s->a->type;
+    Struct *st = t->st;
+    int nv = st->variants.len;
+    int *seen = (int *)xcalloc(nv ? nv : 1, sizeof(int));
+    int any_var = 0;
+    for (int i = 0; i < s->arms.len; i++) {
+        CaseArm *arm = &s->arms.items[i];
+        for (int k = 0; k < arm->lo.len; k++) {
+            Expr *l = arm->lo.items[k];
+            if (arm->hi.items[k]) error_at(l->pos, "variants cannot be ranges");
+            Ident id;
+            ExprVec *binds = NULL;
+            if (l->kind == E_CALL && l->a->kind == E_IDENT) id = l->a->id, binds = &l->args;
+            else if (l->kind == E_IDENT) id = l->id;
+            else error_at(l->pos, "a variant of \"%s\" expected (%s)", st->name, variant_list(st));
+            int vi = find_variant(st, id);
+            if (seen[vi]) error_at(l->pos, "variant \"%s\" is handled twice", id.name);
+            seen[vi] = 1;
+            VariantInfo *v = &st->variants.items[vi];
+            if (binds) {
+                if (arm->lo.len > 1) error_at(l->pos, "an arm with names can only have one variant");
+                if (binds->len != v->n)
+                    error_at(l->pos, "\"%s\" has %d field%s: %s", v->name, v->n, v->n == 1 ? "" : "s", variant_sig(st, vi));
+                for (int b = 0; b < binds->len; b++) {
+                    Expr *x = binds->items[b];
+                    if (x->kind != E_IDENT || x->targs.len) error_at(x->pos, "a name expected in the pattern (or '_')");
+                    if (x->pat_var) any_var = 1;
+                }
+            }
+        }
+    }
+    if (!s->has_else && !from_if) {
+        Buf b = {0};
+        int miss = 0;
+        for (int i = 0; i < nv; i++)
+            if (!seen[i]) buf_printf(&b, "%s%s", miss++ ? ", " : "", st->variants.items[i].name);
+        if (miss)
+            error_at(p, "case does not handle the variant%s %s of \"%s\" (add %s or an 'else')", miss > 1 ? "s" : "", buf_str(&b),
+                     st->name, miss > 1 ? "them" : "it");
+    }
+    if (s->has_else && !from_if) {
+        int all = 1;
+        for (int i = 0; i < nv; i++) all &= seen[i];
+        if (all) error_at(p, "'else' is unreachable: all variants of \"%s\" are handled", st->name);
+    }
+    /* the selector: a reference to the variable, or a hidden owner of a computed value */
+    char *hn = sfmt("__sum%d_%d", p.line, p.col);
+    Block *ob = NEW(Block);
+    Decl *d = NEW(Decl);
+    d->kind = D_VAR;
+    VarDecl hv = {0};
+    vpush(hv.names, ((Ident){hn, p}));
+    hv.init = s->a;
+    if (is_lvalue(s->a)) {
+        hv.borrowed = 1;
+        hv.ro = !any_var;
+    }
+    vpush(d->vars, hv);
+    vpush(ob->decls, d);
+    Stmt *chain = NULL, **tail = &chain;
+    for (int i = 0; i < s->arms.len; i++) {
+        CaseArm *arm = &s->arms.items[i];
+        Expr *c = NULL;
+        Block *ab = NEW(Block);
+        Decl *bd = NEW(Decl);
+        bd->kind = D_VAR;
+        for (int k = 0; k < arm->lo.len; k++) {
+            Expr *l = arm->lo.items[k];
+            Ident id = l->kind == E_CALL ? l->a->id : l->id;
+            int vi = find_variant(st, id);
+            Expr *ti = tag_is(mk_ident(hn, l->pos), vi, l->pos);
+            c = c ? mk_bin(OP_OR, c, ti, l->pos) : ti;
+            if (l->kind != E_CALL) continue;
+            VariantInfo *v = &st->variants.items[vi];
+            for (int b = 0; b < l->args.len; b++) {
+                Expr *x = l->args.items[b];
+                if (STREQ(x->id.name, "_")) continue;
+                VarDecl bv = {0};
+                vpush(bv.names, x->id);
+                Expr *m = new_expr(E_MEMBER, x->pos);
+                m->a = mk_ident(hn, x->pos);
+                m->id = (Ident){st->fields.items[v->first + b]->name, x->pos};
+                bv.init = m;
+                bv.borrowed = 1;
+                bv.ro = !x->pat_var;
+                vpush(bd->vars, bv);
+            }
+        }
+        Stmt *body = arm->body;
+        if (bd->vars.len) {
+            vpush(ab->decls, bd);
+            vpush(ab->body, arm->body);
+            body = new_stmt(S_BLOCK, arm->body->pos);
+            body->blk = ab;
+        }
+        Stmt *n = new_stmt(S_IF, l_pos(arm));
+        n->a = c;
+        n->s1 = body;
+        *tail = n;
+        tail = &n->s2;
+    }
+    if (s->has_else) {
+        Stmt *c = new_stmt(S_COMPOUND, p);
+        c->body = s->else_;
+        *tail = c;
+    }
+    if (!chain) chain = new_stmt(S_EMPTY, p);
+    vpush(ob->body, chain);
+    Stmt *blk = new_stmt(S_BLOCK, p);
+    blk->blk = ob;
+    *s = *blk;
+    stmt(s);
 }
 
 /* ---- for val x in collection: rewritten into an index loop ---- */
@@ -2921,6 +3178,31 @@ static void stmt(Stmt *s) {
     }
     case S_COMPOUND: stmts(&s->body); return;
     case S_IF:
+        if (s->a->kind == E_IS && s->a->has_args && s->a->args.len) { /* if s is Circle(r) then A else B: a case */
+            Expr *is = s->a;
+            Expr *sel = value(is->a);
+            if (sel->type->kind == T_RECORD && sel->type->st->is_sum) {
+                Expr *pat = new_expr(E_CALL, is->pos);
+                pat->a = new_expr(E_IDENT, is->id.pos);
+                pat->a->id = is->id;
+                pat->args = is->args;
+                CaseArm arm = {0};
+                vpush(arm.lo, pat);
+                vpush(arm.hi, NULL);
+                arm.body = s->s1;
+                Stmt *c = new_stmt(S_CASE, s->pos);
+                c->a = sel;
+                vpush(c->arms, arm);
+                if (s->s2) {
+                    c->has_else = 1;
+                    vpush(c->else_, s->s2);
+                }
+                *s = *c;
+                sum_case(s, 1);
+                return;
+            }
+            is->a = sel;
+        }
         push_scope(); /* bindings of 'is some' are visible in the then-branch */
         s->a = cond_bind(s->a);
         stmt(s->s1);
@@ -2986,6 +3268,10 @@ static void stmt(Stmt *s) {
     case S_CASE: {
         s->a = value(s->a);
         Type *t = s->a->type;
+        if (t->kind == T_RECORD && t->st->is_sum) {
+            sum_case(s, 0);
+            return;
+        }
         if (t->kind == T_RES) {
             /* case r of ok v: A; error e: B end  ==>  tmp := r; if tmp is ok v then A else if tmp is error e then B */
             Expr *okp = NULL, *errp = NULL;

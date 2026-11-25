@@ -40,6 +40,10 @@ typedef struct {
     int borrowed;
 } FieldDecl;
 typedef VEC(FieldDecl) FieldDeclVec;
+typedef struct {
+    Ident name;
+    FieldDeclVec fields;
+} VariantDecl; /* enumeration with data: Circle(Radius: Real) */
 
 typedef struct {
     int mode;
@@ -90,6 +94,8 @@ struct TypeExpr {
     Expr *lo, *hi;            /* TE_SUBRANGE */
     IdentVec enums;           /* TE_ENUM */
     FieldDeclVec fields;      /* TE_RECORD */
+    VEC(VariantDecl) variants; /* TE_RECORD with is_sum: enumeration with data */
+    int is_sum;
     StructDecl *sd;           /* TE_STRUCT */
     TypeExprVec targs;        /* TE_NAMED: type arguments of a generic type, TListe<TKunde> */
     int dyn;                  /* TE_ARRAY: 'array of T' (dynamic, grows with SetLength) */
@@ -203,6 +209,7 @@ struct Expr {
     int has_id;
     int in_range; /* E_INDEX: constant index, checked at compile time */
     int ro_bind;  /* E_ISSOME from "for val x in": the object is bound read-only */
+    int pat_var;  /* E_IDENT 'var x' in a pattern: a changeable binding */
     Expr *a, *b, *c;
     ExprVec args;
     ExprVec args2; /* set literal: upper bounds (NULL entries for single values) */
@@ -292,8 +299,15 @@ typedef struct {
     Routine *impl;
 } Slot;
 
+typedef struct {
+    char *name;
+    int first, n; /* its fields: fields[first .. first + n - 1] */
+    Pos pos;
+} VariantInfo;
 struct Struct {
     int id;
+    int is_sum;   /* enumeration with data: a record with a hidden tag field (fields[0]) and the variants' fields */
+    VEC(VariantInfo) variants;
     char *name;
     int kind;
     Struct *parent;

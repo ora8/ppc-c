@@ -1002,7 +1002,16 @@ static void do_bind(Var *v, Expr *rhs, State *s, Pos p) {
         int j = slot(root);
         if (j >= 0 && tv.items[j].kind == TV_BORROW && root != v) { /* through another borrow: re-borrow */
             check_var_use(root, p, s);
-            for (int k = 0; k < s->org[j].len; k++) vpush(o, s->org[j].items[k]);
+            /* a part of a value alias (var r := alias.Field): the same part of what the alias refers to */
+            const char *suffix = root->is_alias ? path + strlen(sfmt("#%d", root->id)) : "";
+            for (int k = 0; k < s->org[j].len; k++) {
+                Origin og = s->org[j].items[k];
+                if (*suffix && og.path) {
+                    og.path = sfmt("%s%s", og.path, suffix);
+                    og.desc = desc_of(rhs);
+                }
+                vpush(o, og);
+            }
         } else
             origin_add(&o, path, desc_of(rhs), root, !root->is_global);
     }

@@ -1083,6 +1083,58 @@ end.
 * The borrow checker treats a call through a function value as a call of any routine that is used
   as a value.
 
+## Enumerations with data
+
+An enumeration whose values carry data (a sum type, like `enum` in Rust). It is written like a
+Pascal enumeration; variants with data list their fields in parentheses:
+
+```pascal
+type
+  TShape = (
+    Circle(Radius: Real),
+    Rect(W, H: Real),
+    Named(Name: String; Sides: Integer),
+    Empty
+  );
+
+val s := Circle(2.0);                    { or TShape.Circle(2.0) }
+s := Empty;
+```
+
+The fields are read with `case` or `if … is …`. The names in a pattern are **references** to
+the fields (read-only; `var n` makes a changeable one), `_` skips a field:
+
+```pascal
+function Area(s: TShape): Real;
+begin
+  case s of
+    Circle(r): Result := 3.14159 * r * r;
+    Rect(w, h): Result := w * h;
+    Named(_, n): Result := n;
+    Empty: Result := 0;
+  end;
+end;
+
+if s is Named(n, k) then WriteLn(n, ' ', k) else WriteLn('not named');
+if s is Empty then ...                   { a test without names: an ordinary Boolean }
+case s of Named(var n, _): n := n + '!'; else end;
+```
+
+* `case` must handle **every** variant or have an `else` (`case does not handle the variants
+  Rect, Empty of "TShape"`); an `else` after all variants is an error, a variant handled twice
+  too.
+* A variant can be named without its fields (`Circle: …`); several variants without names can
+  share an arm (`Rect, Empty: …`).
+* A pattern with names is only allowed as the whole condition of an `if`, otherwise use `case`.
+* Fields can be of any type; objects must be `optional T` as in records. The value owns its data:
+  strings and objects are freed when the value is overwritten or goes out of scope; assigning a
+  value with objects moves it.
+* The borrow checker knows the bindings: changing `s` while a binding is still used is an error.
+* Generic: `TMaybe<T> = (Just(Value: T), Nothing)`, built with `TMaybe<Integer>.Just(5)`.
+* `default` is the first variant with zero fields. `=` is not defined for enumerations with data.
+
+Internally the value is a record with a tag and the fields of all variants.
+
 ## Loops over collections: `for val x in …`
 
 `for val x in c do …` runs through the elements of an array (fixed or dynamic), a string (the
@@ -1138,7 +1190,7 @@ once (in every kind of loop); borrows of them are invalid afterwards.
   (owners), blocks with their own sections
 * Types: `Integer`/`LongInt` (32 bit), `ShortInt`, `SmallInt`, `Byte`, `Word`, `Cardinal`,
   `Int64`, `Boolean`, `Char`, `Real`/`Double`, `String` (dynamic, any length),
-  enumerations, subranges, static (also multi-dimensional) and dynamic arrays, records (with
+  enumerations (also with data), subranges, static (also multi-dimensional) and dynamic arrays, records (with
   methods), `class` (with class methods), generics
 * Procedures/functions, nested to any depth (access to outer variables through static links),
   `var`, `out`, `vao` and `T const` parameters, `forward`, recursion, `Result`/function name,
@@ -1159,7 +1211,7 @@ Not supported: `nil` (replaced by `optional`/`none`), pointers (`^`, `@`, `New`,
 `Pointer` – replaced by objects, `var` references and `var` parameters), `object` types
 (replaced by `class`), set types (except set literals with `in`), open array parameters
 (`array of T` is a dynamic array), exceptions (replaced by `result T` and `try`), interfaces,
-overloading, closures that capture locals, variant records, `goto`, file I/O.
+overloading, closures that capture locals, variant records (replaced by enumerations with data), `goto`, file I/O.
 
 ## Structure
 
