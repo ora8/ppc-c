@@ -109,6 +109,7 @@ struct TypeExpr {
     void *proc;               /* TE_PROC: a RoutineDecl with the parameters and the result */
     int nilable;              /* 'optional' modifier */
     int readonly;             /* 'const T': read-only object reference */
+    int closure;              /* TE_PROC: 'reference to function(...)' */
 };
 
 typedef struct {
@@ -154,6 +155,7 @@ typedef struct {
     int iface;            /* header in a module's interface section: defined in the implementation */
     char *external;       /* 'external 'c_name'': implemented in the runtime (standard library only) */
     int is_overload;      /* '; overload;' */
+    int has_lambda;       /* its body contains a lambda (that may capture its variables: it needs a frame) */
     void *toks;           /* tokens to parse the routine again for each instance */
     int tok_start;
 } RoutineDecl;
@@ -285,6 +287,7 @@ struct Type {
     char *name;
     int nilable; /* optional class type: may be none (represented as NULL) */
     int readonly; /* class type 'const T': the object can only be read through this reference */
+    int closure;  /* T_PROC 'reference to ...': may be a closure (refers to the frame of a routine) */
 };
 
 struct Field {
@@ -395,6 +398,7 @@ struct Routine {
     int is_auto;   /* generated body (Clone: deep copy) */
     int is_external; /* implemented in C by the runtime (cname) */
     int is_overload;   /* '; overload;': one of several routines/methods with this name */
+    int captures;      /* lambda nested in a routine: uses its variables through the frame (a closure) */
     Routine *ovl_next; /* routine (not method): the next one with the same name in its scope */
     int ret_ref;   /* 'var' result of a value that owns objects: returns a pointer into a container (NULL: none) */
     int is_sig;    /* signature of a procedural type: no body; it stands for every routine used as a value */

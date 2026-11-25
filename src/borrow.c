@@ -1296,8 +1296,19 @@ static void creation_check(Type *T, Routine *ctor, Pos p) {
 }
 
 static void reads_check(Routine *r, State *s, Pos p) {
-    if (!g_nil_check || !s->reach || !r || r->prelude) return;
+    if (!s->reach || !r || r->prelude) return;
     VarSet *rs = &rsets[r->id];
+    for (int k = 0; k < rs->len; k++) { /* the routine (a nested routine, a closure) uses variables of this one */
+        Var *v = rs->items[k];
+        int i = slot(v);
+        if (i < 0) continue;
+        if (tv.items[i].kind == TV_OWNER && (s->own[i] & (O_FREED | O_MOVED)))
+            berror(p, "the call %s uses '%s' after it %s %s", r->is_sig ? "through a function value (a closure)" : sfmt("of '%s'", r->name), v->name, (s->own[i] & (O_OWNED | O_UNK)) ? "may have been" : "was",
+                   (s->own[i] & O_FREED) ? "freed" : "moved away");
+        else if (tv.items[i].kind == TV_BORROW && (s->bor[i] & B_DANGLING))
+            berror(p, "the call of '%s' uses the borrowed reference '%s', but %s", r->name, v->name, s->why[i] ? s->why[i] : "its owner is gone");
+    }
+    if (!g_nil_check) return;
     for (int k = 0; k < rs->len; k++) {
         Var *v = rs->items[k];
         int i = slot(v);
@@ -1976,7 +1987,7 @@ static void compute_write_sets(void) {
                         VarSet *dst = w ? &rsets[r->id] : &wsets[r->id];
                         for (int j = 0; j < src->len; j++) {
                             Var *v = src->items[j];
-                            if (!nonlocal_to(v, r)) continue;
+                            if (!nonlocal_to(v, r) && !r->is_sig) continue; /* a function type stands for its closures too */
                             int before = dst->len;
                             vs_add(dst, v);
                             if (dst->len != before) changed = 1;

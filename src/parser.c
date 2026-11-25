@@ -318,6 +318,7 @@ static int is_directive(void) {
 }
 
 /* directives after a routine header: virtual; override; abstract; forward; const; */
+static RoutineDecl *cur_rdecl; /* the routine whose body is being parsed */
 static int last_overload; /* the last directive list contained 'overload' */
 static void parse_directives(int *virt, int *abs, int *fwd, int *cnst, int *autog) {
     last_overload = 0;
@@ -597,8 +598,16 @@ static TypeExprVec parse_targs(void) {
 static ParamGroupVec parse_params(void);
 static TypeExpr *parse_type_core(void) {
     Pos p = pos();
+    int closure = 0;
+    if (is_ident("reference") && T.items[P + 1].kind == TK_KW && STREQ(T.items[P + 1].s, "to")) { /* reference to function(...) */
+        next();
+        next();
+        if (!is_kw("function") && !is_kw("procedure")) error_at(pos(), "'reference to' needs 'function(...)' or 'procedure(...)'");
+        closure = 1;
+    }
     if (is_kw("function") || is_kw("procedure")) { /* procedural type: function(a, b: Integer): Integer */
         TypeExpr *t = new_te(TE_PROC, p);
+        t->closure = closure;
         RoutineDecl *d = NEW(RoutineDecl);
         d->kind = is_kw("function") ? RK_FUNC : RK_PROC;
         d->pos = p;
@@ -779,7 +788,10 @@ static RoutineDecl *parse_routine(void) {
         return d;
     }
     if (d->forward) return d;
+    RoutineDecl *outer = cur_rdecl;
+    cur_rdecl = d;
     d->body = parse_block();
+    cur_rdecl = outer;
     expect_sym(";");
     return d;
 }
@@ -1295,8 +1307,10 @@ static Expr *parse_primary(void) {
         }
         return e;
     }
-    if ((is_kw("function") || is_kw("procedure")) && T.items[P + 1].kind == TK_SYM &&
-        (STREQ(T.items[P + 1].s, "(") || STREQ(T.items[P + 1].s, ":"))) { /* anonymous function */
+    if ((is_kw("function") || is_kw("procedure")) &&
+        ((T.items[P + 1].kind == TK_SYM && (STREQ(T.items[P + 1].s, "(") || STREQ(T.items[P + 1].s, ":"))) ||
+         (T.items[P + 1].kind == TK_KW && (STREQ(T.items[P + 1].s, "begin") || STREQ(T.items[P + 1].s, "val") ||
+                                           STREQ(T.items[P + 1].s, "var") || STREQ(T.items[P + 1].s, "vao"))))) { /* anonymous function */
         Expr *e = new_expr(E_LAMBDA, p);
         RoutineDecl *d = NEW(RoutineDecl);
         d->kind = is_kw("function") ? RK_FUNC : RK_PROC;
@@ -1309,7 +1323,11 @@ static Expr *parse_primary(void) {
             expect_sym(":");
             d->ret = parse_type();
         }
+        if (cur_rdecl) cur_rdecl->has_lambda = 1; /* the routine around it needs a frame for captures */
+        RoutineDecl *outer = cur_rdecl;
+        cur_rdecl = d;
         d->body = parse_block();
+        cur_rdecl = outer;
         e->lam = d;
         return e;
     }

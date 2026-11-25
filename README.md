@@ -1317,15 +1317,55 @@ end.
   generics works through them (`SortBy`, `Filter` in `ppc_std`).
 * A function value is called like a routine: `f(1, 2)`, also without arguments `t()` and on
   results: `Pick(True)(1, 5)`.
-* Lambdas **do not capture local variables** (yet): using a local of the routine around them, or a
-  field of the object around them, is an error with a hint to pass it as a parameter. Global
-  variables can be used. So a function value never refers to memory that may be gone.
+* A lambda that uses no variables of the routine around it is a plain function value (global
+  variables can always be used). One that does is a **closure** – see below.
 * Function values always refer to a routine: `default` is not allowed, and fields or array
   elements of a procedural type must be `optional` (e.g. an event `OnClick: optional procedure(n: Integer)`,
   called with `if b.OnClick is some h then h(3)`).
-* Only routines at program or module level can be values (not methods or nested routines).
+* Routines at program or module level are plain values, nested routines are closures; methods
+  cannot be values (wrap the call in a lambda).
 * The borrow checker treats a call through a function value as a call of any routine that is used
   as a value.
+
+### Closures: `reference to function(...)`
+
+A lambda inside a routine may use the routine's parameters, variables, nested routines and the
+fields of `Self`. It refers to them (no copy): changes are visible on both sides.
+
+```pascal
+procedure ForEach(a: array of Integer; Visit: reference to procedure(x: Integer));
+begin
+  for val x in a do Visit(x);
+end;
+
+procedure Demo(Limit: Integer);
+val Sum := 0;
+begin
+  ForEach(nums, procedure(x: Integer) begin Sum := Sum + x; end);      { Sum is changed }
+  WriteLn(CountIf(nums, function(x: Integer): Boolean begin Result := x > Limit; end));
+  val Twice: reference to function(x: Integer): Integer :=
+    function(x: Integer): Integer begin Result := 2 * x + Sum; end;
+  begin
+    WriteLn(Twice(1));
+  end;
+end;
+```
+
+* Such a value has a **`reference to`** type (as in Delphi). Because it refers to the variables
+  of a running routine, it may only be a **value parameter** or a **local variable** of a routine
+  – not a field, array element, function result, `var` parameter, optional value, type argument
+  or variable of the main program, and a closure variable can only be assigned in its own
+  routine. So a closure never outlives the variables it uses; there is no allocation and no
+  reference counting (the routine's frame is used, like for nested routines).
+* A `reference to` parameter also accepts plain routines and lambdas; a closure for a plain
+  procedural type is an error: `this lambda uses variables of the routine around it (a closure)
+  and cannot be stored as "procedure(Integer)" … declare the parameter or variable 'reference to
+  procedure(Integer)'`. `SortBy` and `Filter` in `ppc_std` take `reference to` parameters.
+* Lambdas without parameters: `procedure begin … end`; a procedure value without parameters is
+  called with `f;` or `f()`.
+* The borrow checker knows what a closure uses: calling it after an object it uses was freed or
+  moved is an error (`the call through a function value (a closure) uses 'k' after it was freed`),
+  the same for nested routines.
 
 ## Enumerations with data
 
@@ -1454,9 +1494,9 @@ once (in every kind of loop); borrows of them are invalid afterwards.
 Not supported: `nil` (replaced by `optional`/`none`), pointers (`^`, `@`, `New`, `Dispose`,
 `Pointer` – replaced by objects, `var` references and `var` parameters), `object` types
 (replaced by `class`), set types (except set literals with `in`), open array parameters
-(`array of T` is a dynamic array), `with` (name the variable, or take a short reference
+(`array of T` is a dynamic array), closures that outlive their routine, `with` (name the variable, or take a short reference
 `var q := a.Inner`), exceptions (replaced by `result T` and `try`), reference-counted
-interfaces, closures that capture locals, variant records (replaced by enumerations with data), `goto`, Pascal file types (`TextFile`,
+interfaces, variant records (replaced by enumerations with data), `goto`, Pascal file types (`TextFile`,
 `Assign`/`Reset`; whole-file I/O is in `ppc_std`).
 
 ## Structure

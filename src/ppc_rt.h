@@ -9,7 +9,8 @@
 #include <errno.h>
 #include <unistd.h>
 
-typedef struct { int64_t len; unsigned char *p; } PStr; /* String: length + heap buffer (see strings) */
+typedef struct { int64_t len; unsigned char *p; } PStr;
+typedef struct { void *fn; void *env; } __Closure; /* 'reference to function': the routine and the frame it uses (NULL: none) */ /* String: length + heap buffer (see strings) */
 /* interface tables of a class: the methods of each interface it implements, ended by {0, 0} */
 struct __ITab { const void *iid; void **fns; };
 struct __VMTHdr { void *parent; const char *name; size_t size; void (*drop)(void *); void (*clonefix)(void *); const struct __ITab *itabs; };

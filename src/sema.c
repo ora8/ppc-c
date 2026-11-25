@@ -122,6 +122,8 @@ static Expr *mk_bin(int op, Expr *a, Expr *b, Pos p);
 #define l_pos(arm) ((arm)->body->pos)
 static void stmt(Stmt *s);
 static Type *proc_type(Routine *sig);
+static void no_closure(Type *t, Pos p, const char *where);
+static void closure_of(Type *t);
 static void move_check(Expr *src, const char *ctx);
 static Expr *param_binary(Expr *e);
 static Expr *ex(Expr *e);
@@ -200,7 +202,7 @@ const char *type_name(Type *t) {
     case T_LIT: return "literal";
     case T_PARAM: return "type parameter";
     case T_DYN: return sfmt("array of %s", type_name(t->base));
-    case T_PROC: return proc_name(t->proc);
+    case T_PROC: return t->name ? t->name : proc_name(t->proc);
     }
     return "?";
 }
@@ -294,7 +296,7 @@ static int same_type(Type *a, Type *b) {
     case T_OPT: return same_type(a->base, b->base);
     case T_PARAM: return 0; /* two placeholders are only the same if they are one object */
     case T_DYN: return same_type(a->base, b->base);
-    case T_PROC: return same_signature(a->proc, b->proc);
+    case T_PROC: return a->closure == b->closure && same_signature(a->proc, b->proc);
     case T_RES:
         if (!a->base || !b->base) return !a->base && !b->base && same_type(a->err, b->err);
         return same_type(a->base, b->base) && same_type(a->err, b->err);
@@ -340,6 +342,8 @@ static Type *arith_int(Type *a, Type *b) {
 
 /* 0 = incompatible, 1 = compatible as is, 2 = needs conversion node */
 static int assign_compat(Type *to, Type *from) {
+    if (to->kind == T_PROC && from->kind == T_PROC && to->closure && !from->closure && same_signature(to->proc, from->proc))
+        return 2; /* a plain routine is a closure without captures */
     if (to->kind == T_CLASS && from->kind == T_CLASS && from->nilable && !to->nilable) return 0;
     if (to->kind == T_CLASS && from->kind == T_CLASS && from->readonly && !to->readonly) return 0;
     if (to->kind == T_OPT) {
@@ -482,6 +486,9 @@ static Expr *coerce(Expr *e, Type *to, const char *ctx) {
         return w;
     }
     if (!c) {
+        if (to->kind == T_PROC && !to->closure && e->type->kind == T_PROC && e->type->closure)
+            error_at(e->pos, "this %s uses variables of the routine around it (a closure) and cannot be stored as \"%s\" in %s; declare the parameter or variable 'reference to %s'",
+                     e->kind == E_LAMBDA ? "lambda" : "routine", type_name(to), ctx, type_name(to));
         if (to->kind == T_CLASS && to->st->is_iface && e->type->kind == T_CLASS && !e->type->st->is_iface)
             error_at(e->pos, "\"%s\" does not implement the interface \"%s\" in %s (declare it: '%s = class(..., %s)')",
                      type_name(e->type), type_name(to), ctx, e->type->st->name, to->st->name);
@@ -877,6 +884,7 @@ static void add_fields(Struct *s, FieldDeclVec *fields) {
     for (int i = 0; i < fields->len; i++) {
         FieldDecl *fd = &fields->items[i];
         Type *t = resolve_type(fd->ty);
+        no_closure(t, fd->ty->pos, "a field");
         check_complete(t, fd->ty->pos);
         if (s->kind == SK_RECORD) require_nilable(t, fd->ty->pos, "record field");
         else if (t->kind == T_PROC) require_nilable(t, fd->ty->pos, "field");
@@ -928,6 +936,7 @@ static void define_sum(Struct *s, TypeExpr *te) {
         for (int k = 0; k < vd->fields.len; k++) {
             FieldDecl *fd = &vd->fields.items[k];
             Type *t = resolve_type(fd->ty);
+            no_closure(t, fd->ty->pos, "a variant field");
             check_complete(t, fd->ty->pos);
             require_nilable(t, fd->ty->pos, "variant field");
             if (t->readonly && t->kind != T_CLASS) error_at(fd->ty->pos, "fields cannot be 'const'");
@@ -989,7 +998,7 @@ static void define_record(Struct *s, TypeExpr *te) {
         r->vis = md->vis;
         r->is_overload = md->is_overload;
         build_params(r, &md->params);
-        if (md->ret) r->ret = resolve_type(md->ret);
+        if (md->ret) r->ret = resolve_type(md->ret), no_closure(r->ret, md->ret->pos, "the result of a method");
         r->ret_borrowed = md->ret_borrowed;
         auto_rules(md, s, r);
         overload_unique(s, r);
@@ -1068,6 +1077,7 @@ static Type *resolve_type(TypeExpr *te) {
     Type *t = resolve_type_inner(te);
     if (te->readonly) t = readonly_any(t);
     if (!te->nilable) return t;
+    no_closure(t, te->pos, "an optional value");
     if (is_optional(t)) error_at(te->pos, "optional of optional is not allowed");
     if (t->kind == T_CLASS) { /* optional class: a reference that may be none (NULL) */
         Type *n = NEW(Type);
@@ -1131,6 +1141,7 @@ static char *inst_key(Generic *g, Type **args, int n) {
 
 /* TListe<TKunde>: the instance of a generic type for these type arguments (made once) */
 static Type *instantiate(Generic *g, Type **args, int n, Pos p) {
+    for (int i = 0; i < n; i++) no_closure(args[i], p, "a type argument");
     if (n != g->params.len)
         error_at(p, "\"%s\" has %d type parameter%s, but %d type argument%s given", g->name, g->params.len,
                  g->params.len == 1 ? "" : "s", n, n == 1 ? " is" : "s are");
@@ -1190,6 +1201,7 @@ static Sym *find_local(const char *name);
 
 /* Max<Integer>: the instance of a generic routine (header now, body checked at the end) */
 static Routine *instantiate_routine(Generic *g, Type **args, int n, Pos p) {
+    for (int i = 0; i < n; i++) no_closure(args[i], p, "a type argument");
     if (n != g->params.len)
         error_at(p, "\"%s\" has %d type parameter%s, but %d type argument%s given", g->name, g->params.len,
                  g->params.len == 1 ? "" : "s", n, n == 1 ? " is" : "s are");
@@ -1436,7 +1448,10 @@ static Type *resolve_type_inner(TypeExpr *te) {
         sig->cname = sfmt("SIG%d", sig->id);
         build_params(sig, &d->params);
         if (d->kind == RK_FUNC) sig->ret = resolve_type(d->ret);
-        return proc_type(sig);
+        if (sig->ret) no_closure(sig->ret, d->ret->pos, "the result of a function type");
+        Type *pt = proc_type(sig);
+        if (te->closure) closure_of(pt);
+        return pt;
     }
     case TE_RESULT: {
         Type *b = te->elem ? resolve_type(te->elem) : NULL;
@@ -1449,6 +1464,7 @@ static Type *resolve_type_inner(TypeExpr *te) {
                 error_at(te->pos, "the error of a result must be a value without objects, not \"%s\"", type_name(x));
             if (x->kind == T_PTR) error_at(te->pos, "a result cannot hold \"%s\"", type_name(x));
             if (x->kind == T_RES) error_at(te->pos, "result of result is not allowed");
+            no_closure(x, te->pos, "a result");
             if (x->kind == T_VOID) error_at(te->pos, "invalid result type");
         }
         if (b) check_complete(b, te->elem->pos);
@@ -1459,6 +1475,7 @@ static Type *resolve_type_inner(TypeExpr *te) {
     }
     case TE_ARRAY: {
         Type *elem = resolve_type(te->elem);
+        no_closure(elem, te->elem->pos, "an array element");
         check_complete(elem, te->elem->pos);
         require_nilable(elem, te->elem->pos, "array element");
         if (te->dyn) { /* array of T: owns a buffer on the heap that grows with SetLength */
@@ -1515,6 +1532,8 @@ static void build_params(Routine *rt, ParamGroupVec *pg) {
         ParamGroup *g = &pg->items[i];
         Type *t = resolve_type(g->ty);
         int mode = g->mode;
+        if (t->kind == T_PROC && t->closure && mode != PM_VALUE)
+            error_at(g->ty->pos, "a 'reference to' parameter can only be a value parameter (a closure must not leave the call)");
         if (t->readonly && t->kind != T_CLASS && mode == PM_VALUE) mode = PM_CONSTREF; /* read-only, no copy */
         if (mode == PM_VALUE && has_owned(t)) mode = PM_CONSTREF; /* owns objects: borrowed read-only, not copied */
         if (g->mode == PM_OWNED && !is_owning_type(t) && !has_owned(t)) { /* a value that owns objects: it is moved in */
@@ -1634,7 +1653,7 @@ static void define_iface(Struct *s, StructDecl *sd) {
         r->level = 1;
         r->cname = sfmt("I%d_%s", s->id, md->name.name);
         build_params(r, &md->params);
-        if (md->ret) r->ret = resolve_type(md->ret);
+        if (md->ret) r->ret = resolve_type(md->ret), no_closure(r->ret, md->ret->pos, "the result of a method");
         r->ret_borrowed = md->ret_borrowed;
         r->is_abstract = 1;
         r->defined = 1;
@@ -1742,7 +1761,7 @@ static void define_struct(Struct *s, StructDecl *sd) {
         r->cname = novl ? sfmt("M%d_%s_%d", s->id, md->name.name, novl + 1) : sfmt("M%d_%s", s->id, md->name.name);
         r->vis = md->vis;
         build_params(r, &md->params);
-        if (md->ret) r->ret = resolve_type(md->ret);
+        if (md->ret) r->ret = resolve_type(md->ret), no_closure(r->ret, md->ret->pos, "the result of a method");
         r->ret_borrowed = md->ret_borrowed;
         auto_rules(md, s, r);
         overload_unique(s, r);
@@ -2819,13 +2838,17 @@ static Type *proc_type(Routine *sig) {
     t->name = (char *)proc_name(sig);
     return t;
 }
+static void closure_of(Type *t) {
+    t->closure = 1;
+    t->name = sfmt("reference to %s", proc_name(t->proc));
+}
 static Expr *routine_ref(Routine *rt, Pos p) {
-    if (rt->owner || rt->level != 1 || rt->is_sig)
-        error_at(p, "only routines declared at program or module level can be used as values ('%s' is %s)", rt->name,
-                 rt->owner ? "a method" : "nested");
+    if (rt->owner || rt->is_sig)
+        error_at(p, "only routines (not methods) can be used as values ('%s' is a method: wrap the call in a lambda)", rt->name);
     Expr *e = new_expr(E_ROUTREF, p);
     e->rt = rt;
     e->type = proc_type(rt);
+    if (rt->level > 1) closure_of(e->type); /* a nested routine refers to the frame of the routine around it */
     rt->addr_taken = 1;
     return e;
 }
@@ -2840,6 +2863,99 @@ static void routine_body(Routine *rt, RoutineDecl *d);
 static void build_params(Routine *r, ParamGroupVec *groups);
 static Routine *new_routine(const char *name, int kind, Pos p);
 /* function(a, b: Integer): Integer begin ... end */
+
+/* 'reference to function(...)' values may be closures that point into the frame of a routine:
+   they may only be value parameters and local variables of routines, never stored anywhere else */
+static void no_closure(Type *t, Pos p, const char *where) {
+    if (t && t->kind == T_PROC && t->closure)
+        error_at(p, "%s cannot be \"%s\": a closure may refer to the variables of a routine, so it can only be a value parameter or a local variable of a routine",
+                 where, type_name(t));
+}
+
+/* does a lambda use variables (or Self, or nested routines) of the routine around it? */
+typedef struct {
+    VEC(const char *) decl; /* names declared in the lambda */
+    VEC(Expr *) used;       /* identifiers it uses */
+    int self;               /* inherited / Self */
+} CapScan;
+static void cap_expr(Expr *e, CapScan *c);
+static void cap_stmt(Stmt *s, CapScan *c);
+static void cap_block(Block *b, CapScan *c) {
+    if (!b) return;
+    for (int i = 0; i < b->decls.len; i++) {
+        Decl *d = b->decls.items[i];
+        for (int k = 0; k < d->vars.len; k++) {
+            VarDecl *v = &d->vars.items[k];
+            for (int n = 0; n < v->names.len; n++) vpush(c->decl, v->names.items[n].name);
+            cap_expr(v->init, c);
+            cap_expr(v->ctor, c);
+        }
+        for (int k = 0; k < d->consts.len; k++) {
+            vpush(c->decl, d->consts.items[k].name.name);
+            cap_expr(d->consts.items[k].value, c);
+        }
+        if (d->rt) vpush(c->decl, d->rt->name.name);
+    }
+    for (int i = 0; i < b->body.len; i++) cap_stmt(b->body.items[i], c);
+}
+static void cap_rdecl(RoutineDecl *d, CapScan *c) {
+    for (int i = 0; i < d->params.len; i++)
+        for (int n = 0; n < d->params.items[i].names.len; n++) vpush(c->decl, d->params.items[i].names.items[n].name);
+    vpush(c->decl, "Result");
+    cap_block(d->body, c);
+}
+static void cap_expr(Expr *e, CapScan *c) {
+    if (!e) return;
+    if (e->kind == E_IDENT) vpush(c->used, e);
+    if (e->kind == E_INHERITED) c->self = 1;
+    if ((e->kind == E_ISSOME || e->kind == E_SOMEPAT) && e->has_id) vpush(c->decl, e->id.name);
+    if (e->kind == E_LAMBDA && e->lam) cap_rdecl((RoutineDecl *)e->lam, c);
+    cap_expr(e->a, c);
+    cap_expr(e->b, c);
+    cap_expr(e->c, c);
+    for (int i = 0; i < e->args.len; i++) cap_expr(e->args.items[i], c);
+    for (int i = 0; i < e->args2.len; i++) cap_expr(e->args2.items[i], c);
+}
+static void cap_stmt(Stmt *s, CapScan *c) {
+    if (!s) return;
+    if ((s->kind == S_FOR && s->decl_var) || s->kind == S_FORIN) vpush(c->decl, s->var.name);
+    else if (s->kind == S_FOR) {
+        Expr *v = new_expr(E_IDENT, s->pos);
+        v->id = s->var;
+        vpush(c->used, v);
+    }
+    cap_expr(s->a, c);
+    cap_expr(s->b, c);
+    cap_expr(s->c, c);
+    cap_stmt(s->s1, c);
+    cap_stmt(s->s2, c);
+    for (int i = 0; i < s->body.len; i++) cap_stmt(s->body.items[i], c);
+    for (int i = 0; i < s->arms.len; i++) {
+        for (int k = 0; k < s->arms.items[i].lo.len; k++) cap_expr(s->arms.items[i].lo.items[k], c);
+        for (int k = 0; k < s->arms.items[i].hi.len; k++) cap_expr(s->arms.items[i].hi.items[k], c);
+        cap_stmt(s->arms.items[i].body, c);
+    }
+    for (int i = 0; i < s->else_.len; i++) cap_stmt(s->else_.items[i], c);
+    for (int i = 0; i < s->exprs.len; i++) cap_expr(s->exprs.items[i], c);
+    cap_block(s->blk, c);
+}
+static int lambda_captures(RoutineDecl *d) {
+    CapScan c = {0};
+    cap_rdecl(d, &c);
+    if (c.self) return 1;
+    for (int i = 0; i < c.used.len; i++) {
+        const char *n = c.used.items[i]->id.name;
+        int own = 0;
+        for (int k = 0; k < c.decl.len && !own; k++) own = STREQ(c.decl.items[k], n);
+        if (own) continue;
+        Look L = lookup(n);
+        if (L.kind == LK_MEMBER) return 1; /* a member of Self */
+        if (L.kind != LK_SYM) continue;
+        if (L.sym->kind == SY_VAR && !L.sym->var->is_global) return 1;
+        if (L.sym->kind == SY_ROUTINE && L.sym->rt->level > 1) return 1;
+    }
+    return 0;
+}
 static Expr *lambda_expr(Expr *e) {
     if (e->rt) return e;
     RoutineDecl *d = e->lam;
@@ -2848,7 +2964,24 @@ static Expr *lambda_expr(Expr *e) {
     rt->cname = sfmt("LAM%d", rt->id);
     build_params(rt, &d->params);
     if (d->kind == RK_FUNC) rt->ret = resolve_type(d->ret);
+    if (rt->ret) no_closure(rt->ret, d->pos, "the result of a lambda");
     rt->addr_taken = 1;
+    if (cur && lambda_captures(d)) { /* a closure: a nested routine that uses the frame of the routine around it */
+        rt->level = cur->level + 1;
+        rt->parent = cur;
+        rt->captures = 1;
+        Expr *st = try_site;
+        int sloop = loop_depth, sb = in_block;
+        in_block = 0;
+        routine_body(rt, d);
+        in_block = sb;
+        loop_depth = sloop;
+        try_site = st;
+        e->rt = rt;
+        e->type = proc_type(rt);
+        closure_of(e->type);
+        return e;
+    }
     Scope *ss = scope, *so = lambda_outer;
     Routine *sc = cur;
     int sl = level, sb = in_block, sloop = loop_depth;
@@ -3475,6 +3608,9 @@ static void stmt(Stmt *s) {
     case S_ASSIGN:
         assign(s);
         if (s->kind == S_ASSIGN && !s->bind) move_check(s->b, "assignment"); /* a 'var' result refers, it does not move */
+        if (s->kind == S_ASSIGN && s->a->kind == E_VAR && s->a->type->kind == T_PROC && s->a->type->closure && s->a->var->level < level)
+            error_at(s->a->pos, "a closure variable can only be assigned in the routine that declares it ('%s' belongs to an outer routine)",
+                     s->a->var->name);
         return;
     case S_CALL: {
         Expr *c = s->a;
@@ -3511,6 +3647,10 @@ static void stmt(Stmt *s) {
             }
         }
         Expr *e = ex(c);
+        if (e->type && e->type->kind == T_PROC && e->kind != E_RCALL && !e->type->proc->params.len) {
+            ExprVec none = {0};
+            e = indirect_call(e, &none, s->pos); /* 'f;' calls a procedure value without parameters */
+        }
         if (e->kind != E_RCALL && e->kind != E_BUILTIN) error_at(s->pos, "illegal expression (statement expected)");
         s->a = e;
         return;
@@ -4053,6 +4193,7 @@ static void routine_decl(RoutineDecl *d) {
         if (d->kind == RK_FUNC) {
             if (!d->ret) error_at(d->pos, "function result type expected");
             rt->ret = resolve_type(d->ret);
+            no_closure(rt->ret, d->ret->pos, "the result of a function");
         }
         rt->ret_borrowed = d->ret_borrowed;
         if (d->ret_borrowed && !is_owning_type(rt->ret)) {
@@ -4103,6 +4244,7 @@ static void routine_body(Routine *rt, RoutineDecl *d) {
     int has_frame = 0;
     for (int i = 0; i < d->body->decls.len; i++)
         if (d->body->decls.items[i]->kind == D_ROUTINE) has_frame = 1;
+    if (d->has_lambda) has_frame = 1; /* its lambdas may capture its variables */
     rt->has_frame = has_frame;
 
     if (rt->owner && rt->is_classm) push_scope()->cls = rt->owner;
@@ -4299,6 +4441,7 @@ static void decl1(Decl *d, int has_frame) {
                     t = infer_type(r, vd->init->pos, vn);
                 }
                 /* val k := TFoo.Create(...): a stack object, constructed in place, destroyed at the end of its block */
+                if (!cur) no_closure(t, dpos, "a variable of the main program");
                 int is_stack = t->kind == T_CLASS && !vd->is_heap && !vd->borrowed;
                 if (is_stack && generic_depth && vd->ty && t->nilable) is_stack = 0; /* generic code: 'val h: optional T' owns a reference */
                 Expr *ctor = NULL;

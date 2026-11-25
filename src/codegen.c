@@ -108,6 +108,7 @@ static char *ctype(Type *t) {
     case T_LIT: return "void";
     case T_PARAM: return "void"; /* placeholders never reach the C code */
     case T_PROC: { /* function value: a C function pointer */
+        if (t->closure) return "__Closure";
         Routine *r = t->proc;
         Buf pb = {0};
         for (int i = 0; i < r->params.len; i++) {
@@ -642,7 +643,15 @@ static char *gcall_core(Expr *e, const char *selfp, Struct *sst, const char *as)
     Routine *r = e->rt;
     const char *dflag = "";
     switch (e->cmode) {
-    case CM_INDIRECT: return sfmt("(%s)(%s)", gx(e->b), as[0] ? as + 2 : "");
+    case CM_INDIRECT:
+        if (e->b->type->closure) { /* with a frame: the frame is the first argument; without: a plain routine */
+            Type plain = *e->b->type;
+            plain.closure = 0;
+            int id = ++tmpc;
+            return sfmt("({ __Closure __c%d = %s; __c%d.env ? ((%s)__c%d.fn)(__c%d.env%s) : ((%s)__c%d.fn)(%s); })", id, gx(e->b), id,
+                        slot_type(r, NULL), id, id, as, ctype(&plain), id, as[0] ? as + 2 : "");
+        }
+        return sfmt("(%s)(%s)", gx(e->b), as[0] ? as + 2 : "");
     case CM_NORMAL:
         if (r->level > 1) return sfmt("%s(%s%s)", r->cname, frame_ptr(r->level - 1), as);
         return sfmt("%s(%s)", r->cname, as[0] ? as + 2 : "");
@@ -1091,6 +1100,7 @@ static char *gx(Expr *e) {
         if (to->kind == T_REAL) return sfmt("((double)(%s))", a);
         if (to->kind == T_STR && from->kind == T_CHAR) return sfmt("__pstr_char(%s)", a);
         if (to->kind == T_PTR || to->kind == T_CLASS) return sfmt("((%s)(%s))", ctype(to), a);
+        if (to->kind == T_PROC && to->closure && !from->closure) return sfmt("((__Closure){(void*)(%s), 0})", a);
         return a;
     }
     case E_CAST: {
@@ -1102,7 +1112,10 @@ static char *gx(Expr *e) {
         if (e->bi == BI_ARRCLONE && has_owned(e->type) && !is_taken(e))
             error_at(e->pos, "the clone owns objects and would never be freed here: store it in a variable first ('val c := a.Clone')");
         return gbuiltin(e);
-    case E_ROUTREF: case E_LAMBDA: return e->rt->cname; /* the C function itself */
+    case E_ROUTREF: case E_LAMBDA:
+        if (e->type->closure && e->rt->level > 1) /* a closure: the nested routine and the frame of the routine around it */
+            return sfmt("((__Closure){(void*)%s, (void*)%s})", e->rt->cname, frame_ptr(e->rt->level - 1));
+        return e->rt->cname; /* the C function itself */
     case E_RCALL:
         if (e->rt->ret_ref) { /* a reference into a container: read the value (none if there is none) */
             int id = ++tmpc;

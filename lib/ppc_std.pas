@@ -58,9 +58,9 @@ type
   end;
 
 procedure Sort<T: Comparable>(var a: array of T);
-procedure SortBy<T: Copy>(var a: array of T; Less: function(x, y: T): Boolean);
+procedure SortBy<T: Copy>(var a: array of T; Less: reference to function(x, y: T): Boolean);
 function IndexOf<T: Equatable>(a: array of T; x: T): optional Integer;
-function Filter<T: Copy>(a: array of T; Keep: function(x: T): Boolean): array of T;
+function Filter<T: Copy>(a: array of T; Keep: reference to function(x: T): Boolean): array of T;
 { ---- strings ---- }
 function Trim(s: String): String;                  { without spaces/control characters at both ends }
 function TrimLeft(s: String): String;
@@ -316,7 +316,7 @@ begin
   SortRange(a, 0, High(a));
 end;
 
-procedure SortBy<T: Copy>(var a: array of T; Less: function(x, y: T): Boolean);
+procedure SortBy<T: Copy>(var a: array of T; Less: reference to function(x, y: T): Boolean);
 begin                                              { insertion sort: stable }
   for val i := 1 to High(a) do
     val j := i;
@@ -333,7 +333,7 @@ begin                                              { insertion sort: stable }
     end;
 end;
 
-function Filter<T: Copy>(a: array of T; Keep: function(x: T): Boolean): array of T;
+function Filter<T: Copy>(a: array of T; Keep: reference to function(x: T): Boolean): array of T;
 begin
   for val i := 0 to High(a) do
     if Keep(a[i]) then
