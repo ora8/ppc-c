@@ -290,6 +290,89 @@ static int64_t __sqri(int64_t v) { return v * v; }
 static double __sqrr(double v) { return v * v; }
 static int64_t __round(double v) { return (int64_t)llrint(v); }
 static double __frac(double v) { return v - trunc(v); }
+/* Format('%d items, %s', [n, s]): %[index:][-][width][.precision]type with d u x f e g n s and %% */
+typedef struct { char kind; int64_t i; double r; PStr s; } __FArg; /* kind: 'i' whole number, 'r' real, 's' string */
+static void __fput(char **o, size_t *len, size_t *cap, const char *s, size_t n) {
+    if (*len + n + 1 > *cap) {
+        while (*len + n + 1 > *cap) *cap = *cap ? *cap * 2 : 64;
+        *o = (char *)realloc(*o, *cap);
+    }
+    memcpy(*o + *len, s, n);
+    *len += n;
+}
+static PStr __format(PStr fmt, int n, const __FArg *a) {
+    char *o = NULL;
+    size_t len = 0, cap = 0;
+    int next = 0;
+    char tmp[512];
+    for (int64_t i = 0; i < fmt.len; i++) {
+        char c = (char)fmt.p[i];
+        if (c != '%') { __fput(&o, &len, &cap, &c, 1); continue; }
+        if (++i >= fmt.len) __rt_error(220, "Format: '%' at the end of the format");
+        if (fmt.p[i] == '%') { __fput(&o, &len, &cap, "%", 1); continue; }
+        int64_t j = i, num = 0, has = 0;
+        while (j < fmt.len && isdigit(fmt.p[j])) num = num * 10 + (fmt.p[j++] - '0'), has = 1;
+        if (has && j < fmt.len && fmt.p[j] == ':') { next = (int)num; i = j + 1; }
+        int left = 0, width = 0, prec = -1;
+        if (i < fmt.len && fmt.p[i] == '-') { left = 1; i++; }
+        while (i < fmt.len && isdigit(fmt.p[i])) width = width * 10 + (fmt.p[i++] - '0');
+        if (i < fmt.len && fmt.p[i] == '.') { prec = 0; i++; while (i < fmt.len && isdigit(fmt.p[i])) prec = prec * 10 + (fmt.p[i++] - '0'); }
+        if (i >= fmt.len) __rt_error(220, "Format: incomplete format specifier");
+        char t = (char)tolower(fmt.p[i]);
+        if (next >= n) __rt_error(220, "Format: not enough arguments for the format");
+        const __FArg *x = &a[next++];
+        int k = 0;
+        switch (t) {
+        case 'd': case 'u': case 'x':
+            if (x->kind != 'i') __rt_error(220, "Format: %d, %u and %x need a whole number");
+            if (t == 'x') k = snprintf(tmp, sizeof tmp, left ? "%-*.*llX" : "%*.*llX", width, prec < 0 ? 1 : prec, (unsigned long long)x->i);
+            else if (t == 'u') k = snprintf(tmp, sizeof tmp, left ? "%-*.*llu" : "%*.*llu", width, prec < 0 ? 1 : prec, (unsigned long long)x->i);
+            else k = snprintf(tmp, sizeof tmp, left ? "%-*.*lld" : "%*.*lld", width, prec < 0 ? 1 : prec, (long long)x->i);
+            break;
+        case 'f': case 'e': case 'g': case 'n': {
+            if (x->kind == 's') __rt_error(220, "Format: %f, %e, %g and %n need a number");
+            double v = x->kind == 'i' ? (double)x->i : x->r;
+            if (t == 'n') { /* thousands separated by ',' */
+                char num_s[400];
+                snprintf(num_s, sizeof num_s, "%.*f", prec < 0 ? 2 : prec, v);
+                char *dot = strchr(num_s, '.'), *start = num_s + (num_s[0] == '-');
+                int intlen = (int)((dot ? dot : num_s + strlen(num_s)) - start);
+                char grp[512];
+                int g = 0;
+                if (num_s[0] == '-') grp[g++] = '-';
+                for (int q = 0; q < intlen; q++) {
+                    if (q && (intlen - q) % 3 == 0) grp[g++] = ',';
+                    grp[g++] = start[q];
+                }
+                grp[g] = 0;
+                if (dot) strcat(grp, dot);
+                k = snprintf(tmp, sizeof tmp, left ? "%-*s" : "%*s", width, grp);
+            } else {
+                char f[8] = {'%', left ? '-' : '*', '*', '.', '*', t == 'e' ? 'E' : t, 0};
+                if (left) { f[1] = '-'; f[2] = '*'; f[3] = '.'; f[4] = '*'; f[5] = t == 'e' ? 'E' : t; f[6] = 0; }
+                else { f[1] = '*'; f[2] = '.'; f[3] = '*'; f[4] = t == 'e' ? 'E' : t; f[5] = 0; }
+                k = snprintf(tmp, sizeof tmp, f, width, prec < 0 ? (t == 'f' ? 2 : 6) : prec, v);
+            }
+            break;
+        }
+        case 's': {
+            if (x->kind != 's') __rt_error(220, "Format: %s needs a string");
+            int64_t sl = prec >= 0 && prec < x->s.len ? prec : x->s.len;
+            int pad = width > sl ? (int)(width - sl) : 0;
+            if (!left) for (int q = 0; q < pad; q++) __fput(&o, &len, &cap, " ", 1);
+            __fput(&o, &len, &cap, (const char *)x->s.p, (size_t)sl);
+            if (left) for (int q = 0; q < pad; q++) __fput(&o, &len, &cap, " ", 1);
+            continue;
+        }
+        default: __rt_error(220, "Format: unknown format specifier");
+        }
+        if (k > (int)sizeof tmp - 1) k = (int)sizeof tmp - 1;
+        __fput(&o, &len, &cap, tmp, (size_t)k);
+    }
+    PStr r = __pstr_mem(o ? o : "", (int64_t)len);
+    free(o);
+    return r;
+}
 /* ---- standard library primitives (declared 'external' in ppc_std) ---- */
 static int __ppc_argc;
 static char **__ppc_argv;

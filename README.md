@@ -468,6 +468,22 @@ end;
   after the statement that uses them.
 * Changing the length (`SetLength`, `Delete`, `Insert`) invalidates borrows of characters.
 
+**Format** (as in Delphi) builds a string from a format and the values in brackets:
+
+```pascal
+WriteLn(Format('%d items for %s', [n, Name]));             { 3 items for Anna }
+WriteLn(Format('[%5d] [%-6s] [%8.2f] [%x] [%n]', [42, 'ab', 3.14159, 255, 1234567.891]));
+{ [   42] [ab    ] [    3.14] [FF] [1,234,567.89] }
+WriteLn(Format('%1:s %0:s', ['world', 'hello']));          { hello world }
+```
+
+* Specifiers `%[index:][-][width][.precision]type`: `d` (whole number), `u`, `x` (hex), `f`
+  (fixed, 2 decimals by default), `e`, `g`, `n` (with thousands separators), `s` (strings,
+  characters, Boolean, enumeration names; `.precision` cuts), `%%` for `%`.
+* With a literal format the compiler checks the specifiers against the values:
+  `Format: '%d' needs a whole number, but argument 1 is "String"`, too few or too many values.
+  A format computed at run time that does not fit stops with run-time error 220.
+
 ### Comparing values: `=` and `<>`
 
 Records, arrays (fixed and dynamic), optional values and enumerations with data are compared
@@ -1502,7 +1518,7 @@ once (in every kind of loop); borrows of them are invalid afterwards.
   Boolean), comparisons, string concatenation, `in [a, b..c]`, type casts `Integer(x)`,
   `TFoo(obj)`
 * Standard routines: `Write(Ln)` with `:width:decimals`, `Read(Ln)`, `Length`, `Copy`, `Pos`,
-  `Delete`, `Insert`, `UpCase`, `UpperCase`, `LowerCase`, `Concat`, `IntToStr`, `StrToInt`,
+  `Delete`, `Insert`, `UpCase`, `UpperCase`, `LowerCase`, `Concat`, `Format`, `IntToStr`, `StrToInt`,
   `FloatToStr`, `Str`, `SetLength`, `Ord`, `Chr`, `Succ`, `Pred`, `Inc`, `Dec`, `Odd`, `Abs`,
   `Sqr`, `Sqrt`, `Sin`, `Cos`, `ArcTan`, `Exp`, `Ln`, `Trunc`, `Round`, `Frac`, `Int`, `High`,
   `Low`, `SizeOf`, `Random`, `Randomize`, `Halt`, `Assigned`, `FreeAndNil`, `Take`;

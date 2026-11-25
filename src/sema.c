@@ -3070,6 +3070,39 @@ static Expr *value(Expr *e) {
 
 /* ============================================================== builtins */
 
+/* a literal format of Format: the specifiers must match the arguments */
+static void format_check(Expr *f, Expr *e, Pos p) {
+    int n = e->args.len - 1, next = 0, used = 0;
+    const char *s = f->sval;
+    int len = f->slen;
+    for (int i = 0; i < len; i++) {
+        if (s[i] != '%') continue;
+        if (++i >= len) error_at(f->pos, "Format: '%%' at the end of the format");
+        if (s[i] == '%') continue;
+        int j = i, num = 0, has = 0;
+        while (j < len && isdigit((unsigned char)s[j])) num = num * 10 + (s[j++] - '0'), has = 1;
+        if (has && j < len && s[j] == ':') { next = num; i = j + 1; }
+        if (i < len && s[i] == '-') i++;
+        while (i < len && isdigit((unsigned char)s[i])) i++;
+        if (i < len && s[i] == '.') { i++; while (i < len && isdigit((unsigned char)s[i])) i++; }
+        if (i >= len) error_at(f->pos, "Format: incomplete format specifier at the end");
+        char t = (char)tolower((unsigned char)s[i]);
+        if (!strchr("duxfegns", t)) error_at(f->pos, "Format: unknown specifier '%%%c' (known: %%d %%u %%x %%f %%e %%g %%n %%s %%%%)", s[i]);
+        if (next >= n) error_at(p, "Format: the format needs more arguments than the %d given", n);
+        Expr *x = e->args.items[1 + next];
+        Type *at = x->type;
+        if (strchr("dux", t) && !is_int(at))
+            error_at(x->pos, "Format: '%%%c' needs a whole number, but argument %d is \"%s\"", s[i], next + 1, type_name(at));
+        if (strchr("fegn", t) && !is_int(at) && at->kind != T_REAL)
+            error_at(x->pos, "Format: '%%%c' needs a number, but argument %d is \"%s\"", s[i], next + 1, type_name(at));
+        if (t == 's' && (is_int(at) || at->kind == T_REAL))
+            error_at(x->pos, "Format: '%%s' needs a string, but argument %d is \"%s\" (use %%d or %%f)", next + 1, type_name(at));
+        next++;
+        if (next > used) used = next;
+    }
+    if (used < n) error_at(p, "Format: %d argument%s given, but the format uses only %d", n, n == 1 ? "" : "s", used);
+}
+
 static const struct {
     const char *name;
     int id;
@@ -3081,7 +3114,7 @@ static const struct {
     {"Trunc", BI_TRUNC}, {"Round", BI_ROUND}, {"Frac", BI_FRAC}, {"Int", BI_INT}, {"Odd", BI_ODD},
     {"High", BI_HIGH}, {"Low", BI_LOW}, {"SizeOf", BI_SIZEOF}, {"Copy", BI_COPY}, {"Pos", BI_POS},
     {"Delete", BI_DELETE}, {"Insert", BI_INSERT}, {"IntToStr", BI_INTTOSTR}, {"StrToInt", BI_STRTOINT},
-    {"FloatToStr", BI_FLOATTOSTR}, {"Str", BI_STR}, {"UpCase", BI_UPCASE}, {"UpperCase", BI_UPPERCASE},
+    {"FloatToStr", BI_FLOATTOSTR}, {"Format", BI_FORMAT}, {"Str", BI_STR}, {"UpCase", BI_UPCASE}, {"UpperCase", BI_UPPERCASE},
     {"LowerCase", BI_LOWERCASE}, {"Concat", BI_CONCAT}, {"Halt", BI_HALT}, {"Random", BI_RANDOM},
     {"Randomize", BI_RANDOMIZE}, {"Assigned", BI_ASSIGNED}, {"New", BI_NEW}, {"Dispose", BI_DISPOSE},
     {"FreeAndNil", BI_FREEANDNIL}, {"Take", BI_TAKE}, {"SetLength", BI_SETLENGTH},
@@ -3274,6 +3307,24 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
         vpush(e->args, coerce(value(A(0)), t_str, nm));
         e->type = t_int;
         return e;
+    case BI_FORMAT: { /* Format('%d of %s', [n, s]) */
+        NARGS(2, 2);
+        Expr *f = coerce(value(A(0)), t_str, nm);
+        vpush(e->args, f);
+        Expr *l = A(1);
+        if (l->kind != E_SET) error_at(l->pos, "Format needs its arguments in brackets: Format('%%d %%s', [n, s])");
+        for (int i = 0; i < l->args.len; i++) {
+            if (l->args2.items[i]) error_at(l->args.items[i]->pos, "ranges are not allowed in the arguments of Format");
+            Expr *x = value(l->args.items[i]);
+            Type *t = x->type;
+            if (!(is_int(t) || t->kind == T_REAL || t->kind == T_STR || t->kind == T_CHAR || t->kind == T_BOOL || t->kind == T_ENUM))
+                error_at(x->pos, "Format cannot show \"%s\" (numbers, strings, characters, Boolean and enumerations can)", type_name(t));
+            vpush(e->args, x);
+        }
+        if (f->kind == E_STR) format_check(f, e, l->pos);
+        e->type = t_str;
+        return e;
+    }
     case BI_FLOATTOSTR:
         NARGS(1, 1);
         vpush(e->args, coerce(value(A(0)), t_real, nm));

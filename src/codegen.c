@@ -804,6 +804,22 @@ static char *gbuiltin(Expr *e) {
     case BI_INTTOSTR: return sfmt("__int_to_str(%s)", G(0));
     case BI_STRTOINT: return sfmt("__str_to_int(%s)", G(0));
     case BI_FLOATTOSTR: return sfmt("__float_to_str(%s)", G(0));
+    case BI_FORMAT: {
+        if (A->len == 1) return sfmt("__format(%s, 0, NULL)", G(0));
+        Buf b = {0};
+        for (int i = 1; i < A->len; i++) {
+            Expr *x = A->items[i];
+            Type *t = x->type;
+            char *v = gx(x);
+            if (t->kind == T_REAL) buf_printf(&b, "{'r', 0, %s, {0, 0}}, ", v);
+            else if (t->kind == T_STR) buf_printf(&b, "{'s', 0, 0, %s}, ", v);
+            else if (t->kind == T_CHAR) buf_printf(&b, "{'s', 0, 0, __pstr_char(%s)}, ", v);
+            else if (t->kind == T_BOOL) buf_printf(&b, "{'s', 0, 0, __pstr_cstr((%s) ? \"TRUE\" : \"FALSE\")}, ", v);
+            else if (t->kind == T_ENUM) buf_printf(&b, "{'s', 0, 0, __pstr_cstr(ENAMES%d[%s])}, ", t->en->id, v);
+            else buf_printf(&b, "{'i', (int64_t)(%s), 0, {0, 0}}, ", v);
+        }
+        return sfmt("__format(%s, %d, (__FArg[]){%s})", G(0), A->len - 1, buf_str(&b));
+    }
     case BI_STR: {
         Expr *a = A->items[0];
         Expr *v = a->kind == E_FMT ? a->a : a;
