@@ -325,6 +325,40 @@ static char *agg_drop_fn(Type *t) {
 }
 static char *agg_drop(Type *t, const char *lv) { return sfmt("%s(&(%s))", agg_drop_fn(t), lv); }
 
+/* Hash(x): one function per record or array type, combining its parts */
+static VEC(char *) ahash_keys;
+static VEC(char *) ahash_names;
+static char *hash_of(Type *t, const char *x) {
+    switch (t->kind) {
+    case T_STR: return sfmt("__hash_str(%s)", x);
+    case T_REAL: return sfmt("__hash_real(%s)", x);
+    case T_SET: return sfmt("__hash_set(%s)", x);
+    case T_RECORD: case T_ARRAY: {
+        char *ct = ctype(t), *name = NULL;
+        for (int i = 0; i < ahash_keys.len; i++)
+            if (STREQ(ahash_keys.items[i], ct)) name = ahash_names.items[i];
+        if (!name) {
+            name = sfmt("H%d", ahash_keys.len + 1);
+            vpush(ahash_keys, ct);
+            vpush(ahash_names, name);
+            buf_printf(&b_protos, "static int64_t %s(%s *a);\n", name, ct);
+            Buf b = {0};
+            buf_printf(&b, "static int64_t %s(%s *a) {\n  int64_t h = 0;\n", name, ct);
+            if (t->kind == T_RECORD)
+                for (int k = 0; k < t->st->fields.len; k++)
+                    buf_printf(&b, "  h = __hash_comb(h, %s);\n", hash_of(t->st->fields.items[k]->type, sfmt("a->%s", t->st->fields.items[k]->cname)));
+            else
+                buf_printf(&b, "  for (long i = 0; i < %lld; i++) h = __hash_comb(h, %s);\n", t->hi - t->lo + 1, hash_of(t->base, "a->a[i]"));
+            buf_put(&b, "  return h;\n}\n");
+            buf_put(&b_drops, buf_str(&b));
+        }
+        int id = ++tmpc;
+        return sfmt("({ %s __hv%d = %s; %s(&__hv%d); })", ct, id, x, name, id);
+    }
+    default: return sfmt("__hash_mix((uint64_t)(int64_t)(%s))", x); /* numbers, Char, Boolean, enumerations */
+    }
+}
+
 /* '=' of records, arrays and optional values: one function per type */
 static VEC(char *) aeq_keys;
 static VEC(char *) aeq_names;
@@ -825,6 +859,7 @@ static char *gbuiltin(Expr *e) {
     case BI_INTTOSTR: return sfmt("__int_to_str(%s)", G(0));
     case BI_STRTOINT: return sfmt("__str_to_int(%s)", G(0));
     case BI_FLOATTOSTR: return sfmt("__float_to_str(%s)", G(0));
+    case BI_HASH: return hash_of(A->items[0]->type, G(0));
     case BI_INCLUDE: return sfmt("__set_incl(&(%s), (int64_t)(%s), %lld, %lld)", G(0), G(1), A->items[0]->type->lo, A->items[0]->type->hi);
     case BI_EXCLUDE: return sfmt("__set_excl(&(%s), (int64_t)(%s), %lld, %lld)", G(0), G(1), A->items[0]->type->lo, A->items[0]->type->hi);
     case BI_FORMAT: {

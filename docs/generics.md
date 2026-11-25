@@ -86,6 +86,7 @@ announced:
 | `T: Equatable` | `=`, `<>` | numbers, strings, Char, Boolean, enumerations |
 | `T: Comparable` | also `<`, `<=`, `>`, `>=` | numbers, strings, Char, enumerations |
 | `T: Numeric` | `+`, `-`, `*`, number literals, comparisons | integer types, Real |
+| `T: Hashable` | `=`, `<>`, `Hash(x)` | numbers, Char, Boolean, enumerations, strings, sets, records and arrays of them |
 
 Several constraints: `T: Clone, Comparable`; parameter groups with constraints are separated by
 `;` as in Delphi: `TMap<K: Comparable; V>`. The constraints are checked at every instantiation:

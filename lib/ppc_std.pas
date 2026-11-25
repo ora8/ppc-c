@@ -3,6 +3,7 @@
   TList<T>                  list that grows (index from 0)
   TStack<T>                 stack (last in, first out)
   TMap<K: Comparable; V>    map key -> value, sorted by key
+  THashMap<K: Hashable; V>  map key -> value with hashing (faster for many keys)
   Sort<T: Comparable>       sorts an 'array of T' in ascending order
   SortBy<T: Copy>           sorts with a comparison function: SortBy(a, function(x, y: T): Boolean ...)
   IndexOf<T: Equatable>     position of a value in an 'array of T', or none
@@ -57,6 +58,25 @@ type
     function Contains(k: K): Boolean; const;
     function Remove(k: K): optional V;             { take out }
     function Count: Integer; const;
+    property Value[k: K]: optional V read Get write Put; default; { m[k], m[k] := v }
+  end;
+
+  THashMap<K: Hashable; V> = class                 { map key -> value with hashing: Put/Get/Remove in O(1) }
+  private
+    FKeys: array of K;
+    FValues: array of optional V;
+    FState: array of Integer;                      { per slot: 0 empty, 1 used, 2 removed }
+    FCount, FUsed: Integer;                        { FUsed: used and removed slots }
+    function Slot(k: K): Integer; const;           { the slot of k, -1 if k is not there }
+    procedure Grow;
+  public
+    procedure Put(k: K; vao v: V);                 { insert or replace (the old value is freed) }
+    function Get(k: K): var optional V;
+    function Contains(k: K): Boolean; const;
+    function Remove(k: K): optional V;             { take out }
+    function Count: Integer; const;
+    function KeyList: array of K; const;           { the keys (in no particular order) }
+    procedure Clear;
     property Value[k: K]: optional V read Get write Put; default; { m[k], m[k] := v }
   end;
 
@@ -287,6 +307,109 @@ end;
 function TMap<K, V>.Count: Integer; const;
 begin
   Result := Length(Keys);
+end;
+
+{ ---------------------------------------------------------------- THashMap<K, V> }
+
+function THashMap<K, V>.Slot(k: K): Integer; const;
+val
+  n := Length(FState);
+  i := 0;
+  probes := 0;
+begin
+  Result := -1;
+  if n = 0 then Exit;
+  i := Hash(k) and (n - 1);
+  while (FState[i] <> 0) and (probes < n) do
+  begin
+    if (FState[i] = 1) and (FKeys[i] = k) then Exit(i);
+    i := (i + 1) and (n - 1);
+    Inc(probes);
+  end;
+end;
+
+procedure THashMap<K, V>.Grow;
+val
+  oldKeys := FKeys;                                { moved out: the fields are empty now }
+  oldValues := FValues;
+  oldState := FState;
+  n := Length(oldState) * 2;
+begin
+  if n < 8 then n := 8;
+  SetLength(FKeys, n);
+  SetLength(FValues, n);
+  SetLength(FState, n);
+  FCount := 0;
+  FUsed := 0;
+  for val i := 0 to High(oldState) do
+    if oldState[i] = 1 then
+      if Take(oldValues[i]) is some v then Put(oldKeys[i], v);
+end;
+
+procedure THashMap<K, V>.Put(k: K; vao v: V);
+val i := Slot(k);
+begin
+  if i >= 0 then
+  begin
+    FValues[i] := v;                               { replace: the old value is freed }
+    Exit;
+  end;
+  if (FUsed + 1) * 10 >= Length(FState) * 7 then Grow;
+  i := Hash(k) and (Length(FState) - 1);
+  while FState[i] = 1 do i := (i + 1) and (Length(FState) - 1);
+  if FState[i] = 0 then Inc(FUsed);
+  FState[i] := 1;
+  FKeys[i] := k;
+  FValues[i] := v;
+  Inc(FCount);
+end;
+
+function THashMap<K, V>.Get(k: K): var optional V;
+val i := Slot(k);
+begin
+  Result := none;
+  if i >= 0 then Result := FValues[i];
+end;
+
+function THashMap<K, V>.Contains(k: K): Boolean; const;
+begin
+  Result := Slot(k) >= 0;
+end;
+
+function THashMap<K, V>.Remove(k: K): optional V;
+val i := Slot(k);
+begin
+  Result := none;
+  if i >= 0 then
+  begin
+    Result := Take(FValues[i]);
+    FState[i] := 2;                                { removed: later keys of the probe chain stay reachable }
+    Dec(FCount);
+  end;
+end;
+
+function THashMap<K, V>.Count: Integer; const;
+begin
+  Result := FCount;
+end;
+
+function THashMap<K, V>.KeyList: array of K; const;
+begin
+  for val i := 0 to High(FState) do
+    if FState[i] = 1 then
+    begin
+      SetLength(Result, Length(Result) + 1);
+      Result[High(Result)] := FKeys[i];
+    end;
+end;
+
+procedure THashMap<K, V>.Clear;
+begin
+  SetLength(FKeys, 0);
+  SetLength(FValues, 0);
+  SetLength(FState, 0);
+  FCount := 0;
+  FUsed := 0;
 end;
 
 { ------------------------------------------------------------- sorting, searching }

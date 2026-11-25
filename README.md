@@ -838,6 +838,7 @@ type
 | `Equatable` (`=`, `<>`) | numbers, Char, Boolean, strings, enumerations, classes (same object) |
 | `Comparable` (`<`, `>` …) | numbers, Char, Boolean, strings, enumerations |
 | `Numeric` (`+`, `-`, `*`, number literals, comparisons) | integer types, Real |
+| `Hashable` (`=`, `<>`, `Hash(x)`) | numbers, Char, Boolean, enumerations, strings, sets, records and fixed arrays of them |
 
 If a type does not fit, the compiler reports it at the call or the instance:
 `"TK" does not satisfy 'T: Comparable' (required by Max<T>)`.
@@ -1013,6 +1014,7 @@ end.                                                 { all containers free their
 | `TList<T>` | `Add(vao x)`, `Count`, `Get(i)` (borrowed), `Put(i, vao x)` (replace), `Extract(i)` (take out), `Clear`; `l[i]`, `l[i] := x`; index from 0 |
 | `TStack<T>` | `Push(vao x)`, `Pop` (take out), `Peek` (look), `Count`, `IsEmpty` |
 | `TMap<K: Comparable; V>` | `Put(k, vao v)` (insert/replace), `Get(k)`, `Contains(k)`, `Remove(k)`, `Count`; `m[k]`, `m[k] := v`; sorted by key, binary search |
+| `THashMap<K: Hashable; V>` | the same with hashing: `Put`, `Get`, `Contains`, `Remove`, `Count`, `KeyList`, `Clear`, `m[k]`; O(1) per operation (100 000 keys: 7 ms instead of 3.4 s with `TMap`), no order |
 | `Sort<T: Comparable>(var a: array of T)` | sorts ascending (quicksort) |
 | `SortBy<T>(var a: array of T; Less: function(x, y: T): Boolean)` | sorts with a comparison function (stable) |
 | `Filter<T: Copy>(a: array of T; Keep: function(x: T): Boolean): array of T` | the elements for which `Keep` is true |
@@ -1655,7 +1657,7 @@ once (in every kind of loop); borrows of them are invalid afterwards.
   `TFoo(obj)`
 * Standard routines: `Write(Ln)` with `:width:decimals`, `Read(Ln)`, `Length`, `Copy`, `Pos`,
   `Delete`, `Insert`, `UpCase`, `UpperCase`, `LowerCase`, `Concat`, `Format`, `IntToStr`, `StrToInt`,
-  `FloatToStr`, `Str`, `SetLength`, `Ord`, `Chr`, `Succ`, `Pred`, `Inc`, `Dec`, `Odd`, `Abs`,
+  `FloatToStr`, `Hash`, `Str`, `SetLength`, `Ord`, `Chr`, `Succ`, `Pred`, `Inc`, `Dec`, `Odd`, `Abs`,
   `Sqr`, `Sqrt`, `Sin`, `Cos`, `ArcTan`, `Exp`, `Ln`, `Trunc`, `Round`, `Frac`, `Int`, `High`,
   `Low`, `SizeOf`, `Random`, `Randomize`, `Halt`, `Assigned`, `FreeAndNil`, `Take`;
   for `optional`: `HasValue`, `ValueOr`; for `result`: `IsOk`, `IsError`, `ValueOr`

@@ -76,6 +76,7 @@ static int set_elem_ok(Type *st, Type *t);
 static Expr *set_binary(Expr *e);
 static Expr *set_literal(Expr *e, Type *to);
 static Type *set_of_elems(Expr *e);
+static int hashable(Type *t);
 static Expr *cast_expr(Type *t, ExprVec *args, Pos p);
 static void operator_rules(Struct *s, MethodDecl *md);
 static void operator_check(Struct *s, Routine *r);
@@ -241,7 +242,7 @@ static int is_ptrlike(Type *t) { return t->kind == T_PTR || t->kind == T_CLASS |
 /* owning types: class instances and typed pointers (borrow checker) */
 int g_param_owning;
 /* while a generic body is checked on its own, a type parameter that may be an object is one */
-static int param_owner(Type *t) { return g_param_owning && t && t->kind == T_PARAM && !(t->ik & (PC_COPY | PC_CMP | PC_NUM)); }
+static int param_owner(Type *t) { return g_param_owning && t && t->kind == T_PARAM && !(t->ik & (PC_COPY | PC_CMP | PC_NUM | PC_HASH)); }
 int is_ref_type(Type *t) { return t && (t->kind == T_CLASS || (t->kind == T_PTR && t->base) || param_owner(t)); }
 /* a value that contains strings (each has its own heap buffer: copied on assignment, freed at the end) */
 int has_str(Type *t) {
@@ -1503,7 +1504,7 @@ static void run_pending_body(int k) {
 static int find_member(Struct *st, const char *name, Field **f, Routine **m, Prop **p);
 
 /* ---- constraints: T: class | Copy | Clone | Equatable | Comparable | TBasis ---- */
-static const char *BUILTIN_CONS[] = {"class", "Copy", "Clone", "Equatable", "Comparable", "Numeric", NULL};
+static const char *BUILTIN_CONS[] = {"class", "Copy", "Clone", "Equatable", "Comparable", "Numeric", "Hashable", NULL};
 static int builtin_cons(const char *c) {
     for (int i = 0; BUILTIN_CONS[i]; i++)
         if (STREQ(BUILTIN_CONS[i], c)) return 1;
@@ -1516,7 +1517,7 @@ static void validate_constraints(Generic *g) {
             if (builtin_cons(c->name)) continue;
             Look L = lookup(c->name);
             if (L.kind != LK_SYM || L.sym->kind != SY_TYPE || L.sym->type->kind != T_CLASS)
-                error_at(c->pos, "unknown constraint '%s': use class, Copy, Clone, Equatable, Comparable, Numeric or the name of a class",
+                error_at(c->pos, "unknown constraint '%s': use class, Copy, Clone, Equatable, Comparable, Numeric, Hashable or the name of a class",
                          c->name);
         }
 }
@@ -1537,6 +1538,7 @@ static int satisfies(Type *t, const char *c) {
         if (STREQ(c, "Equatable")) return t->ik & (PC_EQ | PC_CMP | PC_NUM);
         if (STREQ(c, "Comparable")) return t->ik & (PC_CMP | PC_NUM);
         if (STREQ(c, "Numeric")) return t->ik & PC_NUM;
+        if (STREQ(c, "Hashable")) return t->ik & (PC_HASH | PC_CMP | PC_NUM);
         return 0;
     }
     if (STREQ(c, "Numeric")) return t->kind == T_INT || t->kind == T_REAL;
@@ -1545,6 +1547,7 @@ static int satisfies(Type *t, const char *c) {
     if (STREQ(c, "Clone")) return has_clone(t);
     if (STREQ(c, "Equatable")) return is_ordinal(t) || t->kind == T_REAL || t->kind == T_STR || t->kind == T_CLASS || (is_aggregate(t) && equatable(t));
     if (STREQ(c, "Comparable")) return is_ordinal(t) || t->kind == T_REAL || t->kind == T_STR;
+    if (STREQ(c, "Hashable")) return hashable(t);
     Look L = lookup(c); /* a class: the type argument must be it or a descendant */
     if (L.kind != LK_SYM || L.sym->kind != SY_TYPE) return 0;
     return t->kind == T_CLASS && struct_descends(t->st, L.sym->type->st);
@@ -2959,6 +2962,18 @@ static Expr *set_binary(Expr *e) {
     default: error_at(e->pos, "this operator is not defined for sets (+ - * = <> <= >=, and 'in')");
     }
 }
+/* keys of hash maps: values (no objects) whose parts can be hashed */
+static int hashable(Type *t) {
+    switch (t->kind) {
+    case T_INT: case T_BOOL: case T_CHAR: case T_REAL: case T_STR: case T_ENUM: case T_SET: return 1;
+    case T_ARRAY: return hashable(t->base);
+    case T_RECORD:
+        for (int i = 0; i < t->st->fields.len; i++)
+            if (!hashable(t->st->fields.items[i]->type)) return 0;
+        return 1;
+    default: return 0;
+    }
+}
 /* operators on a placeholder type parameter: only what its constraints allow */
 static Expr *param_binary(Expr *e) {
     Type *ta = e->a->type, *tb = e->b->type;
@@ -3565,7 +3580,7 @@ static const struct {
     {"Trunc", BI_TRUNC}, {"Round", BI_ROUND}, {"Frac", BI_FRAC}, {"Int", BI_INT}, {"Odd", BI_ODD},
     {"High", BI_HIGH}, {"Low", BI_LOW}, {"SizeOf", BI_SIZEOF}, {"Copy", BI_COPY}, {"Pos", BI_POS},
     {"Delete", BI_DELETE}, {"Insert", BI_INSERT}, {"IntToStr", BI_INTTOSTR}, {"StrToInt", BI_STRTOINT},
-    {"FloatToStr", BI_FLOATTOSTR}, {"Format", BI_FORMAT}, {"Include", BI_INCLUDE}, {"Exclude", BI_EXCLUDE}, {"Str", BI_STR}, {"UpCase", BI_UPCASE}, {"UpperCase", BI_UPPERCASE},
+    {"FloatToStr", BI_FLOATTOSTR}, {"Format", BI_FORMAT}, {"Hash", BI_HASH}, {"Include", BI_INCLUDE}, {"Exclude", BI_EXCLUDE}, {"Str", BI_STR}, {"UpCase", BI_UPCASE}, {"UpperCase", BI_UPPERCASE},
     {"LowerCase", BI_LOWERCASE}, {"Concat", BI_CONCAT}, {"Halt", BI_HALT}, {"Random", BI_RANDOM},
     {"Randomize", BI_RANDOMIZE}, {"Assigned", BI_ASSIGNED}, {"New", BI_NEW}, {"Dispose", BI_DISPOSE},
     {"FreeAndNil", BI_FREEANDNIL}, {"Take", BI_TAKE}, {"SetLength", BI_SETLENGTH},
@@ -3758,6 +3773,19 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
         vpush(e->args, coerce(value(A(0)), t_str, nm));
         e->type = t_int;
         return e;
+    case BI_HASH: { /* Hash(x): Int64 for keys of hash maps */
+        NARGS(1, 1);
+        Expr *x = value(A(0));
+        Type *t = x->type;
+        if (t->kind == T_PARAM) {
+            if (!(t->ik & (PC_HASH | PC_CMP | PC_NUM))) error_at(x->pos, "Hash needs the constraint '%s: Hashable'", type_name(t));
+        } else if (!hashable(t))
+            error_at(x->pos, "\"%s\" cannot be hashed (numbers, Char, Boolean, enumerations, strings, sets and records or arrays of them can)",
+                     type_name(t));
+        vpush(e->args, x);
+        e->type = t_i64;
+        return e;
+    }
     case BI_INCLUDE: case BI_EXCLUDE: { /* Include(s, Red) / Exclude(s, Red) */
         NARGS(2, 2);
         Expr *st = value(A(0));
@@ -5157,6 +5185,7 @@ static Type *archetype(Generic *g, int i) {
             else if (STREQ(c, "Clone")) flags |= PC_CLONE;
             else if (STREQ(c, "Equatable")) flags |= PC_EQ;
             else if (STREQ(c, "Comparable")) flags |= PC_CMP | PC_EQ;
+            else if (STREQ(c, "Hashable")) flags |= PC_HASH | PC_EQ;
             else if (STREQ(c, "Numeric")) flags |= PC_NUM | PC_CMP | PC_EQ;
             else { /* a class: the placeholder is that class (its members are available) */
                 Look L = lookup(c);

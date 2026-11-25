@@ -375,6 +375,11 @@ static PStr __format(PStr fmt, int n, const __FArg *a) {
     free(o);
     return r;
 }
+/* ---- hashing (Hash(x), hash maps) ---- */
+static int64_t __hash_mix(uint64_t x) { x ^= x >> 33; x *= 0xff51afd7ed558ccdULL; x ^= x >> 33; x *= 0xc4ceb9fe1a85ec53ULL; x ^= x >> 33; return (int64_t)x; }
+static int64_t __hash_str(PStr s) { uint64_t h = 1469598103934665603ULL; for (int64_t i = 0; i < s.len; i++) { h ^= s.p[i]; h *= 1099511628211ULL; } return __hash_mix(h); }
+static int64_t __hash_real(double d) { uint64_t u; if (d == 0) d = 0; memcpy(&u, &d, sizeof u); return __hash_mix(u); }
+static int64_t __hash_comb(int64_t a, int64_t b) { return __hash_mix((uint64_t)a * 1000003ULL ^ (uint64_t)b); }
 /* ---- sets ---- */
 static void __set_incl(__Set *s, int64_t v, int64_t lo, int64_t hi) {
     if (v < lo || v > hi) __rt_error(201, "range check error: set element out of range");
@@ -396,6 +401,7 @@ static __Set __set_and(__Set a, __Set b) { for (int i = 0; i < 4; i++) a.w[i] &=
 static __Set __set_sub(__Set a, __Set b) { for (int i = 0; i < 4; i++) a.w[i] &= ~b.w[i]; return a; }
 static int __set_eq(__Set a, __Set b) { for (int i = 0; i < 4; i++) if (a.w[i] != b.w[i]) return 0; return 1; }
 static int __set_le(__Set a, __Set b) { for (int i = 0; i < 4; i++) if (a.w[i] & ~b.w[i]) return 0; return 1; } /* a is a subset of b */
+static int64_t __hash_set(__Set a) { int64_t h = 0; for (int i = 0; i < 4; i++) h = __hash_comb(h, (int64_t)a.w[i]); return h; }
 static int64_t __set_count(__Set a) { int64_t n = 0; for (int i = 0; i < 4; i++) n += __builtin_popcountll(a.w[i]); return n; }
 /* ---- standard library primitives (declared 'external' in ppc_std) ---- */
 static int __ppc_argc;
