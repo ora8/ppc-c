@@ -702,7 +702,11 @@ static TypeExpr *parse_type_core(void) {
     }
     if (accept_kw("class")) {
         if (is_sym(";")) return new_te(TE_CLASSFWD, p);
-        if (is_kw("of")) error_at(pos(), "class references ('class of') are not supported");
+        if (accept_kw("of")) { /* class of TShape: a class reference */
+            TypeExpr *t = new_te(TE_CLASSREF, p);
+            t->name = ident();
+            return t;
+        }
         TypeExpr *t = new_te(TE_STRUCT, p);
         t->sd = parse_struct(SK_CLASS);
         return t;

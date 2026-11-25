@@ -128,6 +128,7 @@ static char *ctype(Type *t) {
     case T_LIT: return "void";
     case T_PARAM: return "void"; /* placeholders never reach the C code */
     case T_SET: return "__Set";
+    case T_CLASSREF: return "void*"; /* the VMT of the class */
     case T_PROC: { /* function value: a C function pointer */
         if (t->closure) return "__Closure";
         Routine *r = t->proc;
@@ -750,6 +751,13 @@ static char *gcall_core(Expr *e, const char *selfp, Struct *sst, const char *as)
         if (r->level > 1) return sfmt("%s(%s%s)", r->cname, frame_ptr(r->level - 1), as);
         return sfmt("%s(%s)", r->cname, as[0] ? as + 2 : "");
     case CM_NEWCLASS:
+        if (e->b) { /* c.Create(...): an object of the class in c; a virtual constructor in that class's version */
+            int id = ++tmpc;
+            if (r->slot >= 0)
+                return sfmt("({ void *__cr%d = __nilref(%s); ((%s)((%s)((struct VMT%d*)__cr%d)->v%d)(NULL, __cr%d%s)); })", id, gx(e->b),
+                            ctype(e->ctype), slot_type(r, NULL), e->ctype->st->id, id, r->slot, id, as);
+            return sfmt("({ void *__cr%d = __nilref(%s); ((%s)%s(NULL, __cr%d%s)); })", id, gx(e->b), ctype(e->ctype), r->cname, id, as);
+        }
         return sfmt("((%s)%s(NULL, &VMTI%d%s))", ctype(e->ctype), r->cname, e->ctype->st->id, as);
     case CM_CTOR_INST: {
         char *call = sfmt("%s((struct S%d*)%s, NULL%s)", r->cname, r->owner->id, selfp, as);
@@ -972,6 +980,8 @@ static char *gbuiltin(Expr *e) {
     }
     case BI_HIGH: return sfmt("((int32_t)(%s).len - 1)", G(0));
     case BI_CLASSNAME: return sfmt("__pstr_cstr((*(struct __VMTHdr**)(%s))->name)", G(0));
+    case BI_REFNAME: return sfmt("__pstr_cstr(((struct __VMTHdr*)__nilref(%s))->name)", G(0));
+    case BI_CLASSTYPE: return sfmt("(*(void**)(%s))", G(0));
     }
 #undef G
     return "0";
@@ -1119,9 +1129,11 @@ static char *gx(Expr *e) {
         return sfmt("({ int64_t __i%d = (%s); (%s); })", id, gx(e->a), buf_str(&c));
     }
     case E_IS:
+        if (e->b) return sfmt("__is((void*)(%s), %s)", gx(e->a), gx(e->b)); /* obj is c */
         if (e->ctype->st->is_iface) return sfmt("__implements((void*)(%s), &IID%d)", gx(e->a), e->ctype->st->id);
         return sfmt("__is((void*)(%s), &VMTI%d)", gx(e->a), e->ctype->st->id);
     case E_AS:
+        if (e->b) return sfmt("((struct S%d*)__as((void*)(%s), %s))", e->ctype->st->id, gx(e->a), gx(e->b));
         if (e->ctype->st->is_iface)
             return sfmt("((struct S%d*)__as_iface((void*)(%s), &IID%d))", e->ctype->st->id, gx(e->a), e->ctype->st->id);
         return sfmt("((struct S%d*)__as((void*)(%s), &VMTI%d))", e->ctype->st->id, gx(e->a), e->ctype->st->id);
@@ -1259,6 +1271,9 @@ static char *gx(Expr *e) {
         if (e->bi == BI_ARRCLONE && has_owned(e->type) && !is_taken(e))
             error_at(e->pos, "the clone owns objects and would never be freed here: store it in a variable first ('val c := a.Clone')");
         return gbuiltin(e);
+    case E_TYPEREF: /* a class as a value: its class reference */
+        if (e->type && e->type->kind == T_CLASSREF) return sfmt("((void*)&VMTI%d)", e->ctype->st->id);
+        error_at(e->pos, "internal error: type used as a value");
     case E_ROUTREF: case E_LAMBDA:
         if (e->type->closure && e->rt->level > 1) /* a closure: the nested routine and the frame of the routine around it */
             return sfmt("((__Closure){(void*)%s, (void*)%s})", e->rt->cname, frame_ptr(e->rt->level - 1));
@@ -1630,6 +1645,7 @@ static char *slot_type(Routine *r, const char *name) {
     Buf b = {0};
     buf_printf(&b, "%s (*%s)(void*", ret_ctype(r), name ? name : "");
     if (r->kind == RK_DTOR) buf_put(&b, ", int");
+    if (r->kind == RK_CTOR) buf_put(&b, ", void*"); /* constructors: the VMT of the object to make */
     for (int i = 0; i < r->params.len; i++) {
         Param *p = &r->params.items[i];
         int ref = p->mode == PM_VAR || p->mode == PM_OUT || p->mode == PM_CONSTREF;

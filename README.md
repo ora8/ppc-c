@@ -186,6 +186,37 @@ if s is ISolid then ...                      { run-time test; also 'as' }
 * A call through an interface looks up the class's table for that interface (a short search in
   the VMT); calls on the class type itself stay direct.
 
+### Class references: `class of T` and virtual constructors
+
+```pascal
+type
+  TShape = class
+    constructor Create(ASize: Integer); virtual;     { virtual constructor }
+    class function Kind: String;
+  end;
+  TShapeClass = class of TShape;
+  TSquare = class(TShape)
+    constructor Create(ASize: Integer); override;
+  end;
+
+function Make(c: TShapeClass; n: Integer): TShape;
+begin
+  Result := c.Create(n);          { an object of the class in c, with its constructor }
+end;
+
+val kinds: array of TShapeClass := (TSquare, TCircle);
+vao s := Make(TSquare, 2);
+WriteLn(s.ClassType = TSquare, ' ', s is TSquare, ' ', TSquare.ClassName);
+```
+
+* A class name used as a value is its class reference; a `class of TShape` holds `TShape` or a
+  descendant. Through it: constructors (`c.Create`, the class's own version if the constructor is
+  `virtual`), class methods (of the declared class) and `ClassName`; `obj is c`, `obj as c`,
+  `c = TSquare` and `obj.ClassType` (the class of an object) work too.
+* An object made through a class reference must be owned by `vao` (its size is only known at
+  run time, so it cannot be a stack object). An unset class reference (`default`, e.g. in an
+  array) stops with run-time error 210 when it is used.
+
 ### Class fields: `class var`
 
 A class field exists once for the class, not once per object (like `class var` in Delphi):

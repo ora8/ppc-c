@@ -72,6 +72,8 @@ typedef struct {
     Generic *gm; /* a generic method of Self */
 } Look;
 static void check_visible(Look *L, Pos p, const char *name);
+static Type *classref_of(Struct *st);
+static Expr *classref_member(Expr *cref, const char *name, ExprVec *args, Pos p);
 static Field *find_cfield(Struct *st, const char *name);
 static Look cfield_look(Field *f);
 static Expr *cfield_ref(Field *f, Pos p);
@@ -241,7 +243,7 @@ static int is_ordinal(Type *t) {
 }
 static int is_numeric(Type *t) { return t->kind == T_INT || t->kind == T_REAL; }
 static int is_strlike(Type *t) { return t->kind == T_STR || t->kind == T_CHAR; }
-static int is_ptrlike(Type *t) { return t->kind == T_PTR || t->kind == T_CLASS || t->kind == T_NIL; }
+static int is_ptrlike(Type *t) { return t->kind == T_PTR || t->kind == T_CLASS || t->kind == T_NIL || t->kind == T_CLASSREF; }
 
 /* owning types: class instances and typed pointers (borrow checker) */
 int g_param_owning;
@@ -326,6 +328,7 @@ static int same_type(Type *a, Type *b) {
     case T_DYN: return same_type(a->base, b->base);
     case T_PROC: return a->closure == b->closure && same_signature(a->proc, b->proc);
     case T_SET: return a->lo == b->lo && a->hi == b->hi && (same_type(a->base, b->base) || (is_int(a->base) && is_int(b->base)));
+    case T_CLASSREF: return a->st == b->st;
     case T_RES:
         if (!a->base || !b->base) return !a->base && !b->base && same_type(a->err, b->err);
         return same_type(a->base, b->base) && same_type(a->err, b->err);
@@ -371,6 +374,7 @@ static Type *arith_int(Type *a, Type *b) {
 
 /* 0 = incompatible, 1 = compatible as is, 2 = needs conversion node */
 static int assign_compat(Type *to, Type *from) {
+    if (to->kind == T_CLASSREF && from->kind == T_CLASSREF && struct_descends(from->st, to->st)) return 2; /* TCircle as a TShapeClass */
     if (to->kind == T_PROC && from->kind == T_PROC && to->closure && !from->closure && same_signature(to->proc, from->proc))
         return 2; /* a plain routine is a closure without captures */
     if (to->kind == T_CLASS && from->kind == T_CLASS && from->nilable && !to->nilable) return 0;
@@ -1402,6 +1406,33 @@ static Expr *value(Expr *e);
 /* Max(3, 7): the type arguments come from the arguments */
 
 
+
+/* ---- class references: class of TShape ---- */
+static Type *classref_of(Struct *st) {
+    Type *t = new_type(T_CLASSREF, sfmt("class of %s", st->name));
+    t->st = st;
+    return t;
+}
+/* c.Create(...), c.ClassName, c.SomeClassMethod(...) */
+static Expr *classref_member(Expr *cref, const char *name, ExprVec *args, Pos p) {
+    Struct *st = cref->type->st;
+    if (STREQ(name, "ClassName")) {
+        if (args && args->len) error_at(p, "ClassName takes no arguments");
+        Expr *b = new_expr(E_BUILTIN, p);
+        b->bi = BI_REFNAME;
+        vpush(b->args, cref);
+        b->type = t_str;
+        return b;
+    }
+    Look M = {0};
+    if (!find_member(st, name, &M.f, &M.m, &M.p) || !M.m || (M.m->kind != RK_CTOR && !M.m->is_classm))
+        error_at(p, "through a class reference only constructors, class methods and ClassName can be used ('%s' is none)", name);
+    check_visible(&M, p, name);
+    if (M.m->is_classm) return make_call(M.m, NULL, args, CM_NORMAL, NULL, p); /* the class method of the declared class */
+    Expr *c = make_call(M.m, NULL, args, CM_NEWCLASS, st->type, p); /* an object of the class the reference holds */
+    c->b = cref;
+    return c;
+}
 /* ---- class fields: class var Count: Integer ---- */
 static Field *find_cfield(Struct *st, const char *name) {
     for (Struct *c = st; c; c = c->parent)
@@ -1738,6 +1769,12 @@ static Type *resolve_type_inner(TypeExpr *te) {
     }
     case TE_STRUCT:
     case TE_CLASSFWD: error_at(te->pos, "object and class types must be declared in a type section");
+    case TE_CLASSREF: { /* class of TShape */
+        Look L = lookup(te->name.name);
+        if (L.kind != LK_SYM || L.sym->kind != SY_TYPE || L.sym->type->kind != T_CLASS || L.sym->type->st->is_iface)
+            error_at(te->name.pos, "'class of' needs a class, \"%s\" is not one", te->name.name);
+        return classref_of(L.sym->type->st);
+    }
     }
     return t_void;
 }
@@ -2003,8 +2040,7 @@ static void define_struct(Struct *s, StructDecl *sd) {
         }
         r->virt = md->virt;
         r->is_abstract = md->is_abstract;
-        if (md->kind == RK_CTOR && md->virt != VIRT_NONE)
-            error_at(md->name.pos, "virtual constructors are not supported");
+
         if (md->is_abstract && md->virt == VIRT_NONE)
             error_at(md->name.pos, "abstract methods must be virtual");
         if (md->virt == VIRT_OVERRIDE) {
@@ -2518,6 +2554,7 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
         }
         Expr *base = autoderef(value(e->a));
         Type *bt = base->type;
+        if (bt->kind == T_CLASSREF) return classref_member(base, name, args, p); /* c.Create(...) */
         if (bt->kind == T_RES) {
             ExprVec a2 = {0};
             vpush(a2, base);
@@ -2572,6 +2609,14 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
         if (bt->kind != T_RECORD && bt->kind != T_CLASS)
             error_at(p, "illegal qualifier: \"%s\" has no members", type_name(bt));
         Look L = {0};
+        if (bt->kind == T_CLASS && !bt->st->is_iface && STREQ(name, "ClassType") && !find_member(bt->st, name, &L.f, &L.m, &L.p)) {
+            if (args && args->len) error_at(p, "ClassType takes no arguments");
+            Expr *b = new_expr(E_BUILTIN, p); /* obj.ClassType: the class of the object */
+            b->bi = BI_CLASSTYPE;
+            vpush(b->args, base);
+            b->type = classref_of(bt->st);
+            return b;
+        }
         if (!find_member(bt->st, name, &L.f, &L.m, &L.p) && find_cfield(bt->st, name)) {
             if (args) error_at(p, "\"%s\" is a class field, not a method", name);
             return cfield_ref(find_cfield(bt->st, name), p);
@@ -2858,8 +2903,14 @@ static Expr *ex(Expr *e) {
         if (e->kind == E_IS && e->has_args) error_at(e->pos, "'is Name(...)' tests a variant of an enumeration with data");
         if (e->a->type->kind != T_CLASS) error_at(e->pos, "class instance expected before 'is'/'as'");
         Look L = lookup(e->id.name);
+        if (L.kind == LK_SYM && L.sym->kind == SY_VAR && L.sym->var->type->kind == T_CLASSREF) { /* obj is c: the class in c */
+            e->b = var_expr(L.sym->var, e->pos);
+            e->ctype = L.sym->var->type->st->type;
+            e->type = e->kind == E_IS ? t_bool : e->a->type->readonly ? readonly_of(e->ctype) : e->ctype;
+            return e;
+        }
         if (L.kind != LK_SYM || L.sym->kind != SY_TYPE || L.sym->type->kind != T_CLASS)
-            error_at(e->pos, "class type expected after 'is'/'as'");
+            error_at(e->pos, "class type (or class reference) expected after 'is'/'as'");
         e->ctype = L.sym->type;
         e->type = e->kind == E_IS ? t_bool : e->a->type->readonly ? readonly_of(e->ctype) : e->ctype;
         return e;
@@ -3600,6 +3651,12 @@ static Expr *try_expr(Expr *e) {
 
 static Expr *value(Expr *e) {
     Expr *r = ex(e);
+    if (r->kind == E_TYPEREF && r->ctype->kind == T_CLASS && !r->ctype->st->is_iface && !r->ctype->nilable && !r->ctype->readonly) {
+        Expr *c = new_expr(E_TYPEREF, r->pos); /* TCircle as a value: its class reference */
+        c->ctype = r->ctype;
+        c->type = classref_of(r->ctype->st);
+        return c;
+    }
     if (r->kind == E_TYPEREF) error_at(e->pos, "type \"%s\" used as a value", type_name(r->ctype));
     if (r->type == t_void) error_at(e->pos, "procedure call used as a value");
     return r;
@@ -5131,6 +5188,8 @@ static void decl1(Decl *d, int has_frame) {
                 if (!cur) no_closure(t, dpos, "a variable of the main program");
                 int is_stack = t->kind == T_CLASS && !vd->is_heap && !vd->borrowed;
                 if (is_stack && generic_depth && vd->ty && t->nilable) is_stack = 0; /* generic code: 'val h: optional T' owns a reference */
+                if (is_stack && r && r->kind == E_RCALL && r->cmode == CM_NEWCLASS && r->b)
+                    error_at(dpos, "an object made through a class reference gets its class only at run time, so it cannot be a stack object: 'vao %s := ...'", vn);
                 Expr *ctor = NULL;
                 if (is_stack) {
                     if (t->nilable && vd->ty)
@@ -5156,6 +5215,8 @@ static void decl1(Decl *d, int has_frame) {
                         error_at(vd->init->pos, "a stack object is created in its declaration: 'val %s := %s.Create(...)' (for a reference use 'var', to own a heap object 'vao')",
                                  vn, type_name(t));
                     int is_new = r->kind == E_RCALL && r->cmode == CM_NEWCLASS;
+                    if (is_new && r->b)
+                        error_at(dpos, "an object made through a class reference gets its class only at run time, so it cannot be a stack object: 'vao %s := ...'", vn);
                     if (is_new && vd->ty && r->ctype->st != t->st)
                         error_at(vd->init->pos, "stack object '%s' is declared as \"%s\" but created as \"%s\": it is stored in place, so both must be the same class",
                                  vn, type_name(t), type_name(r->ctype));

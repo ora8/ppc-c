@@ -95,7 +95,7 @@ typedef struct {
     VEC(PropDecl) props;
 } StructDecl;
 
-typedef enum { TE_NAMED, TE_PTR, TE_ARRAY, TE_SUBRANGE, TE_ENUM, TE_RECORD, TE_STRUCT, TE_CLASSFWD, TE_STR, TE_RESULT, TE_PROC, TE_SET } TEKind;
+typedef enum { TE_NAMED, TE_PTR, TE_ARRAY, TE_SUBRANGE, TE_ENUM, TE_RECORD, TE_STRUCT, TE_CLASSFWD, TE_STR, TE_RESULT, TE_PROC, TE_SET, TE_CLASSREF } TEKind;
 
 struct TypeExpr {
     TEKind kind;
@@ -276,7 +276,7 @@ struct Stmt {
 
 /* ------------------------------------------------------------- semantics */
 
-typedef enum { T_VOID, T_INT, T_BOOL, T_CHAR, T_REAL, T_STR, T_PTR, T_ARRAY, T_RECORD, T_CLASS, T_OPT, T_RES, T_LIT, T_ENUM, T_NIL, T_PARAM, T_DYN, T_PROC, T_SET } TypeKind; /* T_SET: set of an ordinal type (base, lo..hi, at most 256 values) */ /* T_PROC: procedural type (proc = its signature) */ /* T_DYN: dynamic array 'array of T' (base) */
+typedef enum { T_VOID, T_INT, T_BOOL, T_CHAR, T_REAL, T_STR, T_PTR, T_ARRAY, T_RECORD, T_CLASS, T_OPT, T_RES, T_LIT, T_ENUM, T_NIL, T_PARAM, T_DYN, T_PROC, T_SET, T_CLASSREF } TypeKind; /* T_CLASSREF: 'class of TBase' (st), a pointer to a VMT */ /* T_SET: set of an ordinal type (base, lo..hi, at most 256 values) */ /* T_PROC: procedural type (proc = its signature) */ /* T_DYN: dynamic array 'array of T' (base) */
 /* T_PARAM: placeholder for a type parameter while a generic is checked on its own; ik holds PC_* */
 enum { PC_EQ = 1, PC_CMP = 2, PC_CLONE = 4, PC_COPY = 8, PC_NUM = 16, PC_HASH = 32 };
 enum { IK_I8, IK_U8, IK_I16, IK_U16, IK_I32, IK_U32, IK_I64 };
@@ -451,7 +451,7 @@ enum {
     BI_INSERT, BI_INTTOSTR, BI_STRTOINT, BI_FLOATTOSTR, BI_STR, BI_UPCASE, BI_UPPERCASE,
     BI_LOWERCASE, BI_CONCAT, BI_HALT, BI_RANDOM, BI_RANDOMIZE, BI_ASSIGNED, BI_NEW, BI_DISPOSE,
     BI_FREEANDNIL, BI_TAKE, BI_SETLENGTH, BI_CLASSNAME, BI_PI, BI_EXIT, BI_BREAK, BI_CONTINUE,
-    BI_HASVALUE, BI_VALUEOR, BI_BOXNEW, BI_BOXFREE, BI_ISOK, BI_ISERROR, BI_ARRCLONE, BI_FORMAT, BI_INCLUDE, BI_EXCLUDE, BI_HASH
+    BI_HASVALUE, BI_VALUEOR, BI_BOXNEW, BI_BOXFREE, BI_ISOK, BI_ISERROR, BI_ARRCLONE, BI_FORMAT, BI_INCLUDE, BI_EXCLUDE, BI_HASH, BI_CLASSTYPE, BI_REFNAME
 };
 
 /* parser.c */
