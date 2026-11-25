@@ -384,18 +384,25 @@ static int const_routine_ahead(void) {
 
 static int last_const; /* the routine was declared with 'const' */
 static int class_routine_ahead(void) {
-    return is_kw("class") && T.items[P + 1].kind == TK_KW &&
-           (STREQ(T.items[P + 1].s, "function") || STREQ(T.items[P + 1].s, "procedure"));
+    return is_kw("class") && ((T.items[P + 1].kind == TK_KW && (STREQ(T.items[P + 1].s, "function") || STREQ(T.items[P + 1].s, "procedure"))) ||
+                              (T.items[P + 1].kind == TK_IDENT && STREQ(T.items[P + 1].s, "operator")));
 }
+static int last_operator; /* 'class operator Add(...)' */
 
 static int last_classm; /* 'class function' / 'class procedure': no Self, called on the class */
 static int routine_kind(void) {
     int k = RK_PROC;
     last_const = 0;
     last_classm = 0;
+    last_operator = 0;
     if (class_routine_ahead()) {
         next();
         last_classm = 1;
+        if (is_ident("operator")) { /* class operator Add(a, b: TVec): TVec */
+            next();
+            last_operator = 1;
+            return RK_FUNC;
+        }
     }
     if (const_routine_ahead())
         error_at(pos(), "write 'const' at the end of the declaration: '%s Name(...); const;'", T.items[P + 1].s);
@@ -465,8 +472,7 @@ static StructDecl *parse_struct(int kind) {
             continue;
         }
         if (accept_kw("var") || accept_kw("val")) continue;
-        if (is_kw("class") && !(T.items[P + 1].kind == TK_KW && (STREQ(T.items[P + 1].s, "function") ||
-                                                              STREQ(T.items[P + 1].s, "procedure"))))
+        if (is_kw("class") && !class_routine_ahead())
             error_at(pos(), "class fields are not supported (only 'class function' / 'class procedure')");
         if (kind == SK_RECORD && is_kw("case"))
             error_at(pos(), "variant records are not supported: use an enumeration with data, (Circle(Radius: Real), Empty)");
@@ -476,6 +482,7 @@ static StructDecl *parse_struct(int kind) {
             MethodDecl m = {0};
             m.kind = routine_kind();
             m.is_classm = last_classm;
+            m.is_operator = last_operator;
             m.name = ident();
             if (is_sym("<")) parse_tparams(&m.tparams, &m.tcons); /* generic method */
             m.params = parse_params();
@@ -756,6 +763,7 @@ static RoutineDecl *parse_routine(void) {
     d->pos = pos();
     d->kind = routine_kind();
     d->is_classm = last_classm;
+    d->is_operator = last_operator;
     d->name = ident();
     if (is_sym("<")) { /* method of a generic type: procedure TListe<T>.Add */
         ConsVec cons = {0};

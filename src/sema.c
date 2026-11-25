@@ -72,6 +72,11 @@ typedef struct {
     Generic *gm; /* a generic method of Self */
 } Look;
 static void check_visible(Look *L, Pos p, const char *name);
+static void operator_rules(Struct *s, MethodDecl *md);
+static void operator_check(Struct *s, Routine *r);
+static int arg_cost(Param *pm, Expr *a);
+static Expr *user_operator(Expr *e, int op, Expr *a, Expr *b);
+static int has_operator(Type *t, const char *nm);
 static Expr *autoderef(Expr *e);
 static Generic *find_gmethod(Struct *st, const char *name);
 static Expr *gmethod_call(Generic *g, Expr *base, TypeExprVec *targs, ExprVec *args, Pos p);
@@ -1001,6 +1006,7 @@ static void define_record(Struct *s, TypeExpr *te) {
             generic_method(s, md);
             continue;
         }
+        if (md->is_operator) operator_rules(s, md);
         if (md->kind == RK_CTOR || md->kind == RK_DTOR)
             error_at(md->name.pos, "records cannot have constructors or destructors (records are values: use a procedure such as Init or a function that returns the record)");
         if (md->virt != VIRT_NONE || md->is_abstract)
@@ -1025,6 +1031,7 @@ static void define_record(Struct *s, TypeExpr *te) {
         r->ret_borrowed = md->ret_borrowed;
         auto_rules(md, s, r);
         overload_unique(s, r);
+        if (md->is_operator) operator_check(s, r);
         vpush(s->methods, r);
     }
     for (int i = 0; sd && i < sd->props.len; i++) {
@@ -1763,6 +1770,7 @@ static void define_iface(Struct *s, StructDecl *sd) {
             generic_method(s, md);
             continue;
         }
+        if (md->is_operator) operator_rules(s, md);
         if (md->kind == RK_CTOR || md->kind == RK_DTOR)
             error_at(md->name.pos, "interfaces have no constructors or destructors (objects are created from classes)");
         if (md->virt != VIRT_NONE || md->is_abstract || md->is_classm || md->is_auto)
@@ -1881,6 +1889,7 @@ static void define_struct(Struct *s, StructDecl *sd) {
             generic_method(s, md);
             continue;
         }
+        if (md->is_operator) operator_rules(s, md);
         int novl = method_overload(s, md, md->kind == RK_CTOR ? "constructor" : "method");
         Routine *r = new_routine(md->name.name, md->kind, md->name.pos);
         r->is_overload = md->is_overload;
@@ -1898,6 +1907,7 @@ static void define_struct(Struct *s, StructDecl *sd) {
         r->ret_borrowed = md->ret_borrowed;
         auto_rules(md, s, r);
         overload_unique(s, r);
+        if (md->is_operator) operator_check(s, r);
         if (md->ret_borrowed && !is_owning_type(r->ret)) {
             if (has_owned(r->ret)) r->ret_ref = 1; /* a value that owns objects: a reference to it */
             else {
@@ -2599,6 +2609,10 @@ static Expr *ex(Expr *e) {
     case E_UNARY: {
         e->a = value(e->a);
         Type *t = e->a->type;
+        if (t->kind == T_RECORD) { /* -v: class operator Negative */
+            Expr *r = user_operator(e, e->op, e->a, NULL);
+            if (r) return r;
+        }
         if (e->op == OP_NOT) {
             if (t->kind == T_BOOL) e->type = t_bool;
             else if (is_int(t)) e->type = arith_int(t, t);
@@ -2618,6 +2632,22 @@ static Expr *ex(Expr *e) {
         Type *ta = e->a->type, *tb = e->b->type;
         int op = e->op;
         if (ta->kind == T_PARAM || tb->kind == T_PARAM) return param_binary(e);
+        if (ta->kind == T_RECORD || tb->kind == T_RECORD) { /* class operator Add(a, b: TVec): TVec ... */
+            Expr *r = user_operator(e, op, e->a, e->b);
+            if (r) return r;
+            if (op == OP_NE && (has_operator(ta, "Equal") || has_operator(tb, "Equal"))) { /* a <> b: not Equal(a, b) */
+                Expr *n = new_expr(E_UNARY, e->pos);
+                n->op = OP_NOT;
+                n->a = user_operator(e, OP_EQ, e->a, e->b);
+                n->type = t_bool;
+                return n;
+            }
+            if (op != OP_EQ && op != OP_NE && op != OP_AND && op != OP_OR)
+                error_at(e->pos, "\"%s\" has no operator for this ('class operator %s(...)')", type_name(ta->kind == T_RECORD ? ta : tb),
+                         op == OP_ADD ? "Add" : op == OP_SUB ? "Subtract" : op == OP_MUL ? "Multiply" : op == OP_DIV ? "Divide" :
+                         op == OP_LT ? "LessThan" : op == OP_GT ? "GreaterThan" : op == OP_LE ? "LessThanOrEqual" :
+                         op == OP_GE ? "GreaterThanOrEqual" : op == OP_IDIV ? "IntDivide" : op == OP_MOD ? "Modulus" : "...");
+        }
         if (op == OP_ADD && is_strlike(ta) && is_strlike(tb)) {
             e->a = coerce(e->a, t_str, "string concatenation");
             e->b = coerce(e->b, t_str, "string concatenation");
@@ -2763,6 +2793,89 @@ static int equatable(Type *t) {
         return 1;
     default: return 0;
     }
+}
+
+/* ---- operators: class operator Add(a, b: TVec): TVec in records ---- */
+static const struct { const char *name; int op; int arity; int cmp; } OPERATORS[] = {
+    {"Add", OP_ADD, 2, 0}, {"Subtract", OP_SUB, 2, 0}, {"Multiply", OP_MUL, 2, 0}, {"Divide", OP_DIV, 2, 0},
+    {"IntDivide", OP_IDIV, 2, 0}, {"Modulus", OP_MOD, 2, 0}, {"Negative", OP_NEG, 1, 0}, {"Positive", OP_PLUS, 1, 0},
+    {"LogicalNot", OP_NOT, 1, 0}, {"Equal", OP_EQ, 2, 1}, {"NotEqual", OP_NE, 2, 1}, {"LessThan", OP_LT, 2, 1},
+    {"LessThanOrEqual", OP_LE, 2, 1}, {"GreaterThan", OP_GT, 2, 1}, {"GreaterThanOrEqual", OP_GE, 2, 1}, {NULL, 0, 0, 0}};
+static int operator_index(const char *name) {
+    for (int i = 0; OPERATORS[i].name; i++)
+        if (STREQ(OPERATORS[i].name, name)) return i;
+    return -1;
+}
+static void operator_rules(Struct *s, MethodDecl *md) {
+    if (s->kind != SK_RECORD) error_at(md->name.pos, "operators can only be declared in records (values), not in classes");
+    if (operator_index(md->name.name) < 0) {
+        Buf b = {0};
+        for (int i = 0; OPERATORS[i].name; i++) buf_printf(&b, "%s%s", i ? ", " : "", OPERATORS[i].name);
+        error_at(md->name.pos, "unknown operator \"%s\" (operators: %s)", md->name.name, buf_str(&b));
+    }
+    md->is_overload = 1; /* several variants of an operator are chosen by the operand types */
+}
+static void operator_check(Struct *s, Routine *r) {
+    int k = operator_index(r->name);
+    r->is_operator = 1;
+    if (r->params.len != OPERATORS[k].arity)
+        error_at(r->pos, "the operator %s needs %d operand%s", r->name, OPERATORS[k].arity, OPERATORS[k].arity == 1 ? "" : "s");
+    int own = 0;
+    for (int i = 0; i < r->params.len; i++) {
+        Param *pm = &r->params.items[i];
+        if (pm->mode != PM_VALUE && pm->mode != PM_CONSTREF)
+            error_at(r->pos, "the operands of an operator are value parameters");
+        if (pm->type->kind == T_RECORD && pm->type->st == s) own = 1;
+    }
+    if (!own) error_at(r->pos, "an operator of \"%s\" needs an operand of type \"%s\"", s->name, s->name);
+    if (OPERATORS[k].cmp && (!r->ret || r->ret->kind != T_BOOL)) error_at(r->pos, "the comparison operator %s must return Boolean", r->name);
+}
+/* a + b with a record operand: its operator method (the variant that fits the operand types best) */
+static Expr *user_operator(Expr *e, int op, Expr *a, Expr *b) {
+    const char *nm = NULL;
+    for (int i = 0; OPERATORS[i].name; i++)
+        if (OPERATORS[i].op == op && OPERATORS[i].arity == (b ? 2 : 1)) nm = OPERATORS[i].name;
+    if (!nm) return NULL;
+    VEC(Routine *) cands = {0};
+    Type *ts[2] = {a->type, b ? b->type : NULL};
+    for (int k = 0; k < 2; k++) {
+        Type *t = ts[k];
+        if (!t || t->kind != T_RECORD || (k == 1 && ts[0]->kind == T_RECORD && ts[0]->st == t->st)) continue;
+        for (int i = 0; i < t->st->methods.len; i++)
+            if (t->st->methods.items[i]->is_operator && STREQ(t->st->methods.items[i]->name, nm)) vpush(cands, t->st->methods.items[i]);
+    }
+    if (!cands.len) return NULL;
+    ExprVec args = {0};
+    vpush(args, a);
+    if (b) vpush(args, b);
+    Routine *best = NULL;
+    int bestc = 0, tie = 0;
+    for (int k = 0; k < cands.len; k++) {
+        Routine *c = cands.items[k];
+        if (c->params.len != args.len) continue;
+        int cost = 0;
+        for (int i = 0; i < args.len && cost >= 0; i++) {
+            int x = arg_cost(&c->params.items[i], args.items[i]);
+            cost = x < 0 ? -1 : cost + x;
+        }
+        if (cost < 0) continue;
+        if (!best || cost < bestc) best = c, bestc = cost, tie = 0;
+        else if (cost == bestc) tie = 1;
+    }
+    if (!best) {
+        Buf vb = {0};
+        for (int k = 0; k < cands.len; k++) buf_printf(&vb, "%s%s", k ? ", " : "", sig_text(cands.items[k]));
+        error_at(e->pos, "no operator %s fits the operands \"%s\"%s%s; there are: %s", nm, type_name(a->type), b ? " and " : "",
+                 b ? sfmt("\"%s\"", type_name(b->type)) : "", buf_str(&vb));
+    }
+    if (tie) error_at(e->pos, "the operator %s is ambiguous for these operands", nm);
+    return make_call(best, NULL, &args, CM_NORMAL, NULL, e->pos);
+}
+static int has_operator(Type *t, const char *nm) {
+    if (!t || t->kind != T_RECORD) return 0;
+    for (int i = 0; i < t->st->methods.len; i++)
+        if (t->st->methods.items[i]->is_operator && STREQ(t->st->methods.items[i]->name, nm)) return 1;
+    return 0;
 }
 /* operators on a placeholder type parameter: only what its constraints allow */
 static Expr *param_binary(Expr *e) {

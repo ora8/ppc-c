@@ -1397,6 +1397,40 @@ vao b := TShape.Create('box');
   interfaces. Interfaces themselves cannot overload, and an overloaded routine cannot be used
   as a function value (wrap the call in a lambda).
 
+### Operators: `class operator`
+
+Records can define operators (as in Delphi):
+
+```pascal
+type
+  TVec = record
+    X, Y: Real;
+    class operator Add(a, b: TVec): TVec;
+    class operator Multiply(a: TVec; f: Real): TVec;
+    class operator Multiply(f: Real; a: TVec): TVec;   { several variants }
+    class operator Negative(a: TVec): TVec;
+    class operator Equal(a, b: TVec): Boolean;
+  end;
+
+class operator TVec.Add(a, b: TVec): TVec;
+begin
+  Result.X := a.X + b.X;
+  Result.Y := a.Y + b.Y;
+end;
+
+c := a + b * 2 - a;           { the usual precedence }
+if -a = c then …;
+```
+
+* Operators: `Add` `+`, `Subtract` `-`, `Multiply` `*`, `Divide` `/`, `IntDivide` `div`,
+  `Modulus` `mod`, `Negative` `-x`, `Positive` `+x`, `LogicalNot` `not x`, `Equal` `=`,
+  `NotEqual` `<>`, `LessThan` `<`, `LessThanOrEqual` `<=`, `GreaterThan` `>`,
+  `GreaterThanOrEqual` `>=`.
+* At least one operand has the record's type; comparisons return `Boolean`. Variants of one
+  operator are chosen by the operand types like overloads (`a * 2` and `2 * a`).
+* Without `NotEqual`, `<>` is `not Equal`; without `Equal`, `=` compares the fields. Only
+  records (values) have operators – an operator on objects would create objects without an owner.
+
 ## Function values and lambdas
 
 Procedural types describe routines that can be stored, passed and called; routines at program or
@@ -1603,7 +1637,7 @@ once (in every kind of loop); borrows of them are invalid afterwards.
 
 Not supported: `nil` (replaced by `optional`/`none`), pointers (`^`, `@`, `New`, `Dispose`,
 `Pointer` – replaced by objects, `var` references and `var` parameters), `object` types
-(replaced by `class`), set types (except set literals with `in`), open array parameters
+(replaced by `class`), set types (except set literals with `in`), operators on classes, open array parameters
 (`array of T` is a dynamic array), closures that outlive their routine, `with` (name the variable, or take a short reference
 `var q := a.Inner`), exceptions (replaced by `result T` and `try`), reference-counted
 interfaces, variant records (replaced by enumerations with data), `goto`, Pascal file types (`TextFile`,
