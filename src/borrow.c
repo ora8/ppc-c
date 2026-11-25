@@ -343,7 +343,7 @@ static void access_path(State *s, const char *path, Var *ex1, Var *ex2, int kind
         if (tv.items[i].kind != TV_BORROW) continue;
         Var *v = tv.items[i].v;
         if (v == ex1 || v == ex2) continue;
-        int shared = v->type->readonly;
+        int shared = v->type->readonly || (v->is_alias && v->is_const);
         if (!write && shared) continue; /* reading is compatible with read-only borrows */
         for (int k = 0; k < s->org[i].len; k++) {
             Origin *o = &s->org[i].items[k];
@@ -976,7 +976,7 @@ static void assign_src(Expr *lhs, Src *src, State *s, Pos p, unsigned nbits) {
     if (tvar && tracked_borrow(tvar)) {
         int i = slot(tvar);
         for (int k = 0; k < o.len; k++)
-            access_path(s, o.items[k].path, tvar, src->via, tvar->type->readonly ? ACC_BORROW_CONST : ACC_BORROW_MUT, p,
+            access_path(s, o.items[k].path, tvar, src->via, (tvar->type->readonly || (tvar->is_alias && tvar->is_const)) ? ACC_BORROW_CONST : ACC_BORROW_MUT, p,
                         o.items[k].desc);
         s->bor[i] = B_VALID;
         s->why[i] = NULL;
@@ -1006,7 +1006,7 @@ static void do_bind(Var *v, Expr *rhs, State *s, Pos p) {
         } else
             origin_add(&o, path, desc_of(rhs), root, !root->is_global);
     }
-    int kind = v->type->readonly ? ACC_BORROW_CONST : ACC_BORROW_MUT;
+    int kind = (v->type->readonly || (v->is_alias && v->is_const)) ? ACC_BORROW_CONST : ACC_BORROW_MUT;
     for (int k = 0; k < o.len; k++) access_path(s, o.items[k].path, v, root, kind, p, o.items[k].desc);
     s->bor[i] = B_VALID;
     s->why[i] = NULL;

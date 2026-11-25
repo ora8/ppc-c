@@ -103,6 +103,8 @@ static Expr *try_site;
 static Expr *routine_ref(Routine *rt, Pos p);
 static Expr *indirect_call(Expr *callee, ExprVec *args, Pos p);
 static Expr *lambda_expr(Expr *e);
+static void for_in(Stmt *s);
+static void stmt(Stmt *s);
 static Type *proc_type(Routine *sig);
 static void move_check(Expr *src, const char *ctx);
 static Expr *param_binary(Expr *e);
@@ -2135,6 +2137,113 @@ static Expr *param_binary(Expr *e) {
     return e;
 }
 
+/* ---- for val x in collection: rewritten into an index loop ---- */
+static Expr *mk_ident(const char *name, Pos p) {
+    Expr *e = new_expr(E_IDENT, p);
+    e->id = (Ident){(char *)name, p};
+    return e;
+}
+static Expr *mk_int(long long v, Pos p) {
+    Expr *e = new_expr(E_INT, p);
+    e->ival = v;
+    return e;
+}
+static Expr *mk_bin(int op, Expr *a, Expr *b, Pos p) {
+    Expr *e = new_expr(E_BINARY, p);
+    e->op = op;
+    e->a = a;
+    e->b = b;
+    return e;
+}
+static Expr *mk_member(Expr *base, const char *name, ExprVec *args, Pos p) {
+    Expr *m = new_expr(E_MEMBER, p);
+    m->a = base;
+    m->id = (Ident){(char *)name, p};
+    if (!args) return m;
+    Expr *c = new_expr(E_CALL, p);
+    c->a = m;
+    c->args = *args;
+    return c;
+}
+static int find_member(Struct *st, const char *name, Field **f, Routine **m, Prop **p);
+static void for_in(Stmt *s) {
+    Pos p = s->pos;
+    Expr *coll = value(s->a);
+    Type *t = coll->type;
+    char *iname = sfmt("__in%d_%d", p.line, p.col);
+    Expr *lo, *hi, *elem;
+    Type *et = NULL;
+    if (t->kind == T_ARRAY || t->kind == T_DYN || t->kind == T_STR) {
+        if (!is_lvalue(coll))
+            error_at(s->a->pos, "'for ... in' needs a variable or field here; store the value in a variable first");
+        if (t->kind == T_ARRAY) {
+            lo = lit_int(t->lo, t->index, p);
+            hi = lit_int(t->hi, t->index, p);
+        } else {
+            ExprVec a1 = {0};
+            vpush(a1, coll);
+            Expr *len = new_expr(E_CALL, p);
+            len->a = mk_ident("Length", p);
+            len->args = a1;
+            lo = mk_int(t->kind == T_STR ? 1 : 0, p);
+            hi = t->kind == T_STR ? len : mk_bin(OP_SUB, len, mk_int(1, p), p);
+        }
+        et = t->kind == T_STR ? NULL : t->base;
+        elem = new_expr(E_INDEX, p);
+        elem->a = coll;
+        vpush(elem->args, mk_ident(iname, p));
+    } else if (t->kind == T_CLASS || t->kind == T_RECORD) { /* a container with Count and Get(i) */
+        Field *f;
+        Routine *m;
+        Prop *pr;
+        if (!find_member(t->st, "Count", &f, &m, &pr) || !m || !find_member(t->st, "Get", &f, &m, &pr) || !m)
+            error_at(s->a->pos, "\"%s\" cannot be used in 'for ... in': it needs the methods 'Count' and 'Get(i)'", type_name(t));
+        if (!is_lvalue(coll))
+            error_at(s->a->pos, "'for ... in' needs a variable or field here; store the container in a variable first");
+        lo = mk_int(0, p);
+        hi = mk_bin(OP_SUB, mk_member(coll, "Count", NULL, p), mk_int(1, p), p);
+        ExprVec a1 = {0};
+        vpush(a1, mk_ident(iname, p));
+        et = m->ret;
+        elem = mk_member(coll, "Get", &a1, p);
+    } else
+        error_at(s->a->pos, "\"%s\" cannot be used in 'for ... in' (arrays, strings and containers with Count/Get)", type_name(t));
+    /* the element: unpacked if optional, else a reference (read-only for 'for val') */
+    Stmt *body;
+    if (et && is_optional(et)) {
+        Expr *is = new_expr(E_ISSOME, p);
+        is->a = elem;
+        is->id = s->var;
+        is->has_id = 1;
+        is->ro_bind = s->decl_var == 1;
+        body = new_stmt(S_IF, p);
+        body->a = is;
+        body->s1 = s->s1;
+    } else {
+        Block *b = NEW(Block);
+        Decl *d = NEW(Decl);
+        d->kind = D_VAR;
+        VarDecl vd = {0};
+        vpush(vd.names, s->var);
+        vd.init = elem;
+        vd.borrowed = 1;
+        vd.ro = s->decl_var == 1;
+        vpush(d->vars, vd);
+        vpush(b->decls, d);
+        vpush(b->body, s->s1);
+        body = new_stmt(S_BLOCK, p);
+        body->blk = b;
+    }
+    Stmt *f = new_stmt(S_FOR, p);
+    f->decl_var = 1;
+    f->var = (Ident){iname, p};
+    f->a = lo;
+    f->b = hi;
+    f->s1 = body;
+    *s = *f;
+    stmt(s);
+}
+
 /* ---- function values ---- */
 static Type *proc_type(Routine *sig) {
     Type *t = new_type(T_PROC, NULL);
@@ -2597,6 +2706,7 @@ static Expr *bind_some(Expr *e) {
     } else {
         if (!is_optional(t)) error_at(e->pos, "\"%s\" is not optional, 'is some' needs an optional value", type_name(t));
         kt = unwrapped(t);
+        if (e->ro_bind && kt->kind == T_CLASS) kt = readonly_of(kt);
     }
     Var *k = new_var(e->id.name, kt, cur ? VK_LOCAL : VK_GLOBAL, e->id.pos);
     k->cname = sfmt("B%d_%s", k->id, e->id.name);
@@ -2817,6 +2927,7 @@ static void stmt(Stmt *s) {
         pop_scope();
         if (s->s2) stmt(s->s2);
         return;
+    case S_FORIN: for_in(s); return;
     case S_WHILE:
         push_scope();
         if (s->a) s->a = cond_bind(s->a); /* no condition: 'loop' */
@@ -3535,8 +3646,9 @@ static void decl1(Decl *d, int has_frame) {
                     if (is_new && !vd->ty) t = r->ctype;
                     ctor = r;
                 }
+                if (vd->ro && t->kind == T_CLASS) t = readonly_of(t); /* for val x in ...: read-only */
                 int is_alias = vd->borrowed && t->kind != T_CLASS; /* var x: Integer := y: x refers to y */
-                int is_const = t->readonly && t->kind != T_CLASS;
+                int is_const = (t->readonly || vd->ro) && t->kind != T_CLASS;
                 int is_box = 0;
                 if (vd->is_heap && t->kind != T_CLASS) { /* vao I := 5: an owned value on the heap */
                     Type *bx = ptr_to(t);

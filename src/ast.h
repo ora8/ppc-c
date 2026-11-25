@@ -118,6 +118,7 @@ typedef struct {
     int borrowed;
     int is_heap; /* declared in a 'var' section */
     Expr *ctor;  /* 'x: TFoo.Create(args)': created/constructed at the declaration */
+    int ro;      /* (for val x in ...) a read-only reference */
 } VarDecl;
 
 typedef struct {
@@ -201,6 +202,7 @@ struct Expr {
     void *lam;         /* E_LAMBDA: its RoutineDecl */
     int has_id;
     int in_range; /* E_INDEX: constant index, checked at compile time */
+    int ro_bind;  /* E_ISSOME from "for val x in": the object is bound read-only */
     Expr *a, *b, *c;
     ExprVec args;
     ExprVec args2; /* set literal: upper bounds (NULL entries for single values) */
@@ -220,7 +222,7 @@ struct Expr {
 /* ------------------------------------------------------------- statements */
 
 typedef enum {
-    S_EMPTY, S_ASSIGN, S_CALL, S_COMPOUND, S_IF, S_WHILE, S_REPEAT, S_FOR, S_CASE, S_WITH,
+    S_EMPTY, S_ASSIGN, S_CALL, S_COMPOUND, S_IF, S_WHILE, S_REPEAT, S_FOR, S_FORIN, S_CASE, S_WITH,
     S_BREAK, S_CONTINUE, S_EXIT, S_BLOCK
 } StmtKind;
 

@@ -935,6 +935,21 @@ static Stmt *parse_stmt(void) {
         return s;
     }
     if (accept_kw("for")) {
+        if ((is_kw("val") || is_kw("var")) && T.items[P + 1].kind == TK_IDENT && T.items[P + 2].kind == TK_KW &&
+            STREQ(T.items[P + 2].s, "in")) { /* for val x in collection do ... */
+            Stmt *s = new_stmt(S_FORIN, p);
+            s->decl_var = is_kw("val") ? 1 : 2;
+            next();
+            s->var = ident();
+            next(); /* in */
+            s->a = parse_expr();
+            expect_kw("do");
+            s->s1 = parse_stmt();
+            return s;
+        }
+        if (T.items[P].kind == TK_IDENT && T.items[P + 1].kind == TK_KW && STREQ(T.items[P + 1].s, "in"))
+            error_at(pos(), "declare the loop variable: 'for val %s in ...' (a read-only reference) or 'for var %s in ...' (changeable)",
+                     CUR.s, CUR.s);
         Stmt *s = new_stmt(S_FOR, p);
         s->decl_var = accept_kw("val"); /* for val i := 1 to n: the counter is declared by the loop */
         s->var = ident();

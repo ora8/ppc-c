@@ -1083,6 +1083,31 @@ end.
 * The borrow checker treats a call through a function value as a call of any routine that is used
   as a value.
 
+## Loops over collections: `for val x in …`
+
+`for val x in c do …` runs through the elements of an array (fixed or dynamic), a string (the
+characters) or a container with the methods `Count` and `Get(i)` (such as `TList<T>`). `x` is a
+**reference** to the element, nothing is copied:
+
+* `for val x in c` – read-only: `x := …`, `x.Field := …` and changing methods are errors.
+* `for var x in c` – changeable: assignments change the element in the collection.
+
+```pascal
+val a: array[1..4] of Integer := (3, 1, 4, 1);
+for var x in a do x := x * 10;               { a = (30, 10, 40, 10) }
+for val c in 'abc' do Write(c, '-');         { a-b-c- }
+
+vao people := TList<TPerson>.Create;
+...
+for val p in people do WriteLn(p.Name);      { optional elements: empty ones are skipped }
+```
+
+Optional elements (`optional T`, as returned by `TList<T>.Get`) are unpacked; empty elements are
+skipped. The loop is an index loop underneath, so it is as fast as `for i := … to …`. The
+borrow checker knows that `x` borrows the collection: shrinking it with `SetLength` or changing
+the container (`people.Clear`) while `x` is still used is an error. `for x in c` without `val` or
+`var` is an error.
+
 ## Endless loop: `loop`
 
 `loop <statement>` repeats the statement without a condition (like `loop` in Rust); it is left
@@ -1119,7 +1144,7 @@ once (in every kind of loop); borrows of them are invalid afterwards.
   `var`, `out`, `vao` and `T const` parameters, `forward`, recursion, `Result`/function name,
   `Exit(value)`
 * Statements: `:=`, `if`, `case` (also with strings and ranges), `while`, `repeat`,
-  `for … to/downto`, `loop` (endless loop), `with`, `Break`, `Continue`, `Exit`
+  `for … to/downto`, `for val/var x in …`, `loop` (endless loop), `with`, `Break`, `Continue`, `Exit`
 * Expressions: arithmetic, `div`, `mod`, `shl`, `shr`, `and`/`or`/`xor`/`not` (short-circuit for
   Boolean), comparisons, string concatenation, `in [a, b..c]`, type casts `Integer(x)`,
   `TFoo(obj)`
