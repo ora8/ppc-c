@@ -1271,6 +1271,18 @@ static char *gx(Expr *e) {
         if (e->bi == BI_ARRCLONE && has_owned(e->type) && !is_taken(e))
             error_at(e->pos, "the clone owns objects and would never be freed here: store it in a variable first ('val c := a.Clone')");
         return gbuiltin(e);
+    case E_METHREF: { /* obj.Show as a value: the method (the object's version) and the object */
+        Routine *m = e->rt;
+        Type *bt = e->a->type;
+        int id = ++tmpc;
+        if (bt->kind == T_RECORD)
+            return sfmt("((__Closure){(void*)%s, (void*)&(%s)})", m->cname, gx(e->a));
+        char *fn;
+        if (e->cmode == CM_VIRTUAL) fn = sfmt("((struct VMT%d*)(__mo%d->__vmt))->v%d", bt->st->id, id, m->slot);
+        else if (e->cmode == CM_IFACE) fn = sfmt("__itab((void*)__mo%d, &IID%d)[%d]", id, m->owner->id, m->slot);
+        else fn = m->cname;
+        return sfmt("({ %s __mo%d = %s; (__Closure){(void*)%s, (void*)__mo%d}; })", ctype(bt), id, gx(e->a), fn, id);
+    }
     case E_TYPEREF: /* a class as a value: its class reference */
         if (e->type && e->type->kind == T_CLASSREF) return sfmt("((void*)&VMTI%d)", e->ctype->st->id);
         error_at(e->pos, "internal error: type used as a value");

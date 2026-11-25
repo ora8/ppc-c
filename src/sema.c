@@ -153,6 +153,8 @@ static int is_aggregate(Type *t);
 static int same_agg(Type *a, Type *b);
 static int equatable(Type *t);
 static void closure_of(Type *t);
+static Expr *method_value(Routine *m, Expr *base, int mode, Pos p);
+static void no_method_value(Expr *e);
 static void move_check(Expr *src, const char *ctx);
 static Expr *param_binary(Expr *e);
 static Expr *ex(Expr *e);
@@ -217,6 +219,7 @@ const char *type_name(Type *t) {
     switch (t->kind) {
     case T_VOID: return "untyped";
     case T_SET: return "set";
+    case T_CLASSREF: return "class reference";
     case T_INT: return "Integer";
     case T_BOOL: return "Boolean";
     case T_CHAR: return "Char";
@@ -489,6 +492,9 @@ static Expr *coerce(Expr *e, Type *to, const char *ctx) {
     if (to->kind == T_PROC && e->kind == E_RCALL && e->cmode == CM_NORMAL && !e->a && !e->args.len && !e->rt->params.len &&
         !e->rt->is_sig)
         e = routine_ref(e->rt, e->pos); /* 'f := Tick': the routine itself, not a call */
+    if (to->kind == T_PROC && e->kind == E_RCALL && e->a && !e->args.len && !e->rt->params.len && e->rt->owner &&
+        (e->cmode == CM_STATIC || e->cmode == CM_VIRTUAL || e->cmode == CM_IFACE))
+        e = method_value(e->rt, e->a, e->cmode, e->pos); /* Visit(obj.Show): the method of obj, not a call */
     if (to->kind == T_PARAM && (to->ik & PC_NUM) && (e->kind == E_INT || e->kind == E_REAL)) {
         e->type = to; /* a number literal is a value of every numeric type */
         return e;
@@ -523,6 +529,9 @@ static Expr *coerce(Expr *e, Type *to, const char *ctx) {
         return w;
     }
     if (!c) {
+        if (to->kind == T_PROC && !to->closure && e->kind == E_METHREF)
+            error_at(e->pos, "a method value refers to its object and cannot be stored as \"%s\" in %s; declare the parameter 'reference to %s'",
+                     type_name(to), ctx, type_name(to));
         if (to->kind == T_PROC && !to->closure && e->type->kind == T_PROC && e->type->closure)
             error_at(e->pos, "this %s uses variables of the routine around it (a closure) and cannot be stored as \"%s\" in %s; declare the parameter or variable 'reference to %s'",
                      e->kind == E_LAMBDA ? "lambda" : "routine", type_name(to), ctx, type_name(to));
@@ -2210,6 +2219,10 @@ static Expr *make_call(Routine *rt, Expr *base, ExprVec *args, int mode, Type *n
             if (!var_compat(pm->type, a->type))
                 error_at(a->pos, "call by var for arg no. %d has to match exactly: got \"%s\" expected \"%s\"", i + 1,
                          type_name(a->type), type_name(pm->type));
+        } else if (pm->type->kind == T_PROC) { /* Twice(p.Tick): a procedure without parameters as a value, not a call */
+            Expr *r = ex(a);
+            if (r->kind == E_TYPEREF) error_at(a->pos, "type \"%s\" used as a value", type_name(r->ctype));
+            a = coerce(r, pm->type, sfmt("argument %d of \"%s\"", i + 1, rt->name));
         } else
             a = coerce(value(a), pm->type, sfmt("argument %d of \"%s\"", i + 1, rt->name));
         vpush(c->args, a);
@@ -2360,6 +2373,10 @@ static Expr *member_ref(Expr *base, Look *L, ExprVec *args, Pos p, const char *n
         if (e->type->kind == T_CLASS && ((base->type->kind == T_CLASS && base->type->readonly) || rooted_const(base)))
             e->type = readonly_of(e->type);
         return e;
+    }
+    if (L->m && !args && L->m->params.len && base && !L->m->is_classm && L->m->kind != RK_CTOR && L->m->kind != RK_DTOR) {
+        int mode = L->m->owner->is_iface ? CM_IFACE : L->m->slot >= 0 ? CM_VIRTUAL : CM_STATIC;
+        return method_value(L->m, base, mode, p); /* obj.Print without arguments: a method value */
     }
     if (L->m) return make_call(L->m, base, args, -1, NULL, p);
     if (args) error_at(p, "\"%s\" is a property, not a method", name);
@@ -2932,7 +2949,7 @@ static Expr *ex(Expr *e) {
         e->type = t_lit;
         return e;
     case E_TRY: return try_expr(e);
-    case E_ROUTREF: return e;
+    case E_ROUTREF: case E_METHREF: return e;
     case E_LAMBDA: return lambda_expr(e);
     default: return e; /* already resolved */
     }
@@ -3460,6 +3477,33 @@ static Type *proc_type(Routine *sig) {
 static void closure_of(Type *t) {
     t->closure = 1;
     t->name = sfmt("reference to %s", proc_name(t->proc));
+}
+
+/* a method value only lives as long as the call it is passed to: it may not be stored (its object could be freed) */
+static void no_method_value(Expr *e) {
+    if (e && e->kind == E_METHREF)
+        error_at(e->pos, "a method value can only be passed directly as an argument ('%s' could be freed while the value is kept); use a lambda that calls it",
+                 e->a->kind == E_VAR ? e->a->var->name : "its object");
+}
+/* obj.Show as a function value: the method together with its object (a closure whose frame is the object) */
+static Expr *method_value(Routine *m, Expr *base, int mode, Pos p) {
+    if (m->is_overload) error_at(p, "\"%s\" is overloaded and cannot be used as a value (wrap the call in a lambda)", m->name);
+    if (m->is_classm || m->kind == RK_CTOR || m->kind == RK_DTOR)
+        error_at(p, "only ordinary methods can be used as values ('%s' is a %s)", m->name,
+                 m->is_classm ? "class method" : m->kind == RK_CTOR ? "constructor" : "destructor");
+    if (base->type->kind == T_CLASS && is_owning_temp(base))
+        error_at(p, "the object of a method value must be a variable (this one would be freed at once): store it first");
+    if (base->type->kind == T_RECORD && !is_lvalue(base)) error_at(p, "the record of a method value must be a variable");
+    if (!m->is_constm && ((base->type->kind == T_CLASS && base->type->readonly) || rooted_const(base)))
+        error_at(p, "'%s' is read-only: only const methods can be used as values of it", const_root_name(base));
+    Expr *e = new_expr(E_METHREF, p);
+    e->rt = m;
+    e->a = base;
+    e->cmode = mode;
+    e->type = proc_type(m);
+    closure_of(e->type);
+    m->addr_taken = 1; /* calls through function values may reach it (borrow checker) */
+    return e;
 }
 static Expr *routine_ref(Routine *rt, Pos p) {
     if (rt->owner || rt->is_sig)
@@ -4329,6 +4373,7 @@ static void stmt(Stmt *s) {
     case S_ASSIGN:
         assign(s);
         if (s->kind == S_ASSIGN && !s->bind) move_check(s->b, "assignment"); /* a 'var' result refers, it does not move */
+        if (s->kind == S_ASSIGN && s->b) no_method_value(s->b);
         if (s->kind == S_ASSIGN && s->a->kind == E_VAR && s->a->type->kind == T_PROC && s->a->type->closure && s->a->var->level < level)
             error_at(s->a->pos, "a closure variable can only be assigned in the routine that declares it ('%s' belongs to an outer routine)",
                      s->a->var->name);
@@ -4368,6 +4413,8 @@ static void stmt(Stmt *s) {
             }
         }
         Expr *e = ex(c);
+        if (e->kind == E_METHREF)
+            error_at(s->pos, "\"%s\" needs %d argument%s", e->rt->name, e->rt->params.len, e->rt->params.len == 1 ? "" : "s");
         if (e->type && e->type->kind == T_PROC && e->kind != E_RCALL && !e->type->proc->params.len) {
             ExprVec none = {0};
             e = indirect_call(e, &none, s->pos); /* 'f;' calls a procedure value without parameters */
@@ -4708,6 +4755,7 @@ static void add_init(StmtVec *dst, Var *v, Expr *init) {
         s->a = var_expr(v, init->pos);
         s->b = coerce(r, v->type, "initializer");
     }
+    no_method_value(s->b);
     move_check(s->b, "initializer");
     vpush(*dst, s);
 }

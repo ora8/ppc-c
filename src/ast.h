@@ -205,7 +205,8 @@ typedef enum {
     E_ERR,     /* error(e): a failed result */
     E_TRY,     /* try r: the value of a successful result, else return its error */
     E_LAMBDA,  /* function(...): T begin ... end  (lam: RoutineDecl, rt after checking) */
-    E_ROUTREF  /* a routine used as a value (rt) */
+    E_ROUTREF, /* a routine used as a value (rt) */
+    E_METHREF  /* obj.Method as a value: the method rt with its object a (a closure) */
 } ExprKind;
 
 enum { OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_IDIV, OP_MOD, OP_AND, OP_OR, OP_XOR, OP_SHL, OP_SHR,

@@ -1574,7 +1574,7 @@ end.
   elements of a procedural type must be `optional` (e.g. an event `OnClick: optional procedure(n: Integer)`,
   called with `if b.OnClick is some h then h(3)`).
 * Routines at program or module level are plain values, nested routines are closures; methods
-  cannot be values (wrap the call in a lambda).
+  of an object are method values (below).
 * The borrow checker treats a call through a function value as a call of any routine that is used
   as a value.
 
@@ -1617,6 +1617,24 @@ end;
 * The borrow checker knows what a closure uses: calling it after an object it uses was freed or
   moved is an error (`the call through a function value (a closure) uses 'k' after it was freed`),
   the same for nested routines.
+
+### Method values: `obj.Method`
+
+A method of an object can be passed where a `reference to` function is expected; it is called
+on that object (virtual methods in the object's class, also through interfaces and on records):
+
+```pascal
+ForEach(nums, printer.Print);         { printer.Print(x) for every element }
+SortBy(names, cmp.Less);              { a const method as the comparison }
+Twice(counter.Tick);                  { a method without parameters: not called here }
+```
+
+* A method value can only be **passed directly as an argument**: during the call its object
+  surely exists. To keep it in a variable, use a lambda that calls the method
+  (`val f := procedure begin counter.Tick; end`) – the closure rules then apply.
+* The object must be a variable (not a temporary object), a read-only object only gives `const`
+  methods, and the borrow checker forbids moving or `var`-passing the object in the same call.
+  Overloaded methods, class methods and constructors cannot be values.
 
 ## Enumerations with data
 

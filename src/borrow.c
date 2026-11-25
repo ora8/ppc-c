@@ -815,6 +815,7 @@ static void use_expr(Expr *e, State *s) {
     }
     case E_FMT: use_expr(e->a, s); use_expr(e->b, s); use_expr(e->c, s); return;
     case E_OK: case E_ERR: use_expr(e->a, s); return;
+    case E_METHREF: use_expr(e->a, s); return; /* obj.Show as a value: obj must be valid */
     case E_TRY: { /* a failed result leaves the routine here */
         use_expr(e->a, s);
         State out = st_copy(s);
@@ -1444,6 +1445,25 @@ static void call_effects(Expr *e, State *s, Origins *out) {
                     vpush(ap, x);
                 }
             }
+        }
+    }
+    /* a method value in the arguments: its object is used during the call; it may not be moved or changed by another argument */
+    for (int i = 0; i < e->args.len; i++) {
+        Expr *mv = e->args.items[i];
+        while (mv->kind == E_CONV) mv = mv->a;
+        if (mv->kind != E_METHREF) continue;
+        Var *mroot = NULL;
+        char *mp = path_of(mv->a, &mroot);
+        if (!mp) continue;
+        for (int k = 0; k < e->args.len; k++) {
+            if (k == i) continue;
+            int mode = r->params.items[k].mode;
+            Var *aroot = NULL;
+            char *apth = path_of(e->args.items[k], &aroot);
+            if (!apth || !paths_overlap(apth, mp)) continue;
+            if (mode == PM_OWNED || mode == PM_VAR || mode == PM_OUT)
+                berror(e->args.items[k]->pos, "'%s' is %s in the call of '%s' while the method value '%s.%s' uses it", desc_of(e->args.items[k]),
+                       mode == PM_OWNED ? "moved" : "passed as var", r->name, desc_of(mv->a), mv->rt->name);
         }
     }
     /* aliasing of mutable borrows */
