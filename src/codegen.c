@@ -230,6 +230,9 @@ static int needs_drop(Type *t) { return has_owned(t) || has_str(t); }
 static VEC(Expr *) taken_temps;
 static void take_temp(Expr *e) {
     while ((e->kind == E_CONV || e->kind == E_OK || e->kind == E_ERR) && e->a) e = e->a;
+    if (e->kind == E_RCALL && e->rt->ret_ref)
+        error_at(e->pos, "the result of '%s' refers into its container and cannot be taken over: look at it with 'is some x', or take it out (e.g. with Extract or Take)",
+                 e->rt->name);
     vpush(taken_temps, e);
     if (e->kind == E_LIST || e->kind == E_RECLIT)
         for (int i = 0; i < e->args.len; i++) take_temp(e->args.items[i]);
@@ -475,7 +478,8 @@ static char *box_move(Var *k, Type *to) {
 
 /* value variable that owns the objects inside it */
 static int agg_owner_var(Var *v) {
-    return needs_drop(v->type) && !v->is_ref && !v->no_drop && (v->vkind == VK_LOCAL || v->vkind == VK_GLOBAL);
+    return needs_drop(v->type) && !v->is_ref && !v->no_drop &&
+           (v->vkind == VK_LOCAL || v->vkind == VK_GLOBAL || (v->vkind == VK_PARAM && v->mode == PM_OWNED));
 }
 
 /* variable that owns what it refers to (and frees it at the end of its scope) */
@@ -487,6 +491,8 @@ static void cond_owners(Expr *c, VEC(Var *) *out) {
         cond_owners(c->b, out);
     } else if (c->kind == E_ISSOME && c->var && is_ref_type(c->var->type) && !c->var->borrowed && !c->var->is_stack)
         vpush(*out, c->var);
+    else if (c->kind == E_ISSOME && c->var && !is_ref_type(c->var->type) && has_owned(c->var->type) && !c->var->no_drop)
+        vpush(*out, c->var); /* a value that owns objects, taken from a fresh value */
 }
 static int owner_var(Var *v) {
     if (!is_ref_type(v->type) || v->borrowed || v->is_stack) return 0;
@@ -596,6 +602,17 @@ static char *gcall(Expr *e) {
             else buf_printf(&args, "(&((%s[1]){%s})[0])", ctype(pm->type), gx(a));
         } else if (pm->mode == PM_OWNED && stack_var_of(a)) {
             buf_put(&args, box_move(stack_var_of(a), pm->type));
+        } else if (pm->mode == PM_OWNED && has_owned(pm->type)) { /* a value that owns objects moves into the callee */
+            Expr *src = a;
+            while (src->kind == E_CONV && src->a) src = src->a;
+            if (cg_lvalue(src)) {
+                int id = ++tmpc;
+                char *sx = gx(src);
+                buf_printf(&args, "({ %s __mv%d = %s; memset(&(%s), 0, sizeof(%s)); __mv%d; })", ctype(pm->type), id, gx(a), sx, sx, id);
+            } else {
+                take_temp(a);
+                buf_put(&args, gx(a));
+            }
         } else {
             buf_put(&args, gx(a));
             Var *mv = pm->mode == PM_OWNED ? move_source(a) : NULL;
@@ -1016,18 +1033,20 @@ static char *gx(Expr *e) {
         Var *k = e->var;
         if (e->a->type->kind == T_RES) { /* r is ok v / r is error e */
             Type *rt = e->a->type;
-            if (rt->base && is_ref_type(rt->base) && res_temp(e->a)) {
+            if (rt->base && (is_ref_type(rt->base) || has_owned(rt->base)) && res_temp(e->a)) {
                 /* a fresh result with an object: 'is ok x' takes the object, otherwise it is freed */
                 take_temp(e->a);
                 int id = ++tmpc;
                 char *s = sfmt("__s%d", id);
                 char *pre = sfmt("%s %s = %s;", ctype(rt), s, gx(e->a));
                 /* the result is owned here: the part that is not taken is freed */
-                char *free_v = sfmt("if (!%s.err && %s.v) %s;", s, s, drop_code(rt->base, sfmt("%s.v", s)));
+                int ref = is_ref_type(rt->base);
+                char *free_v = ref ? sfmt("if (!%s.err && %s.v) %s;", s, s, drop_code(rt->base, sfmt("%s.v", s)))
+                                   : sfmt("if (!%s.err) %s;", s, agg_drop(rt->base, sfmt("%s.v", s)));
+                char *drop_k = k ? (ref ? sfmt("%s ? (%s, 0) : 0", var_ref(k), drop_code(k->type, var_ref(k))) : sfmt("(%s, 0)", agg_drop(k->type, var_ref(k)))) : "";
                 char *free_e = has_str(rt->err) ? sfmt("if (%s.err) %s;", s, agg_drop(rt->err, sfmt("%s.e", s))) : "";
                 if (k && e->op == 1)
-                    return sfmt("({ %s %s !%s.err ? (%s ? (%s, 0) : 0, %s = %s.v, 1) : 0; })", pre, free_e, s, var_ref(k),
-                                drop_code(k->type, var_ref(k)), var_ref(k), s);
+                    return sfmt("({ %s %s !%s.err ? (%s, %s = %s.v, 1) : 0; })", pre, free_e, s, drop_k, var_ref(k), s);
                 if (!k) return sfmt("({ %s %s %s %s%s.err; })", pre, free_v, free_e, e->op == 1 ? "!" : "", s);
                 return sfmt("({ %s %s %s.err ? (%s, %s = %s.e, 1) : 0; })", pre, free_v, s,  /* the error moves into e */
                             has_str(k->type) ? agg_drop(k->type, var_ref(k)) : "0", var_ref(k), s);
@@ -1040,6 +1059,13 @@ static char *gx(Expr *e) {
                             agg_copy(k->type, var_ref(k)));
             return sfmt("({ %s __s%d = %s; %s__s%d.err ? (%s = __s%d.%s, 1) : 0; })", ctype(e->a->type), id, gx(e->a),
                         e->op == 1 ? "!" : "", id, var_ref(k), id, e->op == 1 ? "v" : "e");
+        }
+        if (e->a->type->kind == T_OPT && has_owned(k->type) && res_temp(e->a)) {
+            /* a fresh optional value that owns objects: k takes it over */
+            take_temp(e->a);
+            int id = ++tmpc;
+            return sfmt("({ %s __s%d = %s; __s%d.has ? (%s, %s = __s%d.v, 1) : 0; })", ctype(e->a->type), id, gx(e->a), id,
+                        agg_drop(k->type, var_ref(k)), var_ref(k), id);
         }
         if (e->a->type->kind == T_OPT) {
             int id = ++tmpc;
@@ -1077,6 +1103,10 @@ static char *gx(Expr *e) {
         return gbuiltin(e);
     case E_ROUTREF: case E_LAMBDA: return e->rt->cname; /* the C function itself */
     case E_RCALL:
+        if (e->rt->ret_ref) { /* a reference into a container: read the value (none if there is none) */
+            int id = ++tmpc;
+            return sfmt("({ %s *__p%d = %s; __p%d ? *__p%d : (%s){0}; })", ctype(e->type), id, gcall(e), id, id, ctype(e->type));
+        }
         if (has_owned(e->type) && !is_taken(e))
             error_at(e->pos, "the result of '%s' owns objects and would never be freed here: store it in a variable first ('val r := %s(...)')",
                      e->rt->name, e->rt->name);
@@ -1195,6 +1225,10 @@ static void gs(Stmt *s) {
                  var_aux(b, "__live"), var_aux(k, "__live"));
             return;
         }
+        if (s->bind == 4) { /* Result := none in a function with a 'var' result */
+            line("%s = 0;", var_raw(s->a->var));
+            return;
+        }
         if (s->bind) { /* var x := y: x refers to y */
             line("%s = &%s;", var_raw(s->a->var), gx(s->b));
             return;
@@ -1230,7 +1264,7 @@ static void gs(Stmt *s) {
         line("}");
         return;
     case S_CALL:
-        if (s->a->kind == E_RCALL && has_owned(s->a->type)) { /* unused value that owns objects */
+        if (s->a->kind == E_RCALL && has_owned(s->a->type) && !s->a->rt->ret_ref) { /* unused value that owns objects */
             take_temp(s->a);
             int id = ++tmpc;
             line("{ %s __d%d = %s; %s; }", ctype(s->a->type), id, gx(s->a), agg_drop(s->a->type, sfmt("__d%d", id)));
@@ -1266,7 +1300,10 @@ static void gs(Stmt *s) {
             VEC(Var *) ow = {0};
             cond_owners(s->a, (void *)&ow);
             for (int i = 0; i < ow.len; i++)
-                line("if (%s) { %s; %s = 0; }", var_ref(ow.items[i]), drop_code(ow.items[i]->type, var_ref(ow.items[i])), var_ref(ow.items[i]));
+                if (is_ref_type(ow.items[i]->type))
+                    line("if (%s) { %s; %s = 0; }", var_ref(ow.items[i]), drop_code(ow.items[i]->type, var_ref(ow.items[i])), var_ref(ow.items[i]));
+                else
+                    line("%s;", agg_drop(ow.items[i]->type, var_ref(ow.items[i])));
         }
         return;
     case S_WHILE:
@@ -1399,6 +1436,7 @@ static void gs(Stmt *s) {
 /* ============================================================== routines */
 
 static char *ret_ctype(Routine *r) {
+    if (r->kind == RK_FUNC && r->ret_ref) return sfmt("%s*", ctype(r->ret));
     if (r->kind == RK_FUNC) return ctype(r->ret);
     if (r->kind == RK_CTOR && r->owner->kind == SK_CLASS) return sfmt("struct S%d*", r->owner->id);
     return "void";
@@ -1477,7 +1515,8 @@ static void gen_routine(Routine *r) {
         if (r->self) line("__f.self = self;");
         for (int i = 0; i < r->params.len; i++) line("__f.%s = %s;", r->params.items[i].var->cname, r->params.items[i].var->cname);
     } else {
-        if (r->result) line("%s Result; memset(&Result, 0, sizeof Result);", ctype(r->result->type));
+        if (r->result && r->ret_ref) line("%s *Result = 0;", ctype(r->result->type));
+        else if (r->result) line("%s Result; memset(&Result, 0, sizeof Result);", ctype(r->result->type));
         for (int i = 0; i < r->locals.len; i++) {
             Var *v = r->locals.items[i];
             line("%s%s %s; memset(&%s, 0, sizeof %s);", ctype(v->type), v->is_ref ? "*" : "", v->cname, v->cname, v->cname);
@@ -1509,7 +1548,7 @@ static void gen_routine(Routine *r) {
         line("%s;", agg_tmp(r->result->type, var_ref(r->result))); /* the caller's statement frees the result */
     if (r->kind == RK_DTOR && r->owner->kind == SK_CLASS)
         line("if (__free) { ((struct __VMTHdr*)self->__vmt)->drop(self); __ppc_free(self); }");
-    if (r->result) line("return %s;", var_ref(r->result));
+    if (r->result) line("return %s;", r->ret_ref ? var_raw(r->result) : var_ref(r->result));
     else if (r->kind == RK_CTOR && r->owner->kind == SK_CLASS) line("return self;");
     indent = 0;
     line("}");

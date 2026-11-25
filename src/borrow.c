@@ -367,7 +367,7 @@ static void access_path(State *s, const char *path, Var *ex1, Var *ex2, int kind
         if (tv.items[i].kind != TV_BORROW) continue;
         Var *v = tv.items[i].v;
         if (v == ex1 || v == ex2) continue;
-        int shared = v->type->readonly || (v->is_alias && v->is_const);
+        int shared = v->type->readonly || ((v->is_alias || v->no_drop) && v->is_const);
         if (!write && shared) continue; /* reading is compatible with read-only borrows */
         for (int k = 0; k < s->org[i].len; k++) {
             Origin *o = &s->org[i].items[k];
@@ -604,7 +604,8 @@ static void use_lvalue(Expr *e, State *s) {
         if (e->var->vkind == VK_WITH) {
             Alias *a = find_alias(e->var);
             if (a && a->root) check_var_use(a->root, e->pos, s);
-        }
+        } else if (in_base && tracked_borrow(e->var))
+            check_var_use(e->var, e->pos, s); /* a field or element of a borrowed value is used */
         return;
     case E_FIELD:
         in_base++;
@@ -805,6 +806,28 @@ static void use_expr(Expr *e, State *s) {
     case E_ISSOME: {
         /* 'opt is some k': k receives the content (a borrow of a place, or ownership of a fresh object) */
         Src src = {0};
+        if (e->var && tracked_borrow(e->var) && !is_owning_type(e->var->type)) { /* a view of a value that owns objects */
+            Origins o = {0};
+            Expr *x = e->a;
+            while (x->kind == E_CONV) x = x->a;
+            if (x->kind == E_RCALL) call_effects(x, s, &o); /* a 'var' result: it points into what the call borrows */
+            else {
+                use_expr(e->a, s);
+                Var *root = NULL;
+                char *path = path_of(x, &root);
+                if (path && root && tracked_borrow(root)) { /* through another borrow */
+                    int j = slot(root);
+                    for (int k = 0; k < s->org[j].len; k++) vpush(o, s->org[j].items[k]);
+                } else if (path)
+                    origin_add(&o, path, desc_of(x), root, 0);
+            }
+            int i = slot(e->var);
+            for (int k = 0; k < o.len; k++) access_path(s, o.items[k].path, e->var, NULL, ACC_BORROW_CONST, e->pos, o.items[k].desc);
+            s->bor[i] = B_VALID;
+            s->why[i] = NULL;
+            s->org[i] = o;
+            return;
+        }
         if (e->a->type->kind == T_RES && e->var && is_owning_type(e->var->type)) { /* r is ok f: f holds the object of r */
             use_expr(e->a, s);
             src.desc = desc_of(e->a);
@@ -2052,6 +2075,10 @@ static void untrack_all(void) {
 
 static void track_var(Var *v) {
     if (v->is_alias) { /* var x: Integer := y: a borrow of y */
+        track(v, TV_BORROW, 0);
+        return;
+    }
+    if (v->no_drop && has_owned(v->type) && !is_ref_type(v->type)) { /* 'is some x' on a value that owns objects: a view */
         track(v, TV_BORROW, 0);
         return;
     }

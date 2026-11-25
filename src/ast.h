@@ -391,6 +391,7 @@ struct Routine {
     int is_classm; /* class method: no Self, called as TClass.Name(...) */
     int is_auto;   /* generated body (Clone: deep copy) */
     int is_external; /* implemented in C by the runtime (cname) */
+    int ret_ref;   /* 'var' result of a value that owns objects: returns a pointer into a container (NULL: none) */
     int is_sig;    /* signature of a procedural type: no body; it stands for every routine used as a value */
     int addr_taken; /* used as a function value */
     int has_frame;

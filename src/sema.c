@@ -105,7 +105,7 @@ static Expr *try_expr(Expr *e);
 /* a result that nobody holds yet: a function call */
 int res_temp(Expr *e) {
     while (e->kind == E_CONV) e = e->a;
-    return e->kind == E_RCALL && e->rt->kind == RK_FUNC;
+    return e->kind == E_RCALL && e->rt->kind == RK_FUNC && !e->rt->ret_ref && !e->rt->ret_borrowed;
 }
 static struct Scope *top_scope, *lambda_outer;
 static Expr *try_site;
@@ -1511,10 +1511,9 @@ static void build_params(Routine *rt, ParamGroupVec *pg) {
         int mode = g->mode;
         if (t->readonly && t->kind != T_CLASS && mode == PM_VALUE) mode = PM_CONSTREF; /* read-only, no copy */
         if (mode == PM_VALUE && has_owned(t)) mode = PM_CONSTREF; /* owns objects: borrowed read-only, not copied */
-        if (g->mode == PM_OWNED && !is_owning_type(t)) {
-            if (!generic_depth) error_at(g->ty->pos, "'vao' parameters (taking ownership) need a class type");
-            if (has_owned(t))
-                error_at(g->ty->pos, "a 'vao' parameter of type \"%s\" (a value that owns objects) is not supported in generic code yet",
+        if (g->mode == PM_OWNED && !is_owning_type(t) && !has_owned(t)) { /* a value that owns objects: it is moved in */
+            if (!generic_depth)
+                error_at(g->ty->pos, "'vao' parameters (taking ownership) need a class type or a value that owns objects, not \"%s\"",
                          type_name(t));
             mode = PM_VALUE; /* generic instance with a plain value: an ordinary copy */
         }
@@ -1694,8 +1693,11 @@ static void define_struct(Struct *s, StructDecl *sd) {
         r->ret_borrowed = md->ret_borrowed;
         auto_rules(md, s, r);
         if (md->ret_borrowed && !is_owning_type(r->ret)) {
-            if (!generic_depth) error_at(md->name.pos, "a 'var' result (reference without ownership) needs a class type");
-            r->ret_borrowed = 0; /* generic instance with a value type: the result is a copy */
+            if (has_owned(r->ret)) r->ret_ref = 1; /* a value that owns objects: a reference to it */
+            else {
+                if (!generic_depth) error_at(md->name.pos, "a 'var' result (reference without ownership) needs a class type or a value that owns objects");
+                r->ret_borrowed = 0; /* generic instance with a plain value: the result is a copy */
+            }
         }
         r->virt = md->virt;
         r->is_abstract = md->is_abstract;
@@ -3139,7 +3141,8 @@ static Expr *bind_some(Expr *e) {
     if (t->kind == T_RES && kt && is_ref_type(kt)) k->borrowed = !res_temp(e->a); /* a fresh result gives its object away */
     if (t->kind == T_OPT && is_ref_type(kt)) k->borrowed = !is_owning_temp(e->a); /* optional T with T an object (generic body) */
     k->is_const = k->borrowed || t->kind == T_OPT || t->kind == T_RES;
-    k->no_drop = (t->kind == T_OPT || t->kind == T_RES) && has_owned(kt); /* a copy of the value: the original keeps owning (strings are copied) */
+    k->no_drop = (t->kind == T_OPT || t->kind == T_RES) && has_owned(kt) && !res_temp(e->a); /* a view: the original keeps owning;
+                                                                                               from a fresh value k takes it over */
     if (cur) vpush(cur->locals, k);
     else vpush(prog->globals, k);
     add_sym(SY_VAR, e->id.name, e->id.pos)->var = k;
@@ -3203,6 +3206,23 @@ static void move_check(Expr *src, const char *ctx) {
 static void assign(Stmt *s) {
     Expr *l = s->a;
     if (s->b->kind == E_TRY) try_site = s->b;
+    if (l->kind == E_IDENT && cur && cur->ret_ref && STREQ(l->id.name, "Result")) {
+        Look R = lookup("Result");
+        if (R.kind == LK_SYM && R.sym->kind == SY_VAR && R.sym->var == cur->result) { /* Result := Items[i]: refers to it */
+            s->a = var_expr(cur->result, l->pos);
+            if (s->b->kind == E_NIL) { /* none: no value */
+                s->bind = 4;
+                return;
+            }
+            Expr *r = value(s->b);
+            if (!is_lvalue(r)) error_at(s->b->pos, "the 'var' result must refer to a variable or an element, not to a computed value");
+            if (!var_compat(cur->result->type, r->type))
+                error_at(s->b->pos, "the 'var' result (%s) cannot refer to \"%s\"", type_name(cur->result->type), type_name(r->type));
+            s->b = r;
+            s->bind = 1;
+            return;
+        }
+    }
     if (l->kind == E_IDENT) {
         Look P = lookup(l->id.name);
         if (P.kind == LK_SYM && P.sym->kind == SY_VAR && P.sym->var->pending) { /* first assignment decides the type */
@@ -3305,7 +3325,7 @@ static void stmt(Stmt *s) {
     case S_EMPTY: case S_BREAK: case S_CONTINUE: return;
     case S_ASSIGN:
         assign(s);
-        if (s->kind == S_ASSIGN) move_check(s->b, "assignment");
+        if (s->kind == S_ASSIGN && !s->bind) move_check(s->b, "assignment"); /* a 'var' result refers, it does not move */
         return;
     case S_CALL: {
         Expr *c = s->a;
@@ -3866,8 +3886,11 @@ static void routine_decl(RoutineDecl *d) {
         }
         rt->ret_borrowed = d->ret_borrowed;
         if (d->ret_borrowed && !is_owning_type(rt->ret)) {
-            if (!generic_depth) error_at(d->pos, "a 'var' result (reference without ownership) needs a class type");
-            rt->ret_borrowed = 0;
+            if (has_owned(rt->ret)) rt->ret_ref = 1;
+            else {
+                if (!generic_depth) error_at(d->pos, "a 'var' result (reference without ownership) needs a class type or a value that owns objects");
+                rt->ret_borrowed = 0;
+            }
         }
         Sym *s = add_sym(SY_ROUTINE, d->name.name, d->name.pos);
         s->rt = rt;
@@ -3931,6 +3954,8 @@ static void routine_body(Routine *rt, RoutineDecl *d) {
     if (rt->kind == RK_FUNC) {
         Var *r = new_var("Result", rt->ret, VK_RESULT, d->pos);
         r->borrowed = rt->ret_borrowed;
+        r->is_ref = rt->ret_ref; /* a pointer to the value it refers to */
+        r->no_drop = rt->ret_ref;
         r->in_frame = has_frame;
         rt->result = r;
         if (!find_local("Result")) add_sym(SY_VAR, "Result", d->pos)->var = r;

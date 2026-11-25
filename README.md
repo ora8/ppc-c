@@ -366,7 +366,16 @@ end;                           { a, q and z free their objects here }
   You cannot move out of constants, `is some` bindings and parameters, and they must not be
   copied into a literal.
 * As parameters they are only borrowed read-only (by reference, like `T const`); `var`
-  parameters change the original.
+  parameters change the original; a **`vao` parameter takes them over** (`procedure
+  Keep(vao o: TOrder)`): the argument is moved in (the caller's variable is empty afterwards) and
+  the routine frees it at its end unless it moves it on.
+* A **`var` result** of such a type refers into a container instead of copying
+  (`function Get(i: Integer): var optional TOrder` with `Result := Items[i]`; `Result := none`
+  for no element). Look at it with `if l.Get(0) is some o then …` – `o` is a read-only view that
+  the borrow checker ties to `l` (`l.Clear` while `o` is used is an error); taking it over
+  (`val o := l.Get(0)`) is an error – take it out with `Extract`/`Take` instead.
+* From a fresh value (`if l.Extract(0) is some o`), `o` takes the value over and frees it when
+  the `if` ends.
 * Objects that have fields of such types free them with themselves; an unused function result
   (`Make(9);`) is freed at once.
 * Such a function result must be stored before it is used: `Make(1).Info` or `Show(Make(2))` are
@@ -771,8 +780,12 @@ end;
 
   Such an error is reported once for the generic, not for every instance. Every instance is
   still checked with its actual types as well.
-* For a value `T`, `vao x: T` is an ordinary pass and a `var` result is a copy; for an object `T`
-  the usual ownership and borrowing rules apply.
+* For a plain value `T` (numbers, strings, records without objects), `vao x: T` is an ordinary
+  pass and a `var` result is a copy. For an object `T` or a value that owns objects (a record
+  with an object field, `array of String`, …) the ownership rules apply: `vao x: T` moves the
+  argument in, a `var` result refers into the container. So `TList<TOrder>`, `TStack<TOrder>`
+  or `TMap<String, TOrder>` work with `TOrder = record Name: String; Item: optional TItem; end`,
+  and free the objects of their elements.
 * `ClassName` returns the name of the instance, e.g. `'TList<TCustomer>'`.
 
 ## Modules: `module` and `import`
