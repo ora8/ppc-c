@@ -186,6 +186,40 @@ if s is ISolid then ...                      { run-time test; also 'as' }
 * A call through an interface looks up the class's table for that interface (a short search in
   the VMT); calls on the class type itself stay direct.
 
+### Class fields: `class var`
+
+A class field exists once for the class, not once per object (like `class var` in Delphi):
+
+```pascal
+type
+  TCounter = class
+  private
+    class var FCreated: Integer;
+  public
+    class var Prefix: String;
+    class var Default: optional TItem;
+  var                                   { back to ordinary fields }
+    Id: Integer;
+    constructor Create;
+    class function Created: Integer;
+  end;
+
+constructor TCounter.Create;
+begin
+  Inc(FCreated);                        { inside methods and class methods without a prefix }
+  Id := FCreated;
+end;
+
+TCounter.Prefix := '#';                 { from outside through the type (or an object) }
+```
+
+* As in Delphi, `class var` starts a section: the following fields are class fields too, until a
+  visibility keyword, a method, a property or `var`.
+* Class fields are global variables: zero at the start, objects in them must be `optional` and
+  are freed when the program ends, `var` references are not allowed. Visibility applies;
+  descendants share the field of their ancestor, every instance of a generic class has its own.
+  Records can have class fields too.
+
 ### Indexers: `property Item[i: Integer]: T … default;`
 
 A property with index parameters (an *array property* in Delphi) is read and written with

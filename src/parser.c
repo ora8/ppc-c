@@ -447,6 +447,7 @@ static void parse_decl_type(VarDecl *v) {
 
 static StructDecl *parse_struct(int kind) {
     int vis = VIS_PUBLIC;
+    int class_section = 0; /* after 'class var': the fields belong to the class */
     StructDecl *sd = NEW(StructDecl);
     sd->kind = kind;
     if ((kind == SK_CLASS || kind == SK_IFACE) && accept_sym("(")) {
@@ -469,16 +470,28 @@ static StructDecl *parse_struct(int kind) {
             vis = is_ident("private") ? VIS_PRIVATE : is_ident("protected") ? VIS_PROTECTED : VIS_PUBLIC;
             if (kind == SK_RECORD && vis == VIS_PROTECTED) error_at(pos(), "records have no descendants: use 'private' or 'public'");
             next();
+            class_section = 0;
             continue;
         }
-        if (accept_kw("var") || accept_kw("val")) continue;
+        if (accept_kw("var") || accept_kw("val")) {
+            class_section = 0;
+            continue;
+        }
+        if (is_kw("class") && T.items[P + 1].kind == TK_KW && STREQ(T.items[P + 1].s, "var")) { /* class var Count: Integer; */
+            if (kind == SK_IFACE) error_at(pos(), "interfaces have no fields");
+            next();
+            next();
+            class_section = 1;
+            continue;
+        }
         if (is_kw("class") && !class_routine_ahead())
-            error_at(pos(), "class fields are not supported (only 'class function' / 'class procedure')");
+            error_at(pos(), "'class' here needs 'var', 'function', 'procedure' or 'operator'");
         if (kind == SK_RECORD && is_kw("case"))
             error_at(pos(), "variant records are not supported: use an enumeration with data, (Circle(Radius: Real), Empty)");
         if (kind == SK_IFACE && !is_routine_kw())
             error_at(pos(), "an interface contains only method headers (procedure/function), found %s", describe());
         if (is_routine_kw()) {
+            class_section = 0;
             MethodDecl m = {0};
             m.kind = routine_kind();
             m.is_classm = last_classm;
@@ -500,6 +513,7 @@ static StructDecl *parse_struct(int kind) {
             continue;
         }
         if (accept_kw("property")) {
+            class_section = 0;
             PropDecl pd = {0};
             pd.name = ident();
             if (accept_sym("[")) { /* property Item[i: Integer]: T read Get write Put */
@@ -547,6 +561,7 @@ static StructDecl *parse_struct(int kind) {
             f.ty = parse_type();
             if (!(kind == SK_RECORD && is_kw("end"))) expect_sym(";"); /* records: last ';' optional */
             f.vis = vis;
+            f.is_class = class_section;
             vpush(sd->fields, f);
             continue;
         }

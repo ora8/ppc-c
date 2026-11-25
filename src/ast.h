@@ -41,6 +41,7 @@ typedef struct {
     TypeExpr *ty;
     int borrowed;
     int vis;
+    int is_class; /* 'class var': one variable for the class, not one per object */
 } FieldDecl;
 typedef VEC(FieldDecl) FieldDeclVec;
 typedef struct {
@@ -303,6 +304,7 @@ struct Field {
     int borrowed;
     Struct *owner;
     int vis;
+    Var *cvar; /* class field: the (global) variable */
 };
 
 typedef struct {
@@ -333,6 +335,7 @@ struct Struct {
     int is_iface; /* interface: methods only; parent = the interface it extends */
     VEC(Struct *) ifaces; /* class: the interfaces it implements (its own, not the inherited ones) */
     VEC(void *) gmethods; /* generic methods (Generic *, made for every type combination used) */
+    VEC(Field *) cfields; /* class fields ('class var'): their variables are globals */
     VEC(VariantInfo) variants;
     char *name;
     int kind;

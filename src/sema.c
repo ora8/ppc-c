@@ -72,6 +72,10 @@ typedef struct {
     Generic *gm; /* a generic method of Self */
 } Look;
 static void check_visible(Look *L, Pos p, const char *name);
+static Field *find_cfield(Struct *st, const char *name);
+static Look cfield_look(Field *f);
+static Expr *cfield_ref(Field *f, Pos p);
+static void class_fields(Struct *s, FieldDecl *fd, Type *t);
 static int set_elem_ok(Type *st, Type *t);
 static Expr *set_binary(Expr *e);
 static Expr *set_literal(Expr *e, Type *to);
@@ -608,6 +612,8 @@ static Look lookup(const char *name) {
                 L.p = p;
                 return L;
             }
+            Field *cf = find_cfield(s->self_obj->type->st, name);
+            if (cf) return cfield_look(cf);
             Generic *gm = find_gmethod(s->self_obj->type->st, name);
             if (gm) {
                 L.kind = LK_MEMBER;
@@ -620,6 +626,8 @@ static Look lookup(const char *name) {
             Field *f;
             Routine *m;
             Prop *p;
+            Field *cf = find_cfield(s->cls, name);
+            if (cf) return cfield_look(cf);
             if (find_member(s->cls, name, &f, &m, &p)) {
                 if (!m || !m->is_classm)
                     error_at(scope_pos, "'%s' is not available in a class method (a class method has no Self)", name);
@@ -922,6 +930,10 @@ static void add_fields(Struct *s, FieldDeclVec *fields) {
         Type *t = resolve_type(fd->ty);
         no_closure(t, fd->ty->pos, "a field");
         check_complete(t, fd->ty->pos);
+        if (fd->is_class) { /* class var: a global variable that belongs to the type */
+            class_fields(s, fd, t);
+            continue;
+        }
         if (s->kind == SK_RECORD) require_nilable(t, fd->ty->pos, "record field");
         else if (t->kind == T_PROC) require_nilable(t, fd->ty->pos, "field");
         int fborrowed = fd->borrowed;
@@ -1389,6 +1401,57 @@ static Expr *make_call(Routine *rt, Expr *base, ExprVec *args, int mode, Type *n
 static Expr *value(Expr *e);
 /* Max(3, 7): the type arguments come from the arguments */
 
+
+/* ---- class fields: class var Count: Integer ---- */
+static Field *find_cfield(Struct *st, const char *name) {
+    for (Struct *c = st; c; c = c->parent)
+        for (int i = 0; i < c->cfields.len; i++)
+            if (STREQ(c->cfields.items[i]->name, name)) return c->cfields.items[i];
+    return NULL;
+}
+static void class_fields(Struct *s, FieldDecl *fd, Type *t) {
+    require_nilable(t, fd->ty->pos, "class field");
+    if (fd->borrowed) error_at(fd->ty->pos, "a class field cannot be a 'var' reference (it would outlive what it refers to)");
+    for (int k = 0; k < fd->names.len; k++) {
+        Ident *id = &fd->names.items[k];
+        for (int j = 0; j < s->fields.len; j++)
+            if (STREQ(s->fields.items[j]->name, id->name)) error_at(id->pos, "duplicate field \"%s\"", id->name);
+        for (int j = 0; j < s->cfields.len; j++)
+            if (STREQ(s->cfields.items[j]->name, id->name)) error_at(id->pos, "duplicate field \"%s\"", id->name);
+        Var *v = new_var(id->name, t, VK_GLOBAL, id->pos);
+        v->cname = sfmt("C%d_%s", s->id, id->name);
+        v->is_global = 1;
+        v->level = 0;
+        if (!archetype_mode) vpush(prog->globals, v);
+        Field *f = NEW(Field);
+        f->name = id->name;
+        f->cname = v->cname;
+        f->type = t;
+        f->owner = s;
+        f->vis = fd->vis;
+        f->cvar = v;
+        vpush(s->cfields, f);
+    }
+}
+static Expr *cfield_ref(Field *f, Pos p) {
+    Look V = {0};
+    V.f = f;
+    check_visible(&V, p, f->name);
+    return var_expr(f->cvar, p);
+}
+static Look cfield_look(Field *f) {
+    Look V = {0};
+    V.f = f;
+    check_visible(&V, scope_pos, f->name);
+    Sym *sy = NEW(Sym);
+    sy->kind = SY_VAR;
+    sy->name = f->name;
+    sy->var = f->cvar;
+    Look L = {0};
+    L.kind = LK_SYM;
+    L.sym = sy;
+    return L;
+}
 /* ---- generic methods: function Id<T>(x: T): T in a class or record ---- */
 static VEC(RoutineDecl *) gm_impls; /* their implementations (function TA.Id<T>...), known before they are checked */
 static Generic *find_gmethod(Struct *st, const char *name) {
@@ -2415,6 +2478,10 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
                         if (STREQ(t->st->variants.items[i].name, name)) return variant_value(t, i, args, p);
                     error_at(p, "\"%s\" has no variant \"%s\" (%s)", type_name(t), name, variant_list(t->st));
                 }
+                if ((t->kind == T_CLASS || t->kind == T_RECORD) && find_cfield(t->st, name)) { /* TCounter.Count */
+                    if (args) error_at(p, "\"%s\" is a class field, not a method", name);
+                    return cfield_ref(find_cfield(t->st, name), p);
+                }
                 if ((t->kind == T_CLASS || t->kind == T_RECORD) && find_gmethod(t->st, name)) /* TFactory.Make<TItem>() */
                     return gmethod_call(find_gmethod(t->st, name), NULL, &e->targs, args, p);
                 if (t->kind == T_CLASS || t->kind == T_RECORD) {
@@ -2505,6 +2572,10 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
         if (bt->kind != T_RECORD && bt->kind != T_CLASS)
             error_at(p, "illegal qualifier: \"%s\" has no members", type_name(bt));
         Look L = {0};
+        if (!find_member(bt->st, name, &L.f, &L.m, &L.p) && find_cfield(bt->st, name)) {
+            if (args) error_at(p, "\"%s\" is a class field, not a method", name);
+            return cfield_ref(find_cfield(bt->st, name), p);
+        }
         if (!find_member(bt->st, name, &L.f, &L.m, &L.p) && find_gmethod(bt->st, name))
             return gmethod_call(find_gmethod(bt->st, name), base, &e->targs, args, p);
         if (!find_member(bt->st, name, &L.f, &L.m, &L.p))
@@ -4153,6 +4224,10 @@ static void assign(Stmt *s) {
         if (!is_type) {
             Expr *b = autoderef(value(l->a));
             if (b->type->kind == T_RECORD || b->type->kind == T_CLASS) {
+                if (!find_member(b->type->st, l->id.name, &L.f, &L.m, &L.p) && find_cfield(b->type->st, l->id.name)) {
+                    s->a = cfield_ref(find_cfield(b->type->st, l->id.name), l->pos);
+                    goto normal;
+                }
                 if (!find_member(b->type->st, l->id.name, &L.f, &L.m, &L.p))
                     error_at(l->pos, "identifier \"%s\" is not a member of \"%s\"", l->id.name, b->type->st->name);
                 check_visible(&L, l->pos, l->id.name);
