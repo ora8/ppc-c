@@ -1097,6 +1097,22 @@ if TTextFile.OpenRead('notes.txt') is ok f then
     end;
 ```
 
+**Directories and paths:**
+
+```pascal
+if ForceDirs('out/logs') is error e then WriteLn(e);      { with all missing parents }
+val r := ListDir('out');                                  { result array of String, sorted }
+if r is ok names then
+  for val n in names do
+    if DirExists(JoinPath('out', n)) then WriteLn(n, '/') else WriteLn(n);
+```
+
+`ListDir(path): result array of String` (without `.` and `..`), `DirExists`, `CreateDir`,
+`ForceDirs`, `RemoveDir` (empty directories), `RenameFile(old, new)`, `FileSize(name): result
+Int64`, `CurrentDir`, `SetCurrentDir`, all with `result` errors like the file functions; and
+for paths `ExtractFileName('src/main.pas') = 'main.pas'`, `ExtractFileDir` (`'src'`),
+`ExtractFileExt` (`'.pas'`), `ChangeFileExt(path, '.c')`, `JoinPath('src', 'main.pas')`.
+
 **Time:** `MilliSeconds: Int64` (monotonic, for measuring), `UnixTime: Int64`, `Sleep(ms)`,
 `Now: TDateTime` (a record with `Year`, `Month`, `Day`, `Hour`, `Minute`, `Second`,
 `MilliSecond`), `DateToStr`, `TimeToStr`, `DateTimeToStr` (`2026-11-25 14:05:09`).

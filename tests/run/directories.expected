@@ -1,0 +1,13 @@
+created x
+again: cannot create directory 'pp
+written
+  a TRUE
+  notes.txt FALSE
+  x TRUE
+size 5
+renamed TRUE
+cannot list '/no/such/dir': No such file or directory
+main.pas src .pas src/main.c [] / a/b
+in ppc_dir_test.tmp
+back
+FALSE

@@ -16,6 +16,9 @@
               Log2, Hypot, Sign, IsNan
   Files       ReadFile, ReadLines, WriteFile, AppendFile, FileExists, DeleteFile,
               TTextFile (OpenRead, OpenWrite, OpenAppend: result TTextFile)
+  Directories ListDir, DirExists, CreateDir, ForceDirs, RemoveDir, RenameFile, FileSize,
+              CurrentDir, SetCurrentDir; ExtractFileName, ExtractFileDir, ExtractFileExt,
+              ChangeFileExt, JoinPath
   Time        MilliSeconds, UnixTime, Sleep, Now (TDateTime), DateToStr, TimeToStr, DateTimeToStr
   Program     ParamCount, ParamStr, GetEnv
 
@@ -133,6 +136,22 @@ function WriteFile(Name, Text: String): result;
 function AppendFile(Name, Text: String): result;
 function DeleteFile(Name: String): result;
 function FileExists(Name: String): Boolean; external '__std_fileexists';
+
+{ ---- directories and paths ---- }
+function ListDir(Path: String): result array of String; { the names in a directory (sorted, without . and ..) }
+function DirExists(Path: String): Boolean; external '__std_direxists';
+function CreateDir(Path: String): result;
+function ForceDirs(Path: String): result;          { with all missing parents, like mkdir -p }
+function RemoveDir(Path: String): result;          { an empty directory }
+function RenameFile(OldName, NewName: String): result;
+function FileSize(Name: String): result Int64;
+function CurrentDir: String; external '__std_getcwd';
+function SetCurrentDir(Path: String): result;
+function ExtractFileName(Path: String): String;    { 'src/main.pas' -> 'main.pas' }
+function ExtractFileDir(Path: String): String;     { 'src/main.pas' -> 'src' }
+function ExtractFileExt(Path: String): String;     { 'src/main.pas' -> '.pas' }
+function ChangeFileExt(Path, Ext: String): String; { ChangeFileExt('a.pas', '.c') = 'a.c' }
+function JoinPath(Dir, Name: String): String;      { JoinPath('src', 'main.pas') = 'src/main.pas' }
 
 type
   TTextFile = class                                { a text file read or written line by line }
@@ -706,6 +725,117 @@ end;
 function DeleteFile(Name: String): result;
 begin
   if __DeleteFile(Name) then Result := ok else Result := error(__IOError);
+end;
+
+{ ------------------------------------------------------- directories and paths }
+
+function __DirOpen(Path: String): Int64; external '__std_dir_open';
+function __DirNext(h: Int64; var Name: String): Boolean; external '__std_dir_next';
+procedure __DirClose(h: Int64); external '__std_dir_close';
+function __MkDir(Path: String): Boolean; external '__std_mkdir';
+function __RmDir(Path: String): Boolean; external '__std_rmdir';
+function __Rename(OldName, NewName: String): Boolean; external '__std_rename';
+function __FileSize(Name: String): Int64; external '__std_filesize';
+function __ChDir(Path: String): Boolean; external '__std_chdir';
+
+function ListDir(Path: String): result array of String;
+val
+  h := __DirOpen(Path);
+  name := '';
+  names: array of String := default;
+begin
+  if h = 0 then Exit(error(__IOError));
+  while __DirNext(h, name) do
+  begin
+    SetLength(names, Length(names) + 1);
+    names[High(names)] := name;
+  end;
+  __DirClose(h);
+  Sort(names);
+  Result := ok(names);
+end;
+
+function CreateDir(Path: String): result;
+begin
+  if __MkDir(Path) then Result := ok else Result := error(__IOError);
+end;
+
+function ForceDirs(Path: String): result;
+val parent := ExtractFileDir(Path);
+begin
+  Result := ok;
+  if (Path = '') or DirExists(Path) then Exit;
+  if (parent <> '') and (parent <> Path) and not DirExists(parent) then
+  begin
+    Result := ForceDirs(parent);
+    if Result.IsError then Exit;
+  end;
+  if not __MkDir(Path) and not DirExists(Path) then Result := error(__IOError);
+end;
+
+function RemoveDir(Path: String): result;
+begin
+  if __RmDir(Path) then Result := ok else Result := error(__IOError);
+end;
+
+function RenameFile(OldName, NewName: String): result;
+begin
+  if __Rename(OldName, NewName) then Result := ok else Result := error(__IOError);
+end;
+
+function FileSize(Name: String): result Int64;
+val n := __FileSize(Name);
+begin
+  if n < 0 then Result := error(__IOError) else Result := ok(n);
+end;
+
+function SetCurrentDir(Path: String): result;
+begin
+  if __ChDir(Path) then Result := ok else Result := error(__IOError);
+end;
+
+function __LastSlash(Path: String): Integer;
+begin
+  Result := 0;
+  for val i := 1 to Length(Path) do
+    if Path[i] = '/' then Result := i;
+end;
+
+function ExtractFileName(Path: String): String;
+begin
+  Result := Copy(Path, __LastSlash(Path) + 1, Length(Path));
+end;
+
+function ExtractFileDir(Path: String): String;
+val p := __LastSlash(Path);
+begin
+  if p = 0 then Result := ''
+  else if p = 1 then Result := '/'
+  else Result := Copy(Path, 1, p - 1);
+end;
+
+function ExtractFileExt(Path: String): String;
+val
+  name := ExtractFileName(Path);
+  p := 0;
+begin
+  for val i := 2 to Length(name) do               { a leading dot ('.bashrc') is not an extension }
+    if name[i] = '.' then p := i;
+  if p = 0 then Result := '' else Result := Copy(name, p, Length(name));
+end;
+
+function ChangeFileExt(Path, Ext: String): String;
+val e := ExtractFileExt(Path);
+begin
+  Result := Copy(Path, 1, Length(Path) - Length(e)) + Ext;
+end;
+
+function JoinPath(Dir, Name: String): String;
+begin
+  if Dir = '' then Result := Name
+  else if (Name <> '') and (Name[1] = '/') then Result := Name
+  else if Dir[Length(Dir)] = '/' then Result := Dir + Name
+  else Result := Dir + '/' + Name;
 end;
 
 { ----------------------------------------------------------------- TTextFile }

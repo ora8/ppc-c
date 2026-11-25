@@ -8,6 +8,8 @@
 #include <time.h>
 #include <errno.h>
 #include <unistd.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 typedef struct { int64_t len; unsigned char *p; } PStr;
 typedef struct { void *fn; void *env; } __Closure;
@@ -538,6 +540,70 @@ static uint8_t __std_feof(int64_t h) {
     return 0;
 }
 static void __std_fclose(int64_t h) { FILE *f = (FILE *)(intptr_t)h; if (f) fclose(f); }
+/* directories */
+static int64_t __std_dir_open(PStr path) {
+    __std_err[0] = 0;
+    char *n = __cz(path);
+    DIR *d = opendir(n);
+    free(n);
+    if (!d) __std_seterr("cannot list", path);
+    return (int64_t)(intptr_t)d;
+}
+static uint8_t __std_dir_next(int64_t h, PStr *name) { /* the next entry without '.' and '..' */
+    DIR *d = (DIR *)(intptr_t)h;
+    struct dirent *e;
+    while (d && (e = readdir(d)) != NULL) {
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
+        __pstr_assign(name, __pstr_lit(e->d_name, (int64_t)strlen(e->d_name)));
+        return 1;
+    }
+    return 0;
+}
+static void __std_dir_close(int64_t h) { if (h) closedir((DIR *)(intptr_t)h); }
+static uint8_t __std_direxists(PStr path) { char *n = __cz(path); struct stat st; int ok = stat(n, &st) == 0 && S_ISDIR(st.st_mode); free(n); return ok; }
+static uint8_t __std_mkdir(PStr path) {
+    __std_err[0] = 0;
+    char *n = __cz(path);
+    int ok = mkdir(n, 0777) == 0;
+    free(n);
+    if (!ok) __std_seterr("cannot create directory", path);
+    return ok;
+}
+static uint8_t __std_rmdir(PStr path) {
+    __std_err[0] = 0;
+    char *n = __cz(path);
+    int ok = rmdir(n) == 0;
+    free(n);
+    if (!ok) __std_seterr("cannot remove directory", path);
+    return ok;
+}
+static uint8_t __std_rename(PStr from, PStr to) {
+    __std_err[0] = 0;
+    char *a = __cz(from), *b = __cz(to);
+    int ok = rename(a, b) == 0;
+    free(a);
+    free(b);
+    if (!ok) __std_seterr("cannot rename", from);
+    return ok;
+}
+static int64_t __std_filesize(PStr path) { /* -1: no such file (the error is kept) */
+    __std_err[0] = 0;
+    char *n = __cz(path);
+    struct stat st;
+    int ok = stat(n, &st) == 0;
+    free(n);
+    if (!ok) { __std_seterr("cannot read the size of", path); return -1; }
+    return (int64_t)st.st_size;
+}
+static PStr __std_getcwd(void) { char b[4096]; if (!getcwd(b, sizeof b)) return __pstr_lit("", 0); return __pstr_mem(b, (int64_t)strlen(b)); }
+static uint8_t __std_chdir(PStr path) {
+    __std_err[0] = 0;
+    char *n = __cz(path);
+    int ok = chdir(n) == 0;
+    free(n);
+    if (!ok) __std_seterr("cannot change to directory", path);
+    return ok;
+}
 /* time */
 static int64_t __std_milliseconds(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000; }
 static int64_t __std_unixtime(void) { return (int64_t)time(NULL); }
