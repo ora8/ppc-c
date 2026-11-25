@@ -1,0 +1,5 @@
+tf_test.tmp: first
+tf_test.tmp: second
+tf_test.tmp: third
+cannot open '/no/such/file': No such file or directory
+removed

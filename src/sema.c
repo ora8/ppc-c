@@ -100,6 +100,11 @@ static Type *t_void, *t_int, *t_i64, *t_i8, *t_u8, *t_i16, *t_u16, *t_u32, *t_bo
 
 static Expr *value(Expr *e);
 static Expr *try_expr(Expr *e);
+/* a result that nobody holds yet: a function call */
+int res_temp(Expr *e) {
+    while (e->kind == E_CONV) e = e->a;
+    return e->kind == E_RCALL && e->rt->kind == RK_FUNC;
+}
 static struct Scope *top_scope, *lambda_outer;
 static Expr *try_site;
 static Expr *routine_ref(Routine *rt, Pos p);
@@ -223,7 +228,7 @@ int has_owned(Type *t) {
     case T_DYN: return 1; /* owns its buffer */
     case T_ARRAY: return is_ref_type(t->base) || has_owned(t->base);
     case T_OPT: return has_owned(t->base);
-    case T_RES: return (t->base && has_owned(t->base)) || (t->err && has_owned(t->err));
+    case T_RES: return (t->base && (is_ref_type(t->base) || has_owned(t->base))) || (t->err && has_owned(t->err));
     case T_RECORD:
         for (int i = 0; i < t->st->fields.len; i++) {
             Field *f = t->st->fields.items[i];
@@ -236,6 +241,7 @@ int has_owned(Type *t) {
 /* an expression that yields a freshly owned object nobody holds yet */
 int is_owning_temp(Expr *e) {
     while (e->kind == E_CONV || e->kind == E_CAST || e->kind == E_AS) e = e->a;
+    if (e->kind == E_TRY) return is_ref_type(e->type); /* 'try Open(...)': the object of a fresh result */
     if (e->kind == E_RCALL) {
         Routine *r = e->rt;
         if (r->kind == RK_CTOR) return e->cmode == CM_NEWCLASS;
@@ -1420,9 +1426,9 @@ static Type *resolve_type_inner(TypeExpr *te) {
         for (int i = 0; i < 2; i++) {
             Type *x = parts[i];
             if (!x) continue;
-            if (is_owning_type(x) || x->kind == T_CLASS)
-                error_at(te->pos, "a result holds values: \"%s\" is an object (objects in results are not supported yet)",
-                         type_name(x));
+            if (i == 1 && (is_owning_type(x) || x->kind == T_CLASS || has_owned(x)))
+                error_at(te->pos, "the error of a result must be a value without objects, not \"%s\"", type_name(x));
+            if (x->kind == T_PTR) error_at(te->pos, "a result cannot hold \"%s\"", type_name(x));
             if (x->kind == T_RES) error_at(te->pos, "result of result is not allowed");
             if (x->kind == T_VOID) error_at(te->pos, "invalid result type");
         }
@@ -2719,6 +2725,8 @@ static Expr *try_expr(Expr *e) {
     if (!same_type(rt->err, t->err))
         error_at(e->pos, "'try' cannot pass an error of type \"%s\" on from a function whose errors are \"%s\"",
                  type_name(t->err), type_name(rt->err));
+    if (t->base && is_ref_type(t->base) && !res_temp(e->a))
+        error_at(e->pos, "'try' on a stored result would take its object: use 'if r is ok x' or call the function directly ('try F(...)')");
     e->type = t->base ? t->base : t_void;
     return e;
 }
@@ -3010,6 +3018,8 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
         NARGS(2, 2);
         if (A(0)->type->kind == T_RES && !A(0)->type->base)
             error_at(p, "\"%s\" has no value, ValueOr is not available", type_name(A(0)->type));
+        if (A(0)->type->kind == T_RES && is_ref_type(A(0)->type->base))
+            error_at(p, "ValueOr is not available for a result with an object (use 'if r is ok x' or 'case')");
         if (A(0)->type->kind != T_OPT && A(0)->type->kind != T_RES)
             error_at(p, "ValueOr is only available for optional values, not for optional objects (use 'is some')");
         vpush(e->args, A(0));
@@ -3111,6 +3121,7 @@ static Expr *bind_some(Expr *e) {
     k->in_frame = scope_has_frame();
     /* unpacking a place borrows its content; unpacking a fresh owned object takes ownership */
     k->borrowed = t->kind == T_CLASS && !is_owning_temp(e->a);
+    if (t->kind == T_RES && kt && is_ref_type(kt)) k->borrowed = !res_temp(e->a); /* a fresh result gives its object away */
     k->is_const = k->borrowed || t->kind == T_OPT || t->kind == T_RES;
     k->no_drop = (t->kind == T_OPT || t->kind == T_RES) && has_owned(kt); /* a copy of the value: the original keeps owning (strings are copied) */
     if (cur) vpush(cur->locals, k);
@@ -3466,6 +3477,25 @@ static void stmt(Stmt *s) {
                     n->s2 = n2;
                 } else
                     n->s2 = err_body;
+            }
+            if (has_owned(t)) { /* owns an object: a hidden variable of a block, freed when the case ends */
+                char *hn = sfmt("__case%d_%d", s->pos.line, s->pos.col);
+                Block *ob = NEW(Block);
+                Decl *d = NEW(Decl);
+                d->kind = D_VAR;
+                VarDecl hv = {0};
+                vpush(hv.names, ((Ident){hn, s->pos}));
+                hv.init = s->a;
+                vpush(d->vars, hv);
+                vpush(ob->decls, d);
+                iso->a = mk_ident(hn, s->pos);
+                if (n->s2 && n->s2->kind == S_IF && n->s2->a->kind == E_ISSOME) n->s2->a->a = mk_ident(hn, s->pos);
+                vpush(ob->body, n);
+                Stmt *blk = new_stmt(S_BLOCK, s->pos);
+                blk->blk = ob;
+                *s = *blk;
+                stmt(s);
+                return;
             }
             Stmt *c = new_stmt(S_COMPOUND, s->pos);
             vpush(c->body, as);

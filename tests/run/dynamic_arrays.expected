@@ -6,8 +6,8 @@ w[0] = 0, c[0] = 99
   freed 3
 objs 1
 pop 20
+  freed 20
 si 5
 End
-  freed 20
   freed 10
   freed 1

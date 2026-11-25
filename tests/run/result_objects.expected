@@ -1,0 +1,16 @@
+close a.txt (1 lines)
+failed
+error: no name
+close freed.txt (0 lines)
+ok, not taken
+close case.txt (1 lines)
+app.log 1
+close app.log (1 lines)
+close .log (1 lines)
+close loop1 (1 lines)
+close loop2 (1 lines)
+close a (1 lines)
+count: no name
+close stored (1 lines)
+end
+close second (0 lines)

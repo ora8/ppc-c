@@ -884,6 +884,16 @@ if lines is ok ls then for val l in ls do WriteLn(l);
 `WriteFile(name, text): result`, `AppendFile(name, text): result`, `DeleteFile(name): result`,
 `FileExists(name): Boolean`.
 
+Line by line with `TTextFile` (closed when the object is freed):
+
+```pascal
+if TTextFile.OpenRead('notes.txt') is ok f then
+  loop
+    begin
+      if f.ReadLine is some line then WriteLn(line) else Break;
+    end;
+```
+
 **Time:** `MilliSeconds: Int64` (monotonic, for measuring), `UnixTime: Int64`, `Sleep(ms)`,
 `Now: TDateTime` (a record with `Year`, `Month`, `Day`, `Hour`, `Minute`, `Second`,
 `MilliSecond`), `DateToStr`, `TimeToStr`, `DateTimeToStr` (`2026-11-25 14:05:09`).
@@ -1145,13 +1155,45 @@ if r.IsError then …;                           { is_err; also r.IsOk }
   as with `Exit`. `try` stands as a whole statement (`try Save(x);`), as the value of an
   assignment or as an initializer, and only in functions that themselves return a `result`
   with the same error type.
-* Value and error are values (numbers, strings, enumerations, records, arrays); objects in a
-  `result` are not supported yet.
+* The error is a value (number, string, enumeration, record without objects); the value can
+  also be an **object** – see below.
 * Internally a `result` is a small struct of an error flag, the value and the error – without
   cost as long as no error occurs.
 
 A complete example (bank transfer with an error enumeration, a `try` chain and all kinds of
 unpacking): [examples/transfer.pas](examples/transfer.pas).
+
+### Objects in a result
+
+A `result TFile` **owns** its object, like a `vao` variable:
+
+```pascal
+function Open(Name: String): result TFile;
+begin
+  if Name = '' then Result := error('no name')
+  else Result := ok(TFile.Create(Name));      { ok(f) with 'vao f' moves f }
+end;
+
+if Open('a.txt') is ok f then f.Write('x');   { f takes the object; freed after the 'if' }
+case Open('b.txt') of                         { the same in a case; freed after the case }
+  ok f: f.Write('y');
+  error e: WriteLn(e);
+end;
+vao f := try Open('c.txt');                   { in a function returning a result }
+
+val r := Open('d.txt');                       { r owns the object ... }
+if r is ok f then f.Write('z');               { ... f only borrows it }
+```
+
+* From a fresh result (a call) `is ok f` gives `f` the object, which is freed when the `if`
+  (or `case`) ends; a result that is not taken (`is error e`, `is ok` without a name) frees its
+  object at once. From a stored result `f` borrows; the borrow checker forbids changing `r`
+  while `f` is used.
+* `try` works on calls (`try Open(x)`), not on stored results, and `ValueOr` is not available –
+  so an object always has exactly one owner.
+* The standard library uses this for text files: `TTextFile.OpenRead(name)`, `OpenWrite`,
+  `OpenAppend` return `result TTextFile` with `ReadLine: optional String`, `Write`,
+  `WriteLine`, `EndOfFile`; the file is closed when the object is freed.
 
 ## Function values and lambdas
 

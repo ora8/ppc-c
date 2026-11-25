@@ -281,6 +281,15 @@ static int tracked_borrow(Var *v) {
     return i >= 0 && tv.items[i].kind == TV_BORROW;
 }
 
+/* owning bindings made by the condition of an 'if' ('if Open(n) is ok f'): freed when the 'if' ends */
+static void cond_owners(Expr *c, VEC(Var *) *out) {
+    if (!c) return;
+    if (c->kind == E_BINARY && c->op == OP_AND) {
+        cond_owners(c->a, out);
+        cond_owners(c->b, out);
+    } else if (c->kind == E_ISSOME && c->var && is_ref_type(c->var->type) && !c->var->borrowed && !c->var->is_stack)
+        vpush(*out, c->var);
+}
 static void invalidate(State *s, const char *path, const char *reason) {
     for (int i = 0; i < tv.len; i++) {
         if (tv.items[i].kind != TV_BORROW) continue;
@@ -780,7 +789,18 @@ static void use_expr(Expr *e, State *s) {
     case E_BUILTIN: builtin_effects(e, s); return;
     case E_ISSOME: {
         /* 'opt is some k': k receives the content (a borrow of a place, or ownership of a fresh object) */
-        Src src = eval_src(e->a, s);
+        Src src = {0};
+        if (e->a->type->kind == T_RES && e->var && is_owning_type(e->var->type)) { /* r is ok f: f holds the object of r */
+            use_expr(e->a, s);
+            src.desc = desc_of(e->a);
+            if (res_temp(e->a)) src.kind = SRC_TEMP;
+            else {
+                src.kind = SRC_PLACE;
+                src.path = path_of(e->a, &src.root);
+                if (src.root && tracked_borrow(src.root)) src.via = src.root;
+            }
+        } else
+            src = eval_src(e->a, s);
         Var *k = e->var;
         if (slot(k) >= 0) {
             Expr kv = {0};
@@ -1074,6 +1094,20 @@ static void do_assign(Expr *lhs, Expr *rhs, State *s, Pos p) {
         return;
     }
     if (!is_owning_type(lhs->type)) {
+        /* 'Result := ok(f)': a result that owns its object takes it from f */
+        Expr *in = rhs;
+        while ((in->kind == E_OK || in->kind == E_CONV) && in->a) in = in->a;
+        if (in != rhs && lhs->type->kind == T_RES && is_owning_type(in->type)) {
+            Src src = eval_src(in, s);
+            if (src.kind == SRC_OWNER) move_out(&src, s, p, sfmt("'%s'", desc_of(lhs)));
+            else if (src.kind == SRC_PLACE)
+                berror(p, "cannot move out of '%s' (it is owned by its container); use Take(%s)", src.desc, src.desc);
+            else if (src.kind == SRC_BORROW && !stack_src(&src))
+                berror(p, "cannot store borrowed reference '%s' in the result '%s'", src.desc, desc_of(lhs));
+            use_lvalue(lhs, s);
+            access_expr(lhs, s, 1, NULL);
+            return;
+        }
         use_expr(rhs, s);
         use_lvalue(lhs, s);
         if (lhs->kind == E_VAR && lhs->var->is_alias) check_var_use(lhs->var, lhs->pos, s); /* writing through a reference */
@@ -1567,6 +1601,12 @@ static void an_stmt(Stmt *st, State *s) {
         an_stmt(st->s1, &t);
         if (st->s2) an_stmt(st->s2, s);
         st_join(s, &t);
+        {
+            VEC(Var *) ow = {0};
+            cond_owners(st->a, (void *)&ow);
+            for (int i = 0; i < ow.len; i++)
+                invalidate_root(s, ow.items[i], sfmt("'%s' was freed at the end of the 'if' at line %d", ow.items[i]->name, st->pos.line));
+        }
         return;
     }
     case S_WHILE: loop_body(st, s, 0); return;

@@ -13,7 +13,8 @@
               TryStrToInt, TryStrToFloat, StrToFloat, IsDigit, IsLetter, IsSpace
   Math        Pi, Min, Max, EnsureRange, Floor, Ceil, Power, Tan, ArcSin, ArcCos, ArcTan2, Log10,
               Log2, Hypot, Sign, IsNan
-  Files       ReadFile, ReadLines, WriteFile, AppendFile, FileExists, DeleteFile
+  Files       ReadFile, ReadLines, WriteFile, AppendFile, FileExists, DeleteFile,
+              TTextFile (OpenRead, OpenWrite, OpenAppend: result TTextFile)
   Time        MilliSeconds, UnixTime, Sleep, Now (TDateTime), DateToStr, TimeToStr, DateTimeToStr
   Program     ParamCount, ParamStr, GetEnv
 
@@ -109,6 +110,24 @@ function WriteFile(Name, Text: String): result;
 function AppendFile(Name, Text: String): result;
 function DeleteFile(Name: String): result;
 function FileExists(Name: String): Boolean; external '__std_fileexists';
+
+type
+  TTextFile = class                                { a text file read or written line by line }
+  private
+    FHandle: Int64;
+    FName: String;
+    class function Open(Name, Mode: String): result TTextFile;
+  public
+    class function OpenRead(Name: String): result TTextFile;
+    class function OpenWrite(Name: String): result TTextFile;   { creates or empties the file }
+    class function OpenAppend(Name: String): result TTextFile;
+    function ReadLine: optional String;            { the next line, none at the end }
+    function EndOfFile: Boolean; const;
+    procedure Write(s: String);
+    procedure WriteLine(s: String);
+    function Name: String; const;
+    destructor Destroy; override;                  { closes the file }
+  end;
 
 { ---- time ---- }
 type
@@ -556,6 +575,77 @@ end;
 function DeleteFile(Name: String): result;
 begin
   if __DeleteFile(Name) then Result := ok else Result := error(__IOError);
+end;
+
+{ ----------------------------------------------------------------- TTextFile }
+
+function __FOpen(Name, Mode: String): Int64; external '__std_fopen';
+function __FReadLine(h: Int64; var Line: String): Boolean; external '__std_freadline';
+function __FWrite(h: Int64; s: String): Boolean; external '__std_fwrite';
+function __FEof(h: Int64): Boolean; external '__std_feof';
+procedure __FClose(h: Int64); external '__std_fclose';
+
+class function TTextFile.Open(Name, Mode: String): result TTextFile;
+val h := __FOpen(Name, Mode);
+begin
+  if h = 0 then Result := error(__IOError)
+  else
+  begin
+    vao f := TTextFile.Create;
+    begin
+      f.FHandle := h;
+      f.FName := Name;
+      Result := ok(f);
+    end;
+  end;
+end;
+
+class function TTextFile.OpenRead(Name: String): result TTextFile;
+begin
+  Result := Open(Name, 'rb');
+end;
+
+class function TTextFile.OpenWrite(Name: String): result TTextFile;
+begin
+  Result := Open(Name, 'wb');
+end;
+
+class function TTextFile.OpenAppend(Name: String): result TTextFile;
+begin
+  Result := Open(Name, 'ab');
+end;
+
+function TTextFile.ReadLine: optional String;
+val line := '';
+begin
+  Result := none;
+  if __FReadLine(FHandle, line) then Result := line;
+end;
+
+function TTextFile.EndOfFile: Boolean; const;
+begin
+  Result := __FEof(FHandle);
+end;
+
+procedure TTextFile.Write(s: String);
+begin
+  __FWrite(FHandle, s);
+end;
+
+procedure TTextFile.WriteLine(s: String);
+begin
+  __FWrite(FHandle, s + #10);
+end;
+
+function TTextFile.Name: String; const;
+begin
+  Result := FName;
+end;
+
+destructor TTextFile.Destroy;
+begin
+  __FClose(FHandle);
+  FHandle := 0;
 end;
 
 { ---------------------------------------------------------------------- time }

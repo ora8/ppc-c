@@ -384,6 +384,46 @@ static uint8_t __std_deletefile(PStr name) {
     if (!ok) __std_seterr("cannot delete", name);
     return ok;
 }
+/* text files: a FILE* kept as Int64 in TTextFile */
+static int64_t __std_fopen(PStr name, PStr mode) {
+    __std_err[0] = 0;
+    char *n = __cz(name), *m = __cz(mode);
+    FILE *f = fopen(n, m);
+    free(n);
+    free(m);
+    if (!f) __std_seterr("cannot open", name);
+    return (int64_t)(intptr_t)f;
+}
+static uint8_t __std_freadline(int64_t h, PStr *line) {
+    FILE *f = (FILE *)(intptr_t)h;
+    if (!f) return 0;
+    size_t cap = 256, len = 0;
+    char *buf = (char *)malloc(cap);
+    int c, any = 0;
+    while ((c = fgetc(f)) != EOF) {
+        any = 1;
+        if (c == '\n') break;
+        if (len + 1 >= cap) buf = (char *)realloc(buf, cap *= 2);
+        buf[len++] = (char)c;
+    }
+    if (len && buf[len - 1] == '\r') len--;
+    if (any) __pstr_assign(line, __pstr_lit(buf, (int64_t)len));
+    free(buf);
+    return any;
+}
+static uint8_t __std_fwrite(int64_t h, PStr s) {
+    FILE *f = (FILE *)(intptr_t)h;
+    return f && (s.len == 0 || fwrite(s.p, 1, (size_t)s.len, f) == (size_t)s.len);
+}
+static uint8_t __std_feof(int64_t h) {
+    FILE *f = (FILE *)(intptr_t)h;
+    if (!f) return 1;
+    int c = fgetc(f);
+    if (c == EOF) return 1;
+    ungetc(c, f);
+    return 0;
+}
+static void __std_fclose(int64_t h) { FILE *f = (FILE *)(intptr_t)h; if (f) fclose(f); }
 /* time */
 static int64_t __std_milliseconds(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000; }
 static int64_t __std_unixtime(void) { return (int64_t)time(NULL); }

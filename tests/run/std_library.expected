@@ -4,6 +4,7 @@ Anna Bert Mia
 4 not found
 Get(1): Bert
 Extract(0): Anna
+  freed Anna
 Count: 2
 Peek: 30
 Pop: 30
@@ -15,7 +16,6 @@ Keys[0..1]: Anna Carla
   freed Zwei
 map[2]: Zwei fresh
 End
-  freed Anna
   freed Eins
   freed Zwei fresh
   freed Bert

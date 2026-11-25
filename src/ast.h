@@ -442,6 +442,7 @@ Stmt *new_stmt(StmtKind k, Pos p);
 Program *sema_program(Block *prelude, Block **libs, int nlibs, Block *prog, const char *name);
 int is_owning_type(Type *t);
 int struct_descends(Struct *d, Struct *b);
+int res_temp(Expr *e);
 extern int g_allow_external; /* the standard library may declare 'external' routines */
 const char *type_name(Type *t);
 

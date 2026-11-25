@@ -229,7 +229,7 @@ static int needs_drop(Type *t) { return has_owned(t) || has_str(t); }
 /* function results that own objects must be stored: these are the places that take them */
 static VEC(Expr *) taken_temps;
 static void take_temp(Expr *e) {
-    while (e->kind == E_CONV) e = e->a;
+    while ((e->kind == E_CONV || e->kind == E_OK || e->kind == E_ERR) && e->a) e = e->a;
     vpush(taken_temps, e);
     if (e->kind == E_LIST || e->kind == E_RECLIT)
         for (int i = 0; i < e->args.len; i++) take_temp(e->args.items[i]);
@@ -264,7 +264,8 @@ static char *agg_drop_fn(Type *t) {
     if (t->kind == T_STR) {
         buf_put(&b, "  __pstr_free(p);\n");
     } else if (t->kind == T_RES) {
-        if (t->base && needs_drop(t->base)) buf_printf(&b, "  if (!p->err) %s;\n", agg_drop(t->base, "p->v"));
+        if (t->base && is_ref_type(t->base)) buf_printf(&b, "  if (!p->err && p->v) { %s; p->v = 0; }\n", drop_code(t->base, "p->v"));
+        else if (t->base && needs_drop(t->base)) buf_printf(&b, "  if (!p->err) %s;\n", agg_drop(t->base, "p->v"));
         if (needs_drop(t->err)) buf_printf(&b, "  if (p->err) %s;\n", agg_drop(t->err, "p->e"));
     } else if (t->kind == T_DYN) { /* elements, then the buffer */
         if (is_ref_type(t->base) || needs_drop(t->base)) {
@@ -478,6 +479,15 @@ static int agg_owner_var(Var *v) {
 }
 
 /* variable that owns what it refers to (and frees it at the end of its scope) */
+/* owning bindings made by the condition of an 'if' ('if Open(n) is ok f'): freed when the 'if' ends */
+static void cond_owners(Expr *c, VEC(Var *) *out) {
+    if (!c) return;
+    if (c->kind == E_BINARY && c->op == OP_AND) {
+        cond_owners(c->a, out);
+        cond_owners(c->b, out);
+    } else if (c->kind == E_ISSOME && c->var && is_ref_type(c->var->type) && !c->var->borrowed && !c->var->is_stack)
+        vpush(*out, c->var);
+}
 static int owner_var(Var *v) {
     if (!is_ref_type(v->type) || v->borrowed || v->is_stack) return 0;
     if (v->vkind == VK_LOCAL || v->vkind == VK_GLOBAL || v->vkind == VK_RESULT) return 1;
@@ -956,16 +966,18 @@ static char *gx(Expr *e) {
         if (e->ctype->st->is_iface)
             return sfmt("((struct S%d*)__as_iface((void*)(%s), &IID%d))", e->ctype->st->id, gx(e->a), e->ctype->st->id);
         return sfmt("((struct S%d*)__as((void*)(%s), &VMTI%d))", e->ctype->st->id, gx(e->a), e->ctype->st->id);
-    case E_OK:
-        if (e->a) return sfmt("((%s){.err = 0, .v = %s})", ctype(e->type), gx(e->a));
+    case E_OK: /* a result that is moved (it owns objects) needs its own strings */
+        if (e->a) /* an owned payload moves (gassign empties its source); strings are copied */
+            return sfmt("((%s){.err = 0, .v = %s})", ctype(e->type), has_owned(e->a->type) ? gx(e->a) : lit_elem(e->a, has_owned(e->type)));
         return sfmt("((%s){.err = 0})", ctype(e->type));
-    case E_ERR: return sfmt("((%s){.err = 1, .e = %s})", ctype(e->type), gx(e->a));
+    case E_ERR: return sfmt("((%s){.err = 1, .e = %s})", ctype(e->type), lit_elem(e->a, has_owned(e->type)));
     case E_TRY: { /* failed: the function returns the error; else the value */
+        take_temp(e->a);
         int id = ++tmpc;
         Type *rt = e->a->type;
         char *res = var_ref(cur->result);
         return sfmt("({ %s __t%d = %s; if (__t%d.err) { %s.err = 1; %s.e = __t%d.e; %s goto __exit; } %s; })", ctype(rt), id,
-                    gx(e->a), id, res, res, id, has_str(rt->err) ? sfmt("%s;", agg_copy(rt->err, sfmt("%s.e", res))) : "",
+                    gx(e->a), id, res, res, id, has_str(rt->err) && !has_owned(rt) ? sfmt("%s;", agg_copy(rt->err, sfmt("%s.e", res))) : "",
                     rt->base ? sfmt("__t%d.v", id) : "(void)0");
     }
     case E_DEFAULT: /* zero value of the target type */
@@ -1003,6 +1015,23 @@ static char *gx(Expr *e) {
     case E_ISSOME: {
         Var *k = e->var;
         if (e->a->type->kind == T_RES) { /* r is ok v / r is error e */
+            Type *rt = e->a->type;
+            if (rt->base && is_ref_type(rt->base) && res_temp(e->a)) {
+                /* a fresh result with an object: 'is ok x' takes the object, otherwise it is freed */
+                take_temp(e->a);
+                int id = ++tmpc;
+                char *s = sfmt("__s%d", id);
+                char *pre = sfmt("%s %s = %s;", ctype(rt), s, gx(e->a));
+                /* the result is owned here: the part that is not taken is freed */
+                char *free_v = sfmt("if (!%s.err && %s.v) %s;", s, s, drop_code(rt->base, sfmt("%s.v", s)));
+                char *free_e = has_str(rt->err) ? sfmt("if (%s.err) %s;", s, agg_drop(rt->err, sfmt("%s.e", s))) : "";
+                if (k && e->op == 1)
+                    return sfmt("({ %s %s !%s.err ? (%s ? (%s, 0) : 0, %s = %s.v, 1) : 0; })", pre, free_e, s, var_ref(k),
+                                drop_code(k->type, var_ref(k)), var_ref(k), s);
+                if (!k) return sfmt("({ %s %s %s %s%s.err; })", pre, free_v, free_e, e->op == 1 ? "!" : "", s);
+                return sfmt("({ %s %s %s.err ? (%s, %s = %s.e, 1) : 0; })", pre, free_v, s,  /* the error moves into e */
+                            has_str(k->type) ? agg_drop(k->type, var_ref(k)) : "0", var_ref(k), s);
+            }
             if (!k) return sfmt("(%s(%s).err)", e->op == 1 ? "!" : "", gx(e->a));
             int id = ++tmpc;
             if (has_str(k->type) && !has_owned(k->type))
@@ -1233,6 +1262,12 @@ static void gs(Stmt *s) {
             indent--;
         }
         line("}");
+        {
+            VEC(Var *) ow = {0};
+            cond_owners(s->a, (void *)&ow);
+            for (int i = 0; i < ow.len; i++)
+                line("if (%s) { %s; %s = 0; }", var_ref(ow.items[i]), drop_code(ow.items[i]->type, var_ref(ow.items[i])), var_ref(ow.items[i]));
+        }
         return;
     case S_WHILE:
         vpush(loops, 0);
