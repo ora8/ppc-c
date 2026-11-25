@@ -98,6 +98,12 @@ static Type *t_void, *t_int, *t_i64, *t_i8, *t_u8, *t_i16, *t_u16, *t_u32, *t_bo
 
 static Expr *value(Expr *e);
 static Expr *try_expr(Expr *e);
+static struct Scope *top_scope, *lambda_outer;
+static Expr *try_site;
+static Expr *routine_ref(Routine *rt, Pos p);
+static Expr *indirect_call(Expr *callee, ExprVec *args, Pos p);
+static Expr *lambda_expr(Expr *e);
+static Type *proc_type(Routine *sig);
 static void move_check(Expr *src, const char *ctx);
 static Expr *param_binary(Expr *e);
 static Expr *ex(Expr *e);
@@ -135,6 +141,20 @@ static const char *res_name(Type *base, Type *err) {
     return err->kind == T_STR ? b : sfmt("%s of %s", b, type_name(err));
 }
 
+static int same_signature(Routine *a, Routine *b);
+/* function(Integer, Integer): Integer */
+static const char *proc_name(Routine *r) {
+    Buf b = {0};
+    buf_put(&b, r->kind == RK_FUNC ? "function(" : "procedure(");
+    for (int i = 0; i < r->params.len; i++) {
+        Param *p = &r->params.items[i];
+        buf_printf(&b, "%s%s%s", i ? ", " : "", p->mode == PM_VAR ? "var " : p->mode == PM_OWNED ? "vao " : "", type_name(p->type));
+    }
+    buf_put(&b, ")");
+    if (r->ret) buf_printf(&b, ": %s", type_name(r->ret));
+    return xstrdup(buf_str(&b));
+}
+
 const char *type_name(Type *t) {
     if (!t) return "?";
     if (t->name) return t->name;
@@ -155,6 +175,7 @@ const char *type_name(Type *t) {
     case T_LIT: return "literal";
     case T_PARAM: return "type parameter";
     case T_DYN: return sfmt("array of %s", type_name(t->base));
+    case T_PROC: return proc_name(t->proc);
     }
     return "?";
 }
@@ -234,6 +255,7 @@ static int same_type(Type *a, Type *b) {
     case T_OPT: return same_type(a->base, b->base);
     case T_PARAM: return 0; /* two placeholders are only the same if they are one object */
     case T_DYN: return same_type(a->base, b->base);
+    case T_PROC: return same_signature(a->proc, b->proc);
     case T_RES:
         if (!a->base || !b->base) return !a->base && !b->base && same_type(a->err, b->err);
         return same_type(a->base, b->base) && same_type(a->err, b->err);
@@ -321,6 +343,9 @@ static Expr *coerce(Expr *e, Type *to, const char *ctx);
 /* (X: 1; Y: 2), (1, 2, 3) and default get their type from where they are used */
 static Expr *literal_to(Expr *e, Type *to, const char *ctx) {
     if (e->kind == E_DEFAULT) {
+        if (to->kind == T_PROC)
+            error_at(e->pos, "'default' would be no routine, but \"%s\" needs one (give a routine or a lambda, or declare it 'optional')",
+                     type_name(to));
         if (to->kind == T_CLASS && !to->nilable)
             error_at(e->pos, "'default' would be no object, but \"%s\" needs one (create it, or declare it 'optional')",
                      type_name(to));
@@ -376,6 +401,9 @@ static Expr *literal_to(Expr *e, Type *to, const char *ctx) {
 }
 
 static Expr *coerce(Expr *e, Type *to, const char *ctx) {
+    if (to->kind == T_PROC && e->kind == E_RCALL && e->cmode == CM_NORMAL && !e->a && !e->args.len && !e->rt->params.len &&
+        !e->rt->is_sig)
+        e = routine_ref(e->rt, e->pos); /* 'f := Tick': the routine itself, not a call */
     if (to->kind == T_PARAM && (to->ik & PC_NUM) && (e->kind == E_INT || e->kind == E_REAL)) {
         e->type = to; /* a number literal is a value of every numeric type */
         return e;
@@ -777,6 +805,9 @@ static Struct *new_struct(const char *name, int kind, Pos p) {
 
 /* zero-initialized storage (arrays, records, New(p)^) cannot hold non-nilable references */
 static void require_nilable(Type *t, Pos p, const char *where) {
+    if (t->kind == T_PROC)
+        error_at(p, "%s of type \"%s\" must be declared 'optional %s' (this storage starts out empty)", where, type_name(t),
+                 type_name(t));
     if (g_nil_check && is_ref_type(t) && !t->nilable)
         error_at(p, "%s of type \"%s\" must be declared 'optional %s' (this storage starts out empty)", where, type_name(t),
                  type_name(t));
@@ -793,6 +824,7 @@ static void add_fields(Struct *s, FieldDeclVec *fields) {
         Type *t = resolve_type(fd->ty);
         check_complete(t, fd->ty->pos);
         if (s->kind == SK_RECORD) require_nilable(t, fd->ty->pos, "record field");
+        else if (t->kind == T_PROC) require_nilable(t, fd->ty->pos, "field");
         int fborrowed = fd->borrowed;
         if (fborrowed && !is_owning_type(t)) {
             if (!generic_depth)
@@ -1132,6 +1164,14 @@ static void unify(Generic *g, TypeExpr *te, Type *at, Type **b, Pos p) {
         return;
     }
     if (te->kind == TE_ARRAY && (te->dyn ? at->kind == T_DYN : at->kind == T_ARRAY)) unify(g, te->elem, at->base, b, p);
+    if (te->kind == TE_PROC && at->kind == T_PROC) { /* function(x, y: T): Boolean */
+        RoutineDecl *d = te->proc;
+        int k = 0;
+        for (int i = 0; i < d->params.len; i++)
+            for (int j = 0; j < d->params.items[i].names.len; j++, k++)
+                if (k < at->proc->params.len) unify(g, d->params.items[i].ty, at->proc->params.items[k].type, b, p);
+        if (d->ret && at->proc->ret) unify(g, d->ret, at->proc->ret, b, p);
+    }
     if (te->kind == TE_RESULT && at->kind == T_RES) {
         if (te->elem && at->base) unify(g, te->elem, at->base, b, p);
         if (te->errt) unify(g, te->errt, at->err, b, p);
@@ -1271,6 +1311,16 @@ static Type *resolve_type_inner(TypeExpr *te) {
         return ptr_to(L.sym->type);
     }
     case TE_STR: return t_str;
+    case TE_PROC: { /* function(a, b: Integer): Integer */
+        RoutineDecl *d = te->proc;
+        Routine *sig = new_routine("function value", d->kind, te->pos);
+        sig->is_sig = 1;
+        sig->level = 1;
+        sig->cname = sfmt("SIG%d", sig->id);
+        build_params(sig, &d->params);
+        if (d->kind == RK_FUNC) sig->ret = resolve_type(d->ret);
+        return proc_type(sig);
+    }
     case TE_RESULT: {
         Type *b = te->elem ? resolve_type(te->elem) : NULL;
         Type *er = te->errt ? resolve_type(te->errt) : t_str;
@@ -1581,6 +1631,13 @@ static Expr *autoderef(Expr *e) {
 
 static Expr *member_ref(Expr *base, Look *L, ExprVec *args, Pos p, const char *name) {
     if (L->f) {
+        if (args && L->f->type->kind == T_PROC) {
+            Expr *fe = new_expr(E_FIELD, p);
+            fe->a = base;
+            fe->field = L->f;
+            fe->type = L->f->type;
+            return indirect_call(fe, args, p);
+        }
         if (args) error_at(p, "\"%s\" is a field, not a method", name);
         Expr *e = new_expr(E_FIELD, p);
         e->a = base;
@@ -1639,6 +1696,16 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
             if (bi) return builtin(bi, args, p);
             for (int i = 0; i < broken_names.len; i++)
                 if (STREQ(broken_names.items[i], name) && g_recover) longjmp(*g_recover, 1); /* already reported */
+            if (lambda_outer) { /* a local of the routine around a lambda? */
+                Scope *sv = scope;
+                scope = lambda_outer;
+                Look O = lookup(name);
+                scope = sv;
+                if (O.kind == LK_SYM && O.sym->kind == SY_VAR && !O.sym->var->is_global)
+                    error_at(p, "a lambda cannot use the local variable '%s' of the routine around it (pass it as a parameter)", name);
+                if (O.kind == LK_MEMBER || (O.kind == LK_SYM && O.sym->kind == SY_VAR && O.sym->var->vkind == VK_SELF))
+                    error_at(p, "a lambda cannot use '%s' of the object around it (pass the object as a parameter)", name);
+            }
             error_at(p, "identifier not found \"%s\"", name);
         }
         if (L.kind == LK_MEMBER) return member_ref(L.base ? var_expr(L.base, p) : NULL, &L, args, p, name);
@@ -1661,6 +1728,7 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
             if (s->gen->is_routine) return make_call(infer_routine(s->gen, args, p), NULL, args, -1, NULL, p);
             error_at(p, "\"%s\" is generic: give its type arguments, e.g. '%s<Integer>'", name, name);
         case SY_VAR:
+            if (args && s->var->type->kind == T_PROC) return indirect_call(var_expr(s->var, p), args, p);
             if (args) error_at(p, "\"%s\" is a variable and cannot be called", name);
             if (s->var->pending)
                 error_at(p, "the type of '%s' is not known yet: assign a value to it first ('%s := ...')", name, name);
@@ -1686,7 +1754,9 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
                 t->type = s->type;
                 return t;
             }
-        case SY_ROUTINE: return make_call(s->rt, NULL, args, -1, NULL, p);
+        case SY_ROUTINE:
+            if (!args && s->rt->params.len) return routine_ref(s->rt, p); /* used as a value */
+            return make_call(s->rt, NULL, args, -1, NULL, p);
         }
     }
     if (e->kind == E_MEMBER) {
@@ -1797,7 +1867,11 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
             error_at(p, "identifier \"%s\" is not a member of \"%s\"", name, bt->st->name);
         return member_ref(base, &L, args, p, name);
     }
-    if (args) error_at(p, "expression is not callable");
+    if (args) {
+        Expr *f = value(e);
+        if (f->type->kind == T_PROC) return indirect_call(f, args, p);
+        error_at(p, "expression is not callable");
+    }
     return value(e);
 }
 
@@ -1832,6 +1906,10 @@ static Expr *ex(Expr *e) {
     case E_MEMBER: return resolve_ref(e, NULL);
     case E_CALL:
         if (e->a->kind == E_IDENT || e->a->kind == E_MEMBER) return resolve_ref(e->a, &e->args);
+        {
+            Expr *f = value(e->a); /* Pick(True)(1, 5): call of a function value */
+            if (f->type->kind == T_PROC) return indirect_call(f, &e->args, e->pos);
+        }
         error_at(e->pos, "expression is not callable");
     case E_INHERITED: return inherited_call(e);
     case E_DEREF: {
@@ -2025,6 +2103,8 @@ static Expr *ex(Expr *e) {
         e->type = t_lit;
         return e;
     case E_TRY: return try_expr(e);
+    case E_ROUTREF: return e;
+    case E_LAMBDA: return lambda_expr(e);
     default: return e; /* already resolved */
     }
 }
@@ -2052,6 +2132,68 @@ static Expr *param_binary(Expr *e) {
     if (ta != tb)
         error_at(e->pos, "operator not applicable to \"%s\" and \"%s\" (a type parameter only combines with itself)",
                  type_name(ta), type_name(tb));
+    return e;
+}
+
+/* ---- function values ---- */
+static Type *proc_type(Routine *sig) {
+    Type *t = new_type(T_PROC, NULL);
+    t->proc = sig;
+    t->name = (char *)proc_name(sig);
+    return t;
+}
+static Expr *routine_ref(Routine *rt, Pos p) {
+    if (rt->owner || rt->level != 1 || rt->is_sig)
+        error_at(p, "only routines declared at program or module level can be used as values ('%s' is %s)", rt->name,
+                 rt->owner ? "a method" : "nested");
+    Expr *e = new_expr(E_ROUTREF, p);
+    e->rt = rt;
+    e->type = proc_type(rt);
+    rt->addr_taken = 1;
+    return e;
+}
+static Expr *make_call(Routine *rt, Expr *base, ExprVec *args, int mode, Type *newcls, Pos p);
+static Expr *indirect_call(Expr *callee, ExprVec *args, Pos p) {
+    Expr *c = make_call(callee->type->proc, NULL, args, CM_NORMAL, NULL, p);
+    c->cmode = CM_INDIRECT;
+    c->b = callee;
+    return c;
+}
+static void routine_body(Routine *rt, RoutineDecl *d);
+static void build_params(Routine *r, ParamGroupVec *groups);
+static Routine *new_routine(const char *name, int kind, Pos p);
+/* function(a, b: Integer): Integer begin ... end */
+static Expr *lambda_expr(Expr *e) {
+    if (e->rt) return e;
+    RoutineDecl *d = e->lam;
+    Routine *rt = new_routine("lambda", d->kind, d->pos);
+    rt->level = 1;
+    rt->cname = sfmt("LAM%d", rt->id);
+    build_params(rt, &d->params);
+    if (d->kind == RK_FUNC) rt->ret = resolve_type(d->ret);
+    rt->addr_taken = 1;
+    Scope *ss = scope, *so = lambda_outer;
+    Routine *sc = cur;
+    int sl = level, sb = in_block, sloop = loop_depth;
+    Expr *st = try_site;
+    Struct *sic = inst_cls;
+    lambda_outer = scope;
+    if (cur) scope = top_scope; /* no access to the locals of the routine around it */
+    cur = NULL;
+    level = 0;
+    in_block = 0;
+    inst_cls = NULL;
+    routine_body(rt, d);
+    scope = ss;
+    lambda_outer = so;
+    cur = sc;
+    level = sl;
+    in_block = sb;
+    loop_depth = sloop;
+    try_site = st;
+    inst_cls = sic;
+    e->rt = rt;
+    e->type = proc_type(rt);
     return e;
 }
 
@@ -3152,6 +3294,8 @@ static void routine_decl(RoutineDecl *d) {
 }
 
 static void routine_body(Routine *rt, RoutineDecl *d) {
+    Scope *save_top = top_scope;
+    if (rt->level == 1) top_scope = scope; /* lambdas inside see what this routine sees from outside */
     Routine *save_cur = cur;
     int save_level = level, save_loop = loop_depth;
     Scope *save_scope = scope;
@@ -3212,6 +3356,7 @@ static void routine_body(Routine *rt, RoutineDecl *d) {
     loop_depth = save_loop;
     scope = save_scope;
     local_init = save_init;
+    top_scope = save_top;
 }
 
 static void decls(Block *b, int has_frame) {

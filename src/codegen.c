@@ -18,6 +18,7 @@ static Routine *tobject_free, *tobject_destroy;
 
 static char *gx(Expr *e);
 static char *lit_elem(Expr *x, int own);
+static char *ret_ctype(Routine *r);
 static void gs(Stmt *s);
 
 static char *ctype(Type *t);
@@ -105,6 +106,22 @@ static char *ctype(Type *t) {
     case T_NIL: return "void*";
     case T_LIT: return "void";
     case T_PARAM: return "void"; /* placeholders never reach the C code */
+    case T_PROC: { /* function value: a C function pointer */
+        Routine *r = t->proc;
+        Buf pb = {0};
+        for (int i = 0; i < r->params.len; i++) {
+            Param *p = &r->params.items[i];
+            int ref = p->mode == PM_VAR || p->mode == PM_OUT || p->mode == PM_CONSTREF;
+            buf_printf(&pb, "%s%s%s", i ? ", " : "", ctype(p->type), ref ? "*" : "");
+        }
+        char *key = sfmt("proc|%s|%s", ret_ctype(r), r->params.len ? buf_str(&pb) : "void");
+        for (int i = 0; i < arrs.len; i++)
+            if (STREQ(arrs.items[i].key, key)) return arrs.items[i].name;
+        ArrDef d = {key, sfmt("P%d", arrs.len + 1)};
+        vpush(arrs, d);
+        buf_printf(&b_fwd, "typedef %s (*%s)(%s);\n", ret_ctype(r), d.name, r->params.len ? buf_str(&pb) : "void");
+        return d.name;
+    }
     case T_DYN: { /* dynamic array: length + buffer on the heap */
         char *elem = ctype(t->base);
         char *key = sfmt("dyn|%s", elem);
@@ -596,6 +613,7 @@ static char *gcall_core(Expr *e, const char *selfp, Struct *sst, const char *as)
     Routine *r = e->rt;
     const char *dflag = "";
     switch (e->cmode) {
+    case CM_INDIRECT: return sfmt("(%s)(%s)", gx(e->b), as[0] ? as + 2 : "");
     case CM_NORMAL:
         if (r->level > 1) return sfmt("%s(%s%s)", r->cname, frame_ptr(r->level - 1), as);
         return sfmt("%s(%s)", r->cname, as[0] ? as + 2 : "");
@@ -1020,6 +1038,7 @@ static char *gx(Expr *e) {
         if (e->bi == BI_ARRCLONE && has_owned(e->type) && !is_taken(e))
             error_at(e->pos, "the clone owns objects and would never be freed here: store it in a variable first ('val c := a.Clone')");
         return gbuiltin(e);
+    case E_ROUTREF: case E_LAMBDA: return e->rt->cname; /* the C function itself */
     case E_RCALL:
         if (has_owned(e->type) && !is_taken(e))
             error_at(e->pos, "the result of '%s' owns objects and would never be freed here: store it in a variable first ('val r := %s(...)')",
@@ -1521,12 +1540,12 @@ void codegen(Program *p, FILE *f) {
     /* prototypes and bodies */
     for (int i = 0; i < p->routines.len; i++) {
         Routine *r = p->routines.items[i];
-        if (r->is_abstract || r->is_auto) continue;
+        if (r->is_abstract || r->is_auto || r->is_sig) continue;
         buf_printf(&b_protos, "static %s;\n", sig(r, 0));
     }
     for (int i = 0; i < p->routines.len; i++) {
         Routine *r = p->routines.items[i];
-        if (r->is_abstract || r->is_auto) continue;
+        if (r->is_abstract || r->is_auto || r->is_sig) continue;
         buf_put(&b_funcs, "static ");
         gen_routine(r);
     }

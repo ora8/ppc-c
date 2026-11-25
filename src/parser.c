@@ -574,8 +574,24 @@ static TypeExprVec parse_targs(void) {
     return v;
 }
 
+static ParamGroupVec parse_params(void);
 static TypeExpr *parse_type_core(void) {
     Pos p = pos();
+    if (is_kw("function") || is_kw("procedure")) { /* procedural type: function(a, b: Integer): Integer */
+        TypeExpr *t = new_te(TE_PROC, p);
+        RoutineDecl *d = NEW(RoutineDecl);
+        d->kind = is_kw("function") ? RK_FUNC : RK_PROC;
+        d->pos = p;
+        next();
+        d->params = parse_params();
+        d->has_params = 1;
+        if (d->kind == RK_FUNC) {
+            expect_sym(":");
+            d->ret = parse_type();
+        }
+        t->proc = d;
+        return t;
+    }
     if (CUR.kind == TK_IDENT && T.items[P + 1].kind == TK_SYM && STREQ(T.items[P + 1].s, "<")) {
         TypeExpr *t = new_te(TE_NAMED, p); /* generic instance: TListe<TKunde> */
         t->name = ident();
@@ -1189,6 +1205,24 @@ static Expr *parse_primary(void) {
             e->a = parse_expr();
             expect_sym(")");
         }
+        return e;
+    }
+    if ((is_kw("function") || is_kw("procedure")) && T.items[P + 1].kind == TK_SYM &&
+        (STREQ(T.items[P + 1].s, "(") || STREQ(T.items[P + 1].s, ":"))) { /* anonymous function */
+        Expr *e = new_expr(E_LAMBDA, p);
+        RoutineDecl *d = NEW(RoutineDecl);
+        d->kind = is_kw("function") ? RK_FUNC : RK_PROC;
+        d->pos = p;
+        d->name = (Ident){"lambda", p};
+        next();
+        d->params = parse_params();
+        d->has_params = 1;
+        if (d->kind == RK_FUNC) {
+            expect_sym(":");
+            d->ret = parse_type();
+        }
+        d->body = parse_block();
+        e->lam = d;
         return e;
     }
     if (accept_kw("try")) { /* try r: unpack a result or return its error */

@@ -78,7 +78,7 @@ typedef struct {
     VEC(PropDecl) props;
 } StructDecl;
 
-typedef enum { TE_NAMED, TE_PTR, TE_ARRAY, TE_SUBRANGE, TE_ENUM, TE_RECORD, TE_STRUCT, TE_CLASSFWD, TE_STR, TE_RESULT } TEKind;
+typedef enum { TE_NAMED, TE_PTR, TE_ARRAY, TE_SUBRANGE, TE_ENUM, TE_RECORD, TE_STRUCT, TE_CLASSFWD, TE_STR, TE_RESULT, TE_PROC } TEKind;
 
 struct TypeExpr {
     TEKind kind;
@@ -93,6 +93,7 @@ struct TypeExpr {
     StructDecl *sd;           /* TE_STRUCT */
     TypeExprVec targs;        /* TE_NAMED: type arguments of a generic type, TListe<TKunde> */
     int dyn;                  /* TE_ARRAY: 'array of T' (dynamic, grows with SetLength) */
+    void *proc;               /* TE_PROC: a RoutineDecl with the parameters and the result */
     int nilable;              /* 'optional' modifier */
     int readonly;             /* 'const T': read-only object reference */
 };
@@ -177,14 +178,16 @@ typedef enum {
     E_DEFAULT, /* 'default': the zero value of the expected type */
     E_OK,      /* ok(v) / ok: a successful result */
     E_ERR,     /* error(e): a failed result */
-    E_TRY      /* try r: the value of a successful result, else return its error */
+    E_TRY,     /* try r: the value of a successful result, else return its error */
+    E_LAMBDA,  /* function(...): T begin ... end  (lam: RoutineDecl, rt after checking) */
+    E_ROUTREF  /* a routine used as a value (rt) */
 } ExprKind;
 
 enum { OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_IDIV, OP_MOD, OP_AND, OP_OR, OP_XOR, OP_SHL, OP_SHR,
        OP_EQ, OP_NE, OP_LT, OP_LE, OP_GT, OP_GE, OP_NEG, OP_PLUS, OP_NOT };
 
 /* call modes for E_RCALL */
-enum { CM_NORMAL, CM_STATIC, CM_VIRTUAL, CM_INHERITED, CM_NEWCLASS, CM_CTOR_INST };
+enum { CM_NORMAL, CM_STATIC, CM_VIRTUAL, CM_INHERITED, CM_NEWCLASS, CM_CTOR_INST, CM_INDIRECT };
 
 struct Expr {
     ExprKind kind;
@@ -195,6 +198,7 @@ struct Expr {
     int slen;
     Ident id;
     TypeExprVec targs; /* E_IDENT: type arguments, TListe<TKunde>.Create */
+    void *lam;         /* E_LAMBDA: its RoutineDecl */
     int has_id;
     int in_range; /* E_INDEX: constant index, checked at compile time */
     Expr *a, *b, *c;
@@ -245,7 +249,7 @@ struct Stmt {
 
 /* ------------------------------------------------------------- semantics */
 
-typedef enum { T_VOID, T_INT, T_BOOL, T_CHAR, T_REAL, T_STR, T_PTR, T_ARRAY, T_RECORD, T_CLASS, T_OPT, T_RES, T_LIT, T_ENUM, T_NIL, T_PARAM, T_DYN } TypeKind; /* T_DYN: dynamic array 'array of T' (base) */
+typedef enum { T_VOID, T_INT, T_BOOL, T_CHAR, T_REAL, T_STR, T_PTR, T_ARRAY, T_RECORD, T_CLASS, T_OPT, T_RES, T_LIT, T_ENUM, T_NIL, T_PARAM, T_DYN, T_PROC } TypeKind; /* T_PROC: procedural type (proc = its signature) */ /* T_DYN: dynamic array 'array of T' (base) */
 /* T_PARAM: placeholder for a type parameter while a generic is checked on its own; ik holds PC_* */
 enum { PC_EQ = 1, PC_CMP = 2, PC_CLONE = 4, PC_COPY = 8, PC_NUM = 16 };
 enum { IK_I8, IK_U8, IK_I16, IK_U16, IK_I32, IK_U32, IK_I64 };
@@ -255,6 +259,7 @@ struct Type {
     int ik;
     Type *base;  /* T_PTR target (NULL = untyped Pointer), T_ARRAY element, T_OPT/T_RES value (T_RES: NULL = none) */
     Type *err;   /* T_RES error type */
+    Routine *proc; /* T_PROC: the signature (a routine without a body) */
     long long lo, hi;
     Type *index; /* T_ARRAY index type */
     Struct *st;
@@ -357,6 +362,8 @@ struct Routine {
     int is_constm; /* '; const;': method does not change Self, routine has no side effects */
     int is_classm; /* class method: no Self, called as TClass.Name(...) */
     int is_auto;   /* generated body (Clone: deep copy) */
+    int is_sig;    /* signature of a procedural type: no body; it stands for every routine used as a value */
+    int addr_taken; /* used as a function value */
     int has_frame;
     int defined;
     int forward;

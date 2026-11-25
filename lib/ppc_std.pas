@@ -4,7 +4,9 @@
   TStack<T>                 stack (last in, first out)
   TMap<K: Comparable; V>    map key -> value, sorted by key
   Sort<T: Comparable>       sorts an 'array of T' in ascending order
+  SortBy<T>                 sorts with a comparison function: SortBy(a, function(x, y: T): Boolean ...)
   IndexOf<T: Equatable>     position of a value in an 'array of T', or none
+  Filter<T: Copy>           the elements for which a function returns True
 
   SortRange is private to the implementation.
 
@@ -46,7 +48,9 @@ type
   end;
 
 procedure Sort<T: Comparable>(var a: array of T);
+procedure SortBy<T>(var a: array of T; Less: function(x, y: T): Boolean);
 function IndexOf<T: Equatable>(a: array of T; x: T): optional Integer;
+function Filter<T: Copy>(a: array of T; Keep: function(x: T): Boolean): array of T;
 
 implementation
 
@@ -215,6 +219,33 @@ end;
 procedure Sort<T: Comparable>(var a: array of T);
 begin
   SortRange(a, 0, High(a));
+end;
+
+procedure SortBy<T>(var a: array of T; Less: function(x, y: T): Boolean);
+begin                                              { insertion sort: stable }
+  for val i := 1 to High(a) do
+    val j := i;
+    begin
+      while (j > 0) and Less(a[j], a[j - 1]) do
+      begin
+        val h: T := a[j];
+        begin
+          a[j] := a[j - 1];
+          a[j - 1] := h;
+        end;
+        Dec(j);
+      end;
+    end;
+end;
+
+function Filter<T: Copy>(a: array of T; Keep: function(x: T): Boolean): array of T;
+begin
+  for val i := 0 to High(a) do
+    if Keep(a[i]) then
+    begin
+      SetLength(Result, Length(Result) + 1);
+      Result[High(Result)] := a[i];
+    end;
 end;
 
 function IndexOf<T: Equatable>(a: array of T; x: T): optional Integer;

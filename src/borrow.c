@@ -1808,6 +1808,13 @@ static void compute_write_sets(void) {
         }
     }
     /* transitive closure; virtual calls include all methods of the same name */
+    /* a call through a function value may reach every routine that is used as a value */
+    for (int i = 0; i < prog->routines.len; i++) {
+        Routine *r = prog->routines.items[i];
+        if (!r->is_sig) continue;
+        for (int q = 0; q < prog->routines.len; q++)
+            if (prog->routines.items[q]->addr_taken) vpush(callees[r->id], prog->routines.items[q]);
+    }
     for (int changed = 1; changed;) {
         changed = 0;
         for (int i = 0; i < prog->routines.len; i++) {

@@ -779,6 +779,8 @@ end.                                                 { all containers free their
 | `TStack<T>` | `Push(vao x)`, `Pop` (take out), `Peek` (look), `Count`, `IsEmpty` |
 | `TMap<K: Comparable; V>` | `Put(k, vao v)` (insert/replace), `Get(k)`, `Contains(k)`, `Remove(k)`, `Count`; sorted by key, binary search |
 | `Sort<T: Comparable>(var a: array of T)` | sorts ascending (quicksort) |
+| `SortBy<T>(var a: array of T; Less: function(x, y: T): Boolean)` | sorts with a comparison function (stable) |
+| `Filter<T: Copy>(a: array of T; Keep: function(x: T): Boolean): array of T` | the elements for which `Keep` is true |
 | `IndexOf<T: Equatable>(a: array of T; x: T): optional Integer` | first position of `x`, or `none` |
 
 * The containers own their elements; `Extract`, `Pop` and `Remove` pass the ownership to the
@@ -1042,6 +1044,45 @@ if r.IsError then …;                           { is_err; also r.IsOk }
 A complete example (bank transfer with an error enumeration, a `try` chain and all kinds of
 unpacking): [examples/transfer.pas](examples/transfer.pas).
 
+## Function values and lambdas
+
+Procedural types describe routines that can be stored, passed and called; routines at program or
+module level and **lambdas** (anonymous functions, as in Delphi) are their values:
+
+```pascal
+type
+  TCompare = function(a, b: Integer): Integer;
+  TAction = procedure(x: Integer);
+
+function Desc(a, b: Integer): Integer; begin Result := b - a; end;
+
+procedure ForEach(a: array of Integer; act: TAction);
+begin
+  for val i := 0 to High(a) do act(a[i]);
+end;
+
+val cmp: TCompare := Desc;                      { a routine as a value }
+begin
+  WriteLn(cmp(1, 5));
+  ForEach(nums, procedure(x: Integer) begin Write(x * 10, ' '); end);
+  SortBy(people, function(x, y: TPerson): Boolean begin Result := x.Age < y.Age; end);
+end.
+```
+
+* Types can also be written directly: `Less: function(x, y: T): Boolean`; type inference of
+  generics works through them (`SortBy`, `Filter` in `ppc_std`).
+* A function value is called like a routine: `f(1, 2)`, also without arguments `t()` and on
+  results: `Pick(True)(1, 5)`.
+* Lambdas **do not capture local variables** (yet): using a local of the routine around them, or a
+  field of the object around them, is an error with a hint to pass it as a parameter. Global
+  variables can be used. So a function value never refers to memory that may be gone.
+* Function values always refer to a routine: `default` is not allowed, and fields or array
+  elements of a procedural type must be `optional` (e.g. an event `OnClick: optional procedure(n: Integer)`,
+  called with `if b.OnClick is some h then h(3)`).
+* Only routines at program or module level can be values (not methods or nested routines).
+* The borrow checker treats a call through a function value as a call of any routine that is used
+  as a value.
+
 ## Endless loop: `loop`
 
 `loop <statement>` repeats the statement without a condition (like `loop` in Rust); it is left
@@ -1093,7 +1134,7 @@ Not supported: `nil` (replaced by `optional`/`none`), pointers (`^`, `@`, `New`,
 `Pointer` – replaced by objects, `var` references and `var` parameters), `object` types
 (replaced by `class`), set types (except set literals with `in`), open array parameters
 (`array of T` is a dynamic array), exceptions (replaced by `result T` and `try`), interfaces,
-overloading, procedural types, variant records, `goto`, file I/O.
+overloading, closures that capture locals, variant records, `goto`, file I/O.
 
 ## Structure
 
