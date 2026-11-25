@@ -89,7 +89,7 @@ begin
   WriteLn('Succ(Mon)=', Succ(Mon), ' High=', High(TDay));
 
   
-  with p do begin A := 1; B := 2; Name := 'rec'; end;
+  p.A := 1; p.B := 2; p.Name := 'rec';
   WriteLn(p.Name, ' ', p.A + p.B, ' ', p.B);
 
   arr[1] := 3; arr[2] := 1; arr[3] := -4; arr[4] := 1; arr[5] := -5;

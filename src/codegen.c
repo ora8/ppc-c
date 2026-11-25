@@ -30,7 +30,7 @@ static char *nilchk(Expr *base, char *code, Pos p) {
     if (g_nil_check) return code;
     Expr *x = base;
     while (x->kind == E_CONV || x->kind == E_CAST) x = x->a;
-    if (x->kind == E_VAR && (x->var->vkind == VK_SELF || x->var->vkind == VK_WITH)) return code;
+    if (x->kind == E_VAR && x->var->vkind == VK_SELF) return code;
     if (x->kind == E_RCALL && x->rt->kind == RK_CTOR) return code;
     if (x->kind == E_ADDR) return code;
     return sfmt("((%s)__nilchk((void*)(%s), %d, %d))", ctype(base->type), code, p.line, p.col);
@@ -516,7 +516,7 @@ static Var *move_source(Expr *e) {
 }
 
 static int droppable_lvalue(Expr *e) {
-    if (e->kind == E_VAR) return e->var->vkind != VK_SELF && e->var->vkind != VK_WITH && !e->var->is_stack;
+    if (e->kind == E_VAR) return e->var->vkind != VK_SELF && !e->var->is_stack;
     return e->kind == E_FIELD || e->kind == E_INDEX || e->kind == E_DEREF;
 }
 
@@ -1400,18 +1400,6 @@ static void gs(Stmt *s) {
         line("}");
         return;
     }
-    case S_WITH:
-        line("{");
-        indent++;
-        for (int i = 0; i < s->wvars.len; i++) {
-            Var *w = s->wvars.items[i];
-            if (w->is_ref) line("%s *%s = &%s;", ctype(w->type), w->cname, gx(s->exprs.items[i]));
-            else line("%s %s = %s;", ctype(w->type), w->cname, nilchk(s->exprs.items[i], gx(s->exprs.items[i]), s->exprs.items[i]->pos));
-        }
-        gs(s->s1);
-        indent--;
-        line("}");
-        return;
     case S_BREAK:
         leave_blocks();
         line("break;");

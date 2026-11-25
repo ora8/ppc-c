@@ -235,7 +235,7 @@ struct Expr {
 /* ------------------------------------------------------------- statements */
 
 typedef enum {
-    S_EMPTY, S_ASSIGN, S_CALL, S_COMPOUND, S_IF, S_WHILE, S_REPEAT, S_FOR, S_FORIN, S_CASE, S_WITH,
+    S_EMPTY, S_ASSIGN, S_CALL, S_COMPOUND, S_IF, S_WHILE, S_REPEAT, S_FOR, S_FORIN, S_CASE,
     S_BREAK, S_CONTINUE, S_EXIT, S_BLOCK
 } StmtKind;
 
@@ -258,7 +258,7 @@ struct Stmt {
     StmtVec else_;
     int has_else;
     ExprVec exprs;    /* with */
-    VEC(Var *) wvars; /* with temporaries; S_BLOCK: the block's variables */
+    VEC(Var *) wvars; /* S_BLOCK: the block's variables */
     Block *blk;       /* S_BLOCK: declarations and body */
 };
 
@@ -339,7 +339,7 @@ struct EnumInfo {
     VEC(char *) names;
 };
 
-enum { VK_LOCAL, VK_PARAM, VK_SELF, VK_RESULT, VK_WITH, VK_GLOBAL };
+enum { VK_LOCAL, VK_PARAM, VK_SELF, VK_RESULT, VK_GLOBAL };
 
 struct Var {
     char *name;

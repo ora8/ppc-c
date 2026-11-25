@@ -118,7 +118,7 @@ type
   like `strict private` in Delphi; `strict` is accepted and changes nothing. In Delphi, plain
   `private` is open to the whole unit; Perfect Pascal enforces it per class.
 * `protected`: the class and its descendants. `public` and `published`: everyone (the default).
-* It applies to fields, methods, constructors and properties, also through `with` and in record
+* It applies to fields, methods, constructors and properties, also through implicit `Self` and in record
   literals: `the field "FBalance" of "TAccount" is private (only its own methods can use it)`.
 * Records know `private` and `public`. A property may read or write a private field.
 
@@ -1395,7 +1395,7 @@ once (in every kind of loop); borrows of them are invalid afterwards.
   `var`, `out`, `vao` and `T const` parameters, `forward`, recursion, `Result`/function name,
   `Exit(value)`
 * Statements: `:=`, `if`, `case` (also with strings and ranges), `while`, `repeat`,
-  `for … to/downto`, `for val/var x in …`, `loop` (endless loop), `with`, `Break`, `Continue`, `Exit`
+  `for … to/downto`, `for val/var x in …`, `loop` (endless loop), `Break`, `Continue`, `Exit`
 * Expressions: arithmetic, `div`, `mod`, `shl`, `shr`, `and`/`or`/`xor`/`not` (short-circuit for
   Boolean), comparisons, string concatenation, `in [a, b..c]`, type casts `Integer(x)`,
   `TFoo(obj)`
@@ -1409,7 +1409,8 @@ once (in every kind of loop); borrows of them are invalid afterwards.
 Not supported: `nil` (replaced by `optional`/`none`), pointers (`^`, `@`, `New`, `Dispose`,
 `Pointer` – replaced by objects, `var` references and `var` parameters), `object` types
 (replaced by `class`), set types (except set literals with `in`), open array parameters
-(`array of T` is a dynamic array), exceptions (replaced by `result T` and `try`), reference-counted
+(`array of T` is a dynamic array), `with` (name the variable, or take a short reference
+`var q := a.Inner`), exceptions (replaced by `result T` and `try`), reference-counted
 interfaces, overloading, closures that capture locals, variant records (replaced by enumerations with data), `goto`, Pascal file types (`TextFile`,
 `Assign`/`Reset`; whole-file I/O is in `ppc_std`).
 

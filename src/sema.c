@@ -54,9 +54,9 @@ typedef struct {
 
 typedef struct Scope {
     VEC(Sym *) syms;
-    Var *with;
     Struct *cls; /* class method body: other class methods by bare name */
     struct Scope *up;
+    Var *self_obj; /* method body: members of Self are found without 'Self.' */
 } Scope;
 
 enum { LK_NONE, LK_SYM, LK_MEMBER };
@@ -93,7 +93,7 @@ static const char *inst_cname; /* C name of the generic routine instance being d
 static void check_constraints(Generic *g, Type **args, Pos p);
 static void validate_constraints(Generic *g);
 static VEC(PendingBody) pending_bodies;
-static int var_counter, routine_counter, struct_counter, enum_counter, with_counter;
+static int var_counter, routine_counter, struct_counter, enum_counter;
 static StmtVec *local_init;
 static int in_block; /* inside a block statement with its own declarations */
 
@@ -553,13 +553,13 @@ static void auto_rules(MethodDecl *md, Struct *s, Routine *r);
 static Look lookup(const char *name) {
     Look L = {0};
     for (Scope *s = scope; s; s = s->up) {
-        if (s->with) {
+        if (s->self_obj) {
             Field *f;
             Routine *m;
             Prop *p;
-            if (find_member(s->with->type->st, name, &f, &m, &p)) {
+            if (find_member(s->self_obj->type->st, name, &f, &m, &p)) {
                 L.kind = LK_MEMBER;
-                L.base = s->with;
+                L.base = s->self_obj;
                 L.f = f;
                 L.m = m;
                 L.p = p;
@@ -605,7 +605,6 @@ static Var *new_var(const char *name, Type *t, int vkind, Pos p) {
     case VK_PARAM: v->cname = sfmt("p_%s", name); break;
     case VK_SELF: v->cname = xstrdup("self"); break;
     case VK_RESULT: v->cname = xstrdup("Result"); break;
-    case VK_WITH: v->cname = sfmt("__w%d", ++with_counter); break;
     default: v->cname = sfmt("L_%s", name); break;
     }
     return v;
@@ -664,7 +663,7 @@ static Routine *pure_ctx(void) {
     return NULL;
 }
 
-static int nonlocal_to_rt(Var *v, Routine *r) { return v && v->vkind != VK_WITH && (v->is_global || v->level < r->level); }
+static int nonlocal_to_rt(Var *v, Routine *r) { return v && (v->is_global || v->level < r->level); }
 
 static void check_writable(Expr *e, const char *what) {
     if (!is_lvalue(e)) error_at(e->pos, "%s: variable identifier expected", what);
@@ -3596,28 +3595,6 @@ static void stmt(Stmt *s) {
         stmts(&s->else_);
         return;
     }
-    case S_WITH: {
-        int pushed = 0;
-        for (int i = 0; i < s->exprs.len; i++) {
-            Expr *v = autoderef(value(s->exprs.items[i]));
-            Type *t = v->type;
-            if (t->kind != T_RECORD && t->kind != T_CLASS)
-                error_at(v->pos, "record or class expected in 'with'");
-            if (is_optional(t)) error_at(v->pos, "'with' needs a value, but \"%s\" is optional (unpack it with 'is some')", type_name(t));
-            if (t->kind != T_CLASS && !is_lvalue(v)) error_at(v->pos, "'with' needs a variable");
-            Var *w = new_var("with", t, VK_WITH, v->pos);
-            w->is_ref = t->kind != T_CLASS;
-            w->is_const = t->kind != T_CLASS && rooted_const(v);
-            w->borrowed = 1;
-            vpush(s->wvars, w);
-            s->exprs.items[i] = v;
-            push_scope()->with = w;
-            pushed++;
-        }
-        stmt(s->s1);
-        while (pushed--) pop_scope();
-        return;
-    }
     case S_EXIT: return;
     case S_BLOCK: {
         /* begin-block with its own declarations: a new scope */
@@ -3936,7 +3913,7 @@ static void routine_body(Routine *rt, RoutineDecl *d) {
         if (rt->is_constm && rt->owner->kind == SK_CLASS) self->type = readonly_of(self->type);
         self->in_frame = has_frame;
         rt->self = self;
-        push_scope()->with = self;
+        push_scope()->self_obj = self;
     }
     push_scope();
     if (rt->self) add_sym(SY_VAR, "Self", rt->pos)->var = rt->self;

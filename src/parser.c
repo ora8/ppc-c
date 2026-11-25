@@ -1061,14 +1061,8 @@ static Stmt *parse_stmt(void) {
         expect_kw("end");
         return s;
     }
-    if (accept_kw("with")) {
-        Stmt *s = new_stmt(S_WITH, p);
-        vpush(s->exprs, parse_expr());
-        while (accept_sym(",")) vpush(s->exprs, parse_expr());
-        expect_kw("do");
-        s->s1 = parse_stmt();
-        return s;
-    }
+    if (is_kw("with"))
+        error_at(p, "the 'with' statement is not supported: name the variable (e.g. 'p.X := 1'), or use a short reference ('var q := a.Inner;')");
     if (accept_kw("try")) { /* try P(x); : stop with the error of a failed result */
         Stmt *s = new_stmt(S_CALL, p);
         Expr *e = new_expr(E_TRY, p);

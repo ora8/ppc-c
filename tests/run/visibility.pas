@@ -32,7 +32,7 @@ procedure TChild.Work;
 begin
   Inc(FShared);
   Inner;
-  with Self do Helper;
+  Helper;
 end;
 procedure TPoint.SetX(v: Integer); begin FX := v; end;
 function TPoint.X: Integer; const; begin Result := FX; end;

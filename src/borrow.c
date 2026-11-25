@@ -59,13 +59,6 @@ typedef struct {
 } TVar;
 
 typedef struct {
-    Var *w;
-    char *path;
-    char *desc;
-    Var *root;
-} Alias;
-
-typedef struct {
     State brk, cont;
     int blk; /* blocks open when the loop started: Break/Continue leave the ones above */
 } LoopCtx;
@@ -73,7 +66,6 @@ static VEC(Stmt *) cblocks; /* block statements being analyzed, innermost last *
 
 static Program *prog;
 static VEC(TVar) tv;
-static VEC(Alias) aliases;
 static VEC(LoopCtx *) loops;
 static VEC(Field *) cfields; /* constructor being checked: own non-nilable reference fields */
 static int cneed_inh;        /* constructor must call an inherited constructor */
@@ -206,21 +198,10 @@ static int st_eq(State *a, State *b) {
 
 /* ============================================================== paths */
 
-static Alias *find_alias(Var *w) {
-    for (int i = aliases.len - 1; i >= 0; i--)
-        if (aliases.items[i].w == w) return &aliases.items[i];
-    return NULL;
-}
 
 static char *path_of(Expr *e, Var **root) {
     switch (e->kind) {
     case E_VAR: {
-        if (e->var->vkind == VK_WITH) {
-            Alias *a = find_alias(e->var);
-            if (!a) return NULL;
-            if (root) *root = a->root;
-            return a->path;
-        }
         if (root) *root = e->var;
         return sfmt("#%d", e->var->id);
     }
@@ -244,16 +225,8 @@ static char *path_of(Expr *e, Var **root) {
 static char *desc_of(Expr *e) {
     switch (e->kind) {
     case E_VAR:
-        if (e->var->vkind == VK_WITH) {
-            Alias *a = find_alias(e->var);
-            return a ? a->desc : "with-expression";
-        }
         return e->var->name;
     case E_FIELD:
-        if (e->a->kind == E_VAR && e->a->var->vkind == VK_WITH) {
-            Alias *a = find_alias(e->a->var);
-            if (a) return sfmt("%s.%s", a->desc, e->field->name);
-        }
         if (e->a->kind == E_VAR && e->a->var->vkind == VK_SELF) return e->field->name;
         return sfmt("%s.%s", desc_of(e->a), e->field->name);
     case E_INDEX: return sfmt("%s[...]", desc_of(e->a));
@@ -452,7 +425,7 @@ static unsigned nil_bits(Expr *e, State *s) {
     case E_ADDR: return N_NN;
     case E_VAR: {
         Var *v = e->var;
-        if (v->vkind == VK_SELF || v->vkind == VK_WITH) return N_NN;
+        if (v->vkind == VK_SELF) return N_NN;
         int i = slot(v);
         if (i >= 0) return s->nn[i];
         return NILABLE(v->type) ? (N_NIL | N_NN) : N_NN;
@@ -588,7 +561,6 @@ static Var *stack_src(Src *src) {
 static int addr_is_stack(Expr *e) {
     switch (e->kind) {
     case E_VAR:
-        if (e->var->vkind == VK_WITH) return 0;
         return !e->var->is_global;
     case E_FIELD: return e->a->type->kind == T_CLASS ? 0 : addr_is_stack(e->a);
     case E_INDEX: return addr_is_stack(e->a);
@@ -601,10 +573,7 @@ static int addr_is_stack(Expr *e) {
 static void use_lvalue(Expr *e, State *s) {
     switch (e->kind) {
     case E_VAR:
-        if (e->var->vkind == VK_WITH) {
-            Alias *a = find_alias(e->var);
-            if (a && a->root) check_var_use(a->root, e->pos, s);
-        } else if (in_base && tracked_borrow(e->var))
+        if (in_base && tracked_borrow(e->var))
             check_var_use(e->var, e->pos, s); /* a field or element of a borrowed value is used */
         return;
     case E_FIELD:
@@ -756,14 +725,8 @@ static void use_expr(Expr *e, State *s) {
     if (!e) return;
     switch (e->kind) {
     case E_VAR:
-        if (e->var->vkind == VK_WITH) {
-            Alias *a = find_alias(e->var);
-            if (a && a->root) check_var_use(a->root, e->pos, s);
-            if (a && !in_base) access_path(s, a->path, NULL, NULL, 0, e->pos, a->desc);
-        } else {
-            check_var_use(e->var, e->pos, s);
-            if (!in_base) access_expr(e, s, 0, NULL);
-        }
+        check_var_use(e->var, e->pos, s);
+        if (!in_base) access_expr(e, s, 0, NULL);
         return;
     case E_FIELD: use_lvalue(e, s); return;
     case E_INDEX: use_lvalue(e, s); return;
@@ -899,13 +862,6 @@ static Src eval_src(Expr *e, State *s) {
         Var *v = e->var;
         if (!is_owning_type(v->type)) {
             use_expr(e, s);
-            return r;
-        }
-        if (v->vkind == VK_WITH) {
-            Alias *a = find_alias(v);
-            use_expr(e, s);
-            r.kind = SRC_BORROW;
-            if (a) origin_add(&r.org, a->path, a->desc, a->root, 0);
             return r;
         }
         check_var_use(v, e->pos, s);
@@ -1069,7 +1025,7 @@ static void assign_src(Expr *lhs, Src *src, State *s, Pos p, unsigned nbits) {
     char *lpath = path_of(lhs, &root);
     char *ldesc = desc_of(lhs);
     int target_borrow = 0;
-    Var *tvar = lhs->kind == E_VAR && lhs->var->vkind != VK_WITH ? lhs->var : NULL;
+    Var *tvar = lhs->kind == E_VAR ? lhs->var : NULL;
     if (tvar) target_borrow = tvar->borrowed;
     else if (lhs->kind == E_FIELD) target_borrow = lhs->field->borrowed;
 
@@ -1267,7 +1223,7 @@ static void do_assign(Expr *lhs, Expr *rhs, State *s, Pos p) {
 static void do_free(Expr *t, State *s, Pos p, int set_nil, const char *how) {
     Var *root = NULL;
     char *path = path_of(t, &root);
-    if (t->kind == E_VAR && t->var->vkind != VK_WITH) {
+    if (t->kind == E_VAR) {
         Var *v = t->var;
         if (v->vkind == VK_SELF) return;
         if (v->is_stack) {
@@ -1294,11 +1250,6 @@ static void do_free(Expr *t, State *s, Pos p, int set_nil, const char *how) {
         use_lvalue(t, s);
         if (t->kind == E_FIELD && t->field->borrowed)
             berror(p, "cannot free borrowed field '%s' (it does not own the object)", desc_of(t));
-        if (t->kind == E_VAR) {
-            Alias *a = find_alias(t->var);
-            if (a && a->root && a->root->borrowed && a->path && !strchr(a->path, '.'))
-                berror(p, "cannot free borrowed reference '%s'", a->desc);
-        }
     }
     if (path) invalidate(s, path, sfmt("'%s' was %s at line %d", desc_of(t), how, p.line));
 }
@@ -1806,23 +1757,6 @@ static void an_stmt(Stmt *st, State *s) {
         *s = res;
         return;
     }
-    case S_WITH: {
-        int n0 = aliases.len;
-        for (int i = 0; i < st->exprs.len; i++) {
-            Expr *x = st->exprs.items[i];
-            if (x->type->kind == T_CLASS) {
-                use_expr(x, s);
-                deref_check(x, s, x->pos);
-            } else
-                use_lvalue(x, s);
-            Alias a = {st->wvars.items[i], NULL, desc_of(x), NULL};
-            a.path = path_of(x, &a.root);
-            vpush(aliases, a);
-        }
-        an_stmt(st->s1, s);
-        aliases.len = n0;
-        return;
-    }
     case S_BREAK: case S_CONTINUE:
         if (loops.len) {
             LoopCtx *lc = loops.items[loops.len - 1];
@@ -1873,7 +1807,7 @@ static void vs_add(VarSet *w, Var *v) {
 }
 
 static int nonlocal_to(Var *v, Routine *r) {
-    if (v->vkind == VK_WITH || v->vkind == VK_SELF) return 0;
+    if (v->vkind == VK_SELF) return 0;
     if (v->is_global) return 1;
     return v->level < r->level;
 }
@@ -1953,10 +1887,6 @@ static void ws_stmt(Stmt *s) {
         ws_expr(s->a);
         for (int i = 0; i < s->arms.len; i++) ws_stmt(s->arms.items[i].body);
         for (int i = 0; i < s->else_.len; i++) ws_stmt(s->else_.items[i]);
-        return;
-    case S_WITH:
-        for (int i = 0; i < s->exprs.len; i++) ws_expr(s->exprs.items[i]);
-        ws_stmt(s->s1);
         return;
     case S_EXIT: ws_expr(s->a); return;
     case S_BLOCK:
@@ -2069,7 +1999,6 @@ static void track(Var *v, int kind, int varparam) {
 static void untrack_all(void) {
     for (int i = 0; i < tv.len; i++) tv.items[i].v->bslot = 0;
     tv.len = 0;
-    aliases.len = 0;
     loops.len = 0;
 }
 

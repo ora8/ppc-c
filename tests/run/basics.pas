@@ -56,7 +56,7 @@ begin
   for col := Red to Blue do Write(col, ' ');
   WriteLn;
   p.X := 3; p.Y := 4;
-  with p do WriteLn('MakePoint (', X, ',', Y, ')');
+  WriteLn('MakePoint (', p.X, ',', p.Y, ')');
   for i := 0 to N - 1 do a[i] := i * i;
   WriteLn('a[7] = ', a[7]);
   for i := 1 to 3 do m[i, i] := i;

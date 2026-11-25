@@ -65,5 +65,6 @@ begin
   for i := 1 to 3 do points[i].Scale(10);
   for i := 1 to 3 do Write(points[i].AsText, ' ');
   WriteLn;
-  with r.Magnitude do begin Scale(2); WriteLn('with with: ', AsText); end;
+  r.Magnitude.Scale(2);
+  WriteLn('with with: ', r.Magnitude.AsText);
 end.
