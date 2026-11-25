@@ -23,6 +23,8 @@
 #include "ast.h"
 
 enum { O_NULL = 1, O_OWNED = 2, O_MOVED = 4, O_FREED = 8, O_UNK = 16 };
+/* optional values of a type parameter (optional T in generic bodies) may be empty too */
+#define NILABLE(t) ((t)->nilable || (t)->kind == T_OPT)
 enum { B_VALID = 1, B_DANGLING = 2, B_CONFLICT = 4, B_CARRY = 8 }; /* B_CONFLICT: aliasing rule broken while borrowed;
    B_CARRY: an owner whose object refers (through 'var' fields) to the origins in org */
 enum { TV_OWNER, TV_BORROW };
@@ -98,6 +100,7 @@ static int seen(Pos p, const char *kind, const char *msg) {
     return 0;
 }
 
+static const char *arch_note = ""; /* checking a generic body: its type parameters may be objects */
 static void berror(Pos p, const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
@@ -105,7 +108,7 @@ static void berror(Pos p, const char *fmt, ...) {
     vsnprintf(msg, sizeof msg, fmt, ap);
     va_end(ap);
     if (!g_borrow_check || seen(p, "E", msg)) return;
-    fprintf(stderr, "%s(%d,%d) Borrow error: %s\n", POS_FILE(p), p.line, p.col, msg);
+    fprintf(stderr, "%s(%d,%d) Borrow error: %s%s\n", POS_FILE(p), p.line, p.col, msg, arch_note);
     nerrors++;
 }
 
@@ -452,7 +455,7 @@ static unsigned nil_bits(Expr *e, State *s) {
         if (v->vkind == VK_SELF || v->vkind == VK_WITH) return N_NN;
         int i = slot(v);
         if (i >= 0) return s->nn[i];
-        return v->type->nilable ? (N_NIL | N_NN) : N_NN;
+        return NILABLE(v->type) ? (N_NIL | N_NN) : N_NN;
     }
     case E_RCALL:
         if (e->rt->kind == RK_CTOR) return N_NN;
@@ -467,7 +470,7 @@ static unsigned nil_bits(Expr *e, State *s) {
     }
     default: break;
     }
-    return (e->type && e->type->nilable) ? (N_NIL | N_NN) : N_NN;
+    return (e->type && NILABLE(e->type)) ? (N_NIL | N_NN) : N_NN;
 }
 
 static char *alloc_hint(Expr *x) {
@@ -513,7 +516,7 @@ static void deref_check(Expr *base, State *s, Pos p) {
 
 /* value with nil states 'bits' flows into a location of type tt */
 static void nil_flow(Type *tt, Expr *src, unsigned bits, Pos p, const char *tdesc) {
-    if (!g_nil_check || !is_ref_type(tt) || tt->nilable) return;
+    if (!g_nil_check || !is_ref_type(tt) || NILABLE(tt)) return;
     if (!(bits & (N_NIL | N_UNINIT))) return;
     Expr *x = strip_conv(src);
     const char *d = desc_of(x);
@@ -669,7 +672,7 @@ static void builtin_effects(Expr *e, State *s) {
     case BI_BOXFREE: do_free(A->items[0], s, e->pos, 0, "freed"); return;
     case BI_FREEANDNIL: {
         Expr *a = A->items[0];
-        if (g_nil_check && !a->type->nilable)
+        if (g_nil_check && !NILABLE(a->type))
             nerror(e->pos, "FreeAndNil would leave non-nilable '%s' nil; declare it as 'nilable %s' or use %s.Free", desc_of(a),
                    type_name(a->type), desc_of(a));
         do_free(a, s, e->pos, 1, "freed");
@@ -681,7 +684,7 @@ static void builtin_effects(Expr *e, State *s) {
         Var *root = NULL;
         char *path = path_of(a, &root);
         use_lvalue(a, s);
-        if (g_nil_check && !a->type->nilable && a->type->kind != T_OPT)
+        if (g_nil_check && !NILABLE(a->type) && a->type->kind != T_OPT)
             nerror(e->pos, "Take() would leave '%s' without an object, but it is not optional; declare it as 'optional %s'", desc_of(a),
                    type_name(a->type));
         if (a->kind == E_VAR && slot(a->var) >= 0) s->nn[slot(a->var)] = N_NIL;
@@ -1286,7 +1289,7 @@ static void writes_effect(Routine *r, State *s) {
         Var *v = w->items[k];
         int i = slot(v);
         if (i < 0) continue;
-        s->nn[i] = v->type->nilable ? (N_NIL | N_NN) : N_NN;
+        s->nn[i] = NILABLE(v->type) ? (N_NIL | N_NN) : N_NN;
         if (tv.items[i].kind == TV_OWNER) {
             s->own[i] = O_UNK;
             invalidate_root(s, v, sfmt("'%s' may have been changed by the call to '%s'", v->name, r->name));
@@ -1300,7 +1303,7 @@ static void writes_effect(Routine *r, State *s) {
 static Field *own_nonnil_field(Struct *x) {
     for (int i = 0; i < x->fields.len; i++) {
         Field *f = x->fields.items[i];
-        if (f->owner == x && is_ref_type(f->type) && !f->type->nilable) return f;
+        if (f->owner == x && is_ref_type(f->type) && !NILABLE(f->type)) return f;
     }
     return NULL;
 }
@@ -1336,6 +1339,13 @@ typedef struct {
     int mut;
     int shared;
 } ArgPath;
+
+/* the result of a function with a 'var' result may point into this argument (an element or a field of it) */
+static void borrowed_from_arg(Expr *a, const char *path, Var *root, Origins *out) {
+    Type *t = a->type;
+    if (t->kind == T_DYN || t->kind == T_ARRAY) origin_add(out, sfmt("%s[]", path), sfmt("%s[...]", desc_of(a)), root, 0);
+    else if (t->kind == T_RECORD) origin_add(out, path, desc_of(a), root, 0);
+}
 
 static void call_effects(Expr *e, State *s, Origins *out) {
     Routine *r = e->rt;
@@ -1384,14 +1394,15 @@ static void call_effects(Expr *e, State *s, Origins *out) {
         if (pm->mode == PM_VAR || pm->mode == PM_OUT) {
             use_lvalue(a, s);
             if (g_nil_check && is_ref_type(pm->type)) {
-                if (pm->type->nilable != a->type->nilable)
+                if (NILABLE(pm->type) != NILABLE(a->type))
                     nerror(a->pos, "var argument '%s' (%s) must have the same nilability as parameter '%s' (%s)", desc_of(a),
                            type_name(a->type), pm->name, type_name(pm->type));
-                else if (pm->mode == PM_VAR && !pm->type->nilable)
+                else if (pm->mode == PM_VAR && !NILABLE(pm->type))
                     nil_flow(pm->type, a, nil_bits(a, s), a->pos, sfmt("var parameter '%s' of '%s'", pm->name, r->name));
             }
             ArgPath x = {path_of(a, &root), desc_of(a), 1, 0};
             if (x.path) vpush(ap, x);
+            if (r->ret_borrowed && x.path) borrowed_from_arg(a, x.path, root, out);
             continue;
         }
         if (is_owning_type(pm->type)) {
@@ -1434,6 +1445,11 @@ static void call_effects(Expr *e, State *s, Origins *out) {
                 }
             }
         } else {
+            if (r->ret_borrowed) { /* a 'var' result may refer into an array or record argument */
+                Var *ar = NULL;
+                char *apth = path_of(a, &ar);
+                if (apth) borrowed_from_arg(a, apth, ar, out);
+            }
             use_expr(a, s);
             if (pm->mode == PM_CONST || pm->mode == PM_CONSTREF) {
                 char *p = path_of(a, &root);
@@ -1470,7 +1486,7 @@ static void call_effects(Expr *e, State *s, Origins *out) {
         if (!is_owning_type(a->type)) continue;
         Var *root = NULL;
         char *p = path_of(a, &root);
-        if (a->kind == E_VAR && slot(a->var) >= 0) s->nn[slot(a->var)] = pm->type->nilable ? (N_NIL | N_NN) : N_NN;
+        if (a->kind == E_VAR && slot(a->var) >= 0) s->nn[slot(a->var)] = NILABLE(pm->type) ? (N_NIL | N_NN) : N_NN;
         if (a->kind == E_VAR && tracked_owner(a->var)) s->own[slot(a->var)] = O_UNK;
         else if (a->kind == E_VAR && tracked_borrow(a->var)) {
             int k = slot(a->var);
@@ -1587,7 +1603,7 @@ static void exit_checks(State *s, Pos p) {
                (s->fd[FD_INH] & N_NN) ? " on every path" : "");
     for (int i = 0; i < tv.len; i++) {
         Var *v = tv.items[i].v;
-        if (!v->type->nilable && (s->nn[i] & (N_NIL | N_UNINIT))) {
+        if (!NILABLE(v->type) && (s->nn[i] & (N_NIL | N_UNINIT))) {
             int sure = !(s->nn[i] & N_NN);
             if (v->vkind == VK_RESULT)
                 nerror(p, "'%s' %s, but its result type '%s' is not nilable", where,
@@ -1854,7 +1870,7 @@ static void ws_expr(Expr *e) {
     if (!e) return;
     switch (e->kind) {
     case E_VAR:
-        if (nonlocal_to(e->var, cur_wr) && is_ref_type(e->var->type) && !e->var->type->nilable) vs_add(cur_rs, e->var);
+        if (nonlocal_to(e->var, cur_wr) && is_ref_type(e->var->type) && !NILABLE(e->var->type)) vs_add(cur_rs, e->var);
         return;
     case E_RCALL:
         ws_expr(e->a);
@@ -2048,7 +2064,7 @@ static void check_unit(Routine *r, StmtVec *body, Pos end) {
     for (int i = 0; i < tv.len; i++) {
         Var *v = tv.items[i].v;
         if (v->vkind == VK_PARAM)
-            s.nn[i] = v->type->nilable ? (N_NIL | N_NN) : v->mode == PM_OUT ? N_UNINIT : N_NN;
+            s.nn[i] = NILABLE(v->type) ? (N_NIL | N_NN) : v->mode == PM_OUT ? N_UNINIT : N_NN;
         else
             s.nn[i] = N_UNINIT;
         if (v->vkind == VK_PARAM && tv.items[i].kind == TV_BORROW)
@@ -2073,7 +2089,14 @@ int borrow_check(Program *p) {
     if (p->tobject)
         for (int i = 0; i < p->tobject->methods.len; i++)
             if (STREQ(p->tobject->methods.items[i]->name, "Free")) tobject_free = p->tobject->methods.items[i];
-    compute_write_sets();
+    { /* write sets for all routines, including the generic bodies with placeholder types */
+        __typeof__(p->routines) saved = p->routines, all = {0};
+        for (int i = 0; i < saved.len; i++) vpush(all, saved.items[i]);
+        for (int i = 0; i < p->arch_routines.len; i++) vpush(all, p->arch_routines.items[i]);
+        p->routines = all;
+        compute_write_sets();
+        p->routines = saved;
+    }
     for (int i = 0; i < p->structs.len && g_nil_check; i++) {
         Struct *c = p->structs.items[i];
         if (c->kind != SK_CLASS) continue;
@@ -2086,9 +2109,23 @@ int borrow_check(Program *p) {
                    f->name);
     }
 
-    for (int i = 0; i < p->routines.len; i++) {
-        Routine *r = p->routines.items[i];
-        if (r->prelude || r->is_abstract || r->is_external || !r->defined) continue;
+    /* generic bodies with placeholder types first: a type parameter without Copy is treated like an object;
+       a generic with errors is reported once, its instances are not checked again */
+    int ngen = 0;
+    for (int i = 0; i < p->arch_routines.len; i++)
+        if (p->arch_routines.items[i]->gen_id > ngen) ngen = p->arch_routines.items[i]->gen_id;
+    for (int i = 0; i < p->routines.len; i++)
+        if (p->routines.items[i]->gen_id > ngen) ngen = p->routines.items[i]->gen_id;
+    char *broken = xcalloc((size_t)ngen + 1, 1);
+    for (int pass = 0; pass < 2; pass++)
+    for (int i = 0; i < (pass ? p->routines.len : p->arch_routines.len); i++) {
+        Routine *r = pass ? p->routines.items[i] : p->arch_routines.items[i];
+        if (r->prelude || r->is_abstract || r->is_external || r->is_sig || !r->defined) continue;
+        if (pass && r->gen_id && broken[r->gen_id]) continue;
+        g_param_owning = !pass;
+        arch_note = pass ? "" : sfmt(" (in the generic %s%s%s: a type parameter without 'Copy' may be an object)",
+                                    r->owner ? r->owner->name : "", r->owner ? "." : "", r->name);
+        int before = nerrors;
         unit = r;
         unit_name = r->owner ? sfmt("%s.%s", r->owner->name, r->name) : r->name;
         cfields.len = 0;
@@ -2097,7 +2134,7 @@ int borrow_check(Program *p) {
             Struct *c = r->owner;
             for (int k = 0; k < c->fields.len; k++) {
                 Field *f = c->fields.items[k];
-                if (f->owner == c && is_ref_type(f->type) && !f->type->nilable) vpush(cfields, f);
+                if (f->owner == c && is_ref_type(f->type) && !NILABLE(f->type)) vpush(cfields, f);
             }
             for (Struct *x = c->parent; x; x = x->parent)
                 if (own_nonnil_field(x)) cneed_inh = 1;
@@ -2117,7 +2154,10 @@ int borrow_check(Program *p) {
         untrack_all();
         cfields.len = 0;
         cneed_inh = 0;
+        if (!pass && nerrors > before && r->gen_id) broken[r->gen_id] = 1;
     }
+    g_param_owning = 0;
+    arch_note = "";
     unit = NULL;
     unit_name = "the program";
     for (int k = 0; k < p->globals.len; k++) track_var(p->globals.items[k]);

@@ -404,10 +404,12 @@ struct Routine {
     Pos pos;
     VEC(Var *) nl_writes;   /* non-local variables written by this routine */
     VEC(Routine *) callees; /* routines called directly */
+    int gen_id;             /* made from a generic (1 + its number): its errors are reported for the generic itself */
 };
 
 typedef struct {
     VEC(Routine *) routines;
+    VEC(Routine *) arch_routines; /* generic bodies with placeholder types: only borrow-checked */
     VEC(Var *) globals;
     StmtVec init;
     StmtVec body;
@@ -442,6 +444,7 @@ Stmt *new_stmt(StmtKind k, Pos p);
 Program *sema_program(Block *prelude, Block **libs, int nlibs, Block *prog, const char *name);
 int is_owning_type(Type *t);
 int struct_descends(Struct *d, Struct *b);
+extern int g_param_owning; /* a type parameter without Copy counts as an object (checking generic bodies) */
 int res_temp(Expr *e);
 extern int g_allow_external; /* the standard library may declare 'external' routines */
 const char *type_name(Type *t);

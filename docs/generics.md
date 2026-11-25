@@ -149,7 +149,10 @@ structs with their own functions and their own VMT. This costs nothing at run ti
 **Implementation:** (1) since stage 1; (2) since stage 4: every generic is additionally checked
 once with placeholder types that can do exactly what their constraints allow (with a base class
 as constraint the placeholder is that class). No code is produced for this; a generic with
-errors is not reported again for its instances.
+errors is not reported again for its instances. The borrow checker also runs on these placeholder
+bodies: a placeholder without `Copy`, `Comparable` or `Numeric` counts as an object (moves,
+no copying out of containers); a generic whose body has borrow errors is reported once and its
+instances are not checked again.
 
 ## 6. Prerequisite: growing arrays
 

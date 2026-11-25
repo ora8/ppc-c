@@ -23,13 +23,13 @@ begin
   b := h;
 end;
 
-function MakePair<A, B>(x: A; y: B): TPair<A, B>;
+function MakePair<A: Copy; B: Copy>(x: A; y: B): TPair<A, B>;
 begin
   Result.First := x;
   Result.Second := y;
 end;
 
-function First<A, B>(p: TPair<A, B>): A;
+function First<A: Copy; B>(p: TPair<A, B>): A;
 begin Result := p.First; end;
 
 function Factorial<T: Numeric>(n: T): T;          { recursive }

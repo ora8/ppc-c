@@ -750,7 +750,27 @@ end;
 * An error in the body is reported once this way – not again for every instance. With a base
   class as constraint (`T: TAnimal`) all fields and methods of `TAnimal` are available, with
   `T: class` those of `TObject`.
-* Every instance is also checked with the actual types, including by the borrow checker.
+* **The borrow checker checks the body on its own too.** A `T` without `Copy` (or
+  `Comparable`/`Numeric`, which only fit values) may be an object, so it is treated like one:
+  assigning moves it, a moved `T` cannot be used again, and an element cannot be copied out of
+  an array – exactly the rules for objects:
+
+  ```pascal
+  procedure Twice<T>(vao x: T);
+  begin
+    Keep(x);
+    Keep(x);      { use of moved value 'x' (in the generic Twice: a type parameter without
+  end;              'Copy' may be an object) }
+
+  function First<T>(a: array of optional T): optional T;
+  begin Result := a[0]; end;             { cannot move out of 'a[...]' ... use Take(a[...]) }
+
+  function Twice<T: Copy>(x: T): TPair<T>;
+  begin Result.A := x; Result.B := x; end;   { ok: T is a value }
+  ```
+
+  Such an error is reported once for the generic, not for every instance. Every instance is
+  still checked with its actual types as well.
 * For a value `T`, `vao x: T` is an ordinary pass and a `var` result is a copy; for an object `T`
   the usual ownership and borrowing rules apply.
 * `ClassName` returns the name of the instance, e.g. `'TList<TCustomer>'`.

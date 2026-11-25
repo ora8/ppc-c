@@ -4,7 +4,7 @@
   TStack<T>                 stack (last in, first out)
   TMap<K: Comparable; V>    map key -> value, sorted by key
   Sort<T: Comparable>       sorts an 'array of T' in ascending order
-  SortBy<T>                 sorts with a comparison function: SortBy(a, function(x, y: T): Boolean ...)
+  SortBy<T: Copy>           sorts with a comparison function: SortBy(a, function(x, y: T): Boolean ...)
   IndexOf<T: Equatable>     position of a value in an 'array of T', or none
   Filter<T: Copy>           the elements for which a function returns True
 
@@ -58,7 +58,7 @@ type
   end;
 
 procedure Sort<T: Comparable>(var a: array of T);
-procedure SortBy<T>(var a: array of T; Less: function(x, y: T): Boolean);
+procedure SortBy<T: Copy>(var a: array of T; Less: function(x, y: T): Boolean);
 function IndexOf<T: Equatable>(a: array of T; x: T): optional Integer;
 function Filter<T: Copy>(a: array of T; Keep: function(x: T): Boolean): array of T;
 { ---- strings ---- }
@@ -316,7 +316,7 @@ begin
   SortRange(a, 0, High(a));
 end;
 
-procedure SortBy<T>(var a: array of T; Less: function(x, y: T): Boolean);
+procedure SortBy<T: Copy>(var a: array of T; Less: function(x, y: T): Boolean);
 begin                                              { insertion sort: stable }
   for val i := 1 to High(a) do
     val j := i;

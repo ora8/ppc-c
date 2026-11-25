@@ -35,6 +35,8 @@ typedef struct {
     int iface_only;           /* generic routine declared in a module interface, defined in its implementation */
 } Generic;
 static VEC(Generic *) all_generics;
+static int cur_gen_id;           /* the generic whose instance is being made */
+static VEC(int) gen_stack;
 static Generic *self_check; /* the generic being checked on its own (stage 4) */
 static struct Scope *iface_scope; /* module implementation: the interface scope whose headers it defines */
 static int in_iface;              /* module interface: headers are defined later, no 'not resolved' check yet */
@@ -205,7 +207,10 @@ static int is_strlike(Type *t) { return t->kind == T_STR || t->kind == T_CHAR; }
 static int is_ptrlike(Type *t) { return t->kind == T_PTR || t->kind == T_CLASS || t->kind == T_NIL; }
 
 /* owning types: class instances and typed pointers (borrow checker) */
-int is_ref_type(Type *t) { return t && (t->kind == T_CLASS || (t->kind == T_PTR && t->base)); }
+int g_param_owning;
+/* while a generic body is checked on its own, a type parameter that may be an object is one */
+static int param_owner(Type *t) { return g_param_owning && t && t->kind == T_PARAM && !(t->ik & (PC_COPY | PC_CMP | PC_NUM)); }
+int is_ref_type(Type *t) { return t && (t->kind == T_CLASS || (t->kind == T_PTR && t->base) || param_owner(t)); }
 /* a value that contains strings (each has its own heap buffer: copied on assignment, freed at the end) */
 int has_str(Type *t) {
     if (!t) return 0;
@@ -245,13 +250,16 @@ int is_owning_temp(Expr *e) {
     if (e->kind == E_RCALL) {
         Routine *r = e->rt;
         if (r->kind == RK_CTOR) return e->cmode == CM_NEWCLASS;
-        return r->kind == RK_FUNC && is_ref_type(r->ret) && !r->ret_borrowed;
+        return r->kind == RK_FUNC && !r->ret_borrowed &&
+               (is_ref_type(r->ret) || (r->ret && r->ret->kind == T_OPT && is_ref_type(r->ret->base)));
     }
     if (e->kind == E_BUILTIN) return e->bi == BI_TAKE || e->bi == BI_BOXNEW || (e->bi == BI_NEW && e->type && is_ref_type(e->type));
     return 0;
 }
 
-int is_owning_type(Type *t) { return t && (t->kind == T_CLASS || (t->kind == T_PTR && t->base)); }
+int is_owning_type(Type *t) {
+    return t && (t->kind == T_CLASS || (t->kind == T_PTR && t->base) || param_owner(t) || (t->kind == T_OPT && param_owner(t->base)));
+}
 
 /* d is b, a descendant of b, or (b an interface) implements b */
 int struct_descends(Struct *d, Struct *b) {
@@ -849,7 +857,7 @@ static void require_nilable(Type *t, Pos p, const char *where) {
     if (t->kind == T_PROC)
         error_at(p, "%s of type \"%s\" must be declared 'optional %s' (this storage starts out empty)", where, type_name(t),
                  type_name(t));
-    if (g_nil_check && is_ref_type(t) && !t->nilable)
+    if (g_nil_check && is_ref_type(t) && !t->nilable && t->kind != T_PARAM) /* T: checked for each instance */
         error_at(p, "%s of type \"%s\" must be declared 'optional %s' (this storage starts out empty)", where, type_name(t),
                  type_name(t));
 }
@@ -1080,12 +1088,17 @@ static Scope *enter_generic(Generic *g, Type **args, Scope **saved_scope, Routin
     cur = NULL;
     level = 0;
     generic_depth++;
+    vpush(gen_stack, cur_gen_id);
+    cur_gen_id = 0;
+    for (int i = 0; i < all_generics.len; i++)
+        if (all_generics.items[i] == g) cur_gen_id = i + 1;
     Scope *s = push_scope();
     for (int i = 0; i < g->params.len; i++) add_sym(SY_TYPE, g->params.items[i].name, g->params.items[i].pos)->type = args[i];
     return s;
 }
 static void leave_generic(Scope *saved_scope, Routine *saved_cur, int saved_level) {
     generic_depth--;
+    cur_gen_id = gen_stack.items[--gen_stack.len];
     scope = saved_scope;
     cur = saved_cur;
     level = saved_level;
@@ -1532,7 +1545,9 @@ static Routine *new_routine(const char *name, int kind, Pos p) {
     r->slot = -1;
     r->pos = p;
     r->prelude = in_prelude;
+    r->gen_id = cur_gen_id;
     if (!archetype_mode) vpush(prog->routines, r);
+    else vpush(prog->arch_routines, r);
     return r;
 }
 
@@ -3122,6 +3137,7 @@ static Expr *bind_some(Expr *e) {
     /* unpacking a place borrows its content; unpacking a fresh owned object takes ownership */
     k->borrowed = t->kind == T_CLASS && !is_owning_temp(e->a);
     if (t->kind == T_RES && kt && is_ref_type(kt)) k->borrowed = !res_temp(e->a); /* a fresh result gives its object away */
+    if (t->kind == T_OPT && is_ref_type(kt)) k->borrowed = !is_owning_temp(e->a); /* optional T with T an object (generic body) */
     k->is_const = k->borrowed || t->kind == T_OPT || t->kind == T_RES;
     k->no_drop = (t->kind == T_OPT || t->kind == T_RES) && has_owned(kt); /* a copy of the value: the original keeps owning (strings are copied) */
     if (cur) vpush(cur->locals, k);
@@ -4081,6 +4097,7 @@ static void decl1(Decl *d, int has_frame) {
                 }
                 /* val k := TFoo.Create(...): a stack object, constructed in place, destroyed at the end of its block */
                 int is_stack = t->kind == T_CLASS && !vd->is_heap && !vd->borrowed;
+                if (is_stack && generic_depth && vd->ty && t->nilable) is_stack = 0; /* generic code: 'val h: optional T' owns a reference */
                 Expr *ctor = NULL;
                 if (is_stack) {
                     if (t->nilable && vd->ty)
@@ -4227,6 +4244,7 @@ static void check_generic_alone(Generic *g) {
     for (int i = 0; i < n; i++) args[i] = archetype(g, i);
     int before = g_errors;
     archetype_mode++;
+    g_param_owning++;
     if (g->is_routine) {
         RECOVER_BEGIN
         self_check = g;
@@ -4267,6 +4285,7 @@ static void check_generic_alone(Generic *g) {
         }
     }
     archetype_mode--;
+    g_param_owning--;
     if (g_errors > before) g->broken = 1; /* reported once here, not again for every instance */
 }
 
