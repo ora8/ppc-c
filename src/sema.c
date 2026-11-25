@@ -123,6 +123,9 @@ static Expr *mk_bin(int op, Expr *a, Expr *b, Pos p);
 static void stmt(Stmt *s);
 static Type *proc_type(Routine *sig);
 static void no_closure(Type *t, Pos p, const char *where);
+static int is_aggregate(Type *t);
+static int same_agg(Type *a, Type *b);
+static int equatable(Type *t);
 static void closure_of(Type *t);
 static void move_check(Expr *src, const char *ctx);
 static Expr *param_binary(Expr *e);
@@ -1400,7 +1403,7 @@ static int satisfies(Type *t, const char *c) {
     if (STREQ(c, "class")) return t->kind == T_CLASS;
     if (STREQ(c, "Copy")) return t->kind != T_CLASS && !is_ref_type(t) && !has_owned(t);
     if (STREQ(c, "Clone")) return has_clone(t);
-    if (STREQ(c, "Equatable")) return is_ordinal(t) || t->kind == T_REAL || t->kind == T_STR || t->kind == T_CLASS;
+    if (STREQ(c, "Equatable")) return is_ordinal(t) || t->kind == T_REAL || t->kind == T_STR || t->kind == T_CLASS || (is_aggregate(t) && equatable(t));
     if (STREQ(c, "Comparable")) return is_ordinal(t) || t->kind == T_REAL || t->kind == T_STR;
     Look L = lookup(c); /* a class: the type argument must be it or a descendant */
     if (L.kind != LK_SYM || L.sym->kind != SY_TYPE) return 0;
@@ -2452,10 +2455,21 @@ static Expr *ex(Expr *e) {
                 if (is_optional(o) || o->kind == T_NIL) return e;
                 error_at(e->pos, "\"%s\" is not optional and can never be none", type_name(o));
             }
+            if ((op == OP_EQ || op == OP_NE) && ta->kind == T_OPT && tb->kind == T_OPT && same_type(ta, tb) && equatable(ta))
+                return e; /* both empty, or both with equal values */
             if (is_optional(ta) || is_optional(tb))
-                error_at(e->pos, "optional values can only be compared with none; unpack them with 'is some'");
+                error_at(e->pos, "optional values can only be compared with none or with an optional value of the same type; unpack them with 'is some'");
             if (is_ptrlike(ta) && is_ptrlike(tb) && (op == OP_EQ || op == OP_NE)) {
                 if (assign_compat(ta, tb) || assign_compat(tb, ta)) return e;
+            }
+            if ((op == OP_EQ || op == OP_NE) && (is_aggregate(ta) || is_aggregate(tb))) { /* records, arrays: field by field */
+                if (ta->kind == T_LIT) e->a = coerce(e->a, tb, "comparison"), ta = tb;
+                if (tb->kind == T_LIT) e->b = coerce(e->b, ta, "comparison"), tb = ta;
+                if (!same_agg(ta, tb))
+                    error_at(e->pos, "incompatible types in comparison: \"%s\" and \"%s\"", type_name(ta), type_name(tb));
+                if (!equatable(ta))
+                    error_at(e->pos, "\"%s\" cannot be compared with '=': it contains a function value or a result", type_name(ta));
+                return e;
             }
             error_at(e->pos, "incompatible types in comparison: \"%s\" and \"%s\"", type_name(ta), type_name(tb));
         }
@@ -2514,6 +2528,23 @@ static Expr *ex(Expr *e) {
     }
 }
 
+/* '=' for records, arrays and optional values: compared element by element */
+static int is_aggregate(Type *t) { return t->kind == T_RECORD || t->kind == T_ARRAY || t->kind == T_DYN; }
+static int same_agg(Type *a, Type *b) {
+    if (a->kind == T_RECORD && b->kind == T_RECORD) return a->st == b->st; /* also 'T const' */
+    return same_type(a, b) || (a->kind == b->kind && same_type(a->base, b->base) && a->lo == b->lo && a->hi == b->hi);
+}
+static int equatable(Type *t) {
+    switch (t->kind) {
+    case T_INT: case T_BOOL: case T_CHAR: case T_REAL: case T_STR: case T_ENUM: case T_CLASS: case T_PTR: return 1;
+    case T_OPT: case T_ARRAY: case T_DYN: return equatable(t->base);
+    case T_RECORD:
+        for (int i = 0; i < t->st->fields.len; i++)
+            if (!equatable(t->st->fields.items[i]->type)) return 0;
+        return 1;
+    default: return 0;
+    }
+}
 /* operators on a placeholder type parameter: only what its constraints allow */
 static Expr *param_binary(Expr *e) {
     Type *ta = e->a->type, *tb = e->b->type;

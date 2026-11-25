@@ -468,6 +468,22 @@ end;
   after the statement that uses them.
 * Changing the length (`SetLength`, `Delete`, `Insert`) invalidates borrows of characters.
 
+### Comparing values: `=` and `<>`
+
+Records, arrays (fixed and dynamic), optional values and enumerations with data are compared
+**element by element** with `=` and `<>`: strings by their content, objects by identity (the same
+object), optional values are equal if both are empty or both hold equal values.
+
+```pascal
+val a: TPoint := (X: 1; Y: 2);
+if a = (X: 1; Y: 2) then …;          { record literal on one side }
+if anna.Tags <> bert.Tags then …;    { array of String }
+if s = Circle(2.0) then …;           { enumeration with data }
+```
+
+Such types also satisfy the constraint `Equatable`. Records with a function value or a `result`
+inside cannot be compared (`"TR" cannot be compared with '='`).
+
 ### Literals and `default`
 
 ```pascal
@@ -1415,7 +1431,8 @@ case s of Named(var n, _): n := n + '!'; else end;
   value with objects moves it.
 * The borrow checker knows the bindings: changing `s` while a binding is still used is an error.
 * Generic: `TMaybe<T> = (Just(Value: T), Nothing)`, built with `TMaybe<Integer>.Just(5)`.
-* `default` is the first variant with zero fields. `=` is not defined for enumerations with data.
+* `default` is the first variant with zero fields. `=` and `<>` compare the variant and its fields:
+  `s = Circle(2.0)`.
 
 Internally the value is a record with a tag and the fields of all variants.
 

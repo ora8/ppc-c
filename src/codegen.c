@@ -304,6 +304,45 @@ static char *agg_drop_fn(Type *t) {
 }
 static char *agg_drop(Type *t, const char *lv) { return sfmt("%s(&(%s))", agg_drop_fn(t), lv); }
 
+/* '=' of records, arrays and optional values: one function per type */
+static VEC(char *) aeq_keys;
+static VEC(char *) aeq_names;
+static char *agg_eq_fn(Type *t);
+static char *elem_eq(Type *t, const char *x, const char *y) {
+    switch (t->kind) {
+    case T_STR: return sfmt("__pstr_cmp(%s, %s) == 0", x, y);
+    case T_RECORD: case T_ARRAY: case T_DYN: case T_OPT: return sfmt("%s(&(%s), &(%s))", agg_eq_fn(t), x, y);
+    default: return sfmt("(%s) == (%s)", x, y); /* numbers, enumerations, objects (the same object) */
+    }
+}
+static char *agg_eq_fn(Type *t) {
+    char *ct = ctype(t);
+    for (int i = 0; i < aeq_keys.len; i++)
+        if (STREQ(aeq_keys.items[i], ct)) return aeq_names.items[i];
+    char *name = sfmt("Q%d", aeq_keys.len + 1);
+    vpush(aeq_keys, ct);
+    vpush(aeq_names, name);
+    buf_printf(&b_protos, "static int %s(%s *a, %s *b);\n", name, ct, ct);
+    Buf b = {0};
+    buf_printf(&b, "static int %s(%s *a, %s *b) {\n", name, ct, ct);
+    if (t->kind == T_RECORD) {
+        for (int k = 0; k < t->st->fields.len; k++) {
+            Field *f = t->st->fields.items[k];
+            buf_printf(&b, "  if (!(%s)) return 0;\n", elem_eq(f->type, sfmt("a->%s", f->cname), sfmt("b->%s", f->cname)));
+        }
+    } else if (t->kind == T_ARRAY) {
+        buf_printf(&b, "  for (long i = 0; i < %lld; i++) if (!(%s)) return 0;\n", t->hi - t->lo + 1, elem_eq(t->base, "a->a[i]", "b->a[i]"));
+    } else if (t->kind == T_DYN) {
+        buf_put(&b, "  if (a->len != b->len) return 0;\n");
+        buf_printf(&b, "  for (int64_t i = 0; i < a->len; i++) if (!(%s)) return 0;\n", elem_eq(t->base, "a->a[i]", "b->a[i]"));
+    } else if (t->kind == T_OPT) {
+        buf_printf(&b, "  if (a->has != b->has) return 0;\n  if (!a->has) return 1;\n  return %s;\n", elem_eq(t->base, "a->v", "b->v"));
+    }
+    buf_put(&b, "  return 1;\n}\n");
+    buf_put(&b_drops, buf_str(&b));
+    return name;
+}
+
 /* per value type with strings: kind 0 = give a shallow copy its own string buffers (copy on
  * assignment), kind 1 = hand its buffers to the temporary pool (function results) */
 static VEC(char *) astr_keys[2];
@@ -949,6 +988,12 @@ static char *gx(Expr *e) {
         if (ta->kind == T_STR) {
             if (op == OP_ADD) return sfmt("__pstr_cat(%s, %s)", a, b);
             return sfmt("(__pstr_cmp(%s, %s) %s 0)", a, b, binop_str(op));
+        }
+        if ((op == OP_EQ || op == OP_NE) &&
+            (ta->kind == T_RECORD || ta->kind == T_ARRAY || ta->kind == T_DYN || (ta->kind == T_OPT && e->b->type->kind == T_OPT))) {
+            int id = ++tmpc; /* field by field (through copies: the operands may be computed values) */
+            return sfmt("(%s({ %s __ea%d = %s; %s __eb%d = %s; %s(&__ea%d, &__eb%d); }))", op == OP_NE ? "!" : "", ctype(ta), id, a,
+                        ctype(ta), id, b, agg_eq_fn(ta), id, id);
         }
         if (is_cmp(op) && (ta->kind == T_OPT || e->b->type->kind == T_OPT)) { /* opt = none / opt <> none */
             Expr *o = ta->kind == T_OPT ? e->a : e->b;
