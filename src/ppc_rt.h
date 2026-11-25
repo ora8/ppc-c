@@ -10,7 +10,9 @@
 #include <unistd.h>
 
 typedef struct { int64_t len; unsigned char *p; } PStr;
-typedef struct { void *fn; void *env; } __Closure; /* 'reference to function': the routine and the frame it uses (NULL: none) */ /* String: length + heap buffer (see strings) */
+typedef struct { void *fn; void *env; } __Closure;
+/* set of T: one bit per value (at most 256), bit i stands for the value lo + i */
+typedef struct { uint64_t w[4]; } __Set; /* 'reference to function': the routine and the frame it uses (NULL: none) */ /* String: length + heap buffer (see strings) */
 /* interface tables of a class: the methods of each interface it implements, ended by {0, 0} */
 struct __ITab { const void *iid; void **fns; };
 struct __VMTHdr { void *parent; const char *name; size_t size; void (*drop)(void *); void (*clonefix)(void *); const struct __ITab *itabs; };
@@ -373,6 +375,28 @@ static PStr __format(PStr fmt, int n, const __FArg *a) {
     free(o);
     return r;
 }
+/* ---- sets ---- */
+static void __set_incl(__Set *s, int64_t v, int64_t lo, int64_t hi) {
+    if (v < lo || v > hi) __rt_error(201, "range check error: set element out of range");
+    v -= lo; s->w[v >> 6] |= (uint64_t)1 << (v & 63);
+}
+static void __set_excl(__Set *s, int64_t v, int64_t lo, int64_t hi) {
+    if (v < lo || v > hi) return;
+    v -= lo; s->w[v >> 6] &= ~((uint64_t)1 << (v & 63));
+}
+static void __set_range(__Set *s, int64_t a, int64_t b, int64_t lo, int64_t hi) {
+    for (int64_t v = a; v <= b; v++) __set_incl(s, v, lo, hi);
+}
+static int __set_has(__Set s, int64_t v, int64_t lo, int64_t hi) {
+    if (v < lo || v > hi) return 0;
+    v -= lo; return (s.w[v >> 6] >> (v & 63)) & 1;
+}
+static __Set __set_or(__Set a, __Set b) { for (int i = 0; i < 4; i++) a.w[i] |= b.w[i]; return a; }
+static __Set __set_and(__Set a, __Set b) { for (int i = 0; i < 4; i++) a.w[i] &= b.w[i]; return a; }
+static __Set __set_sub(__Set a, __Set b) { for (int i = 0; i < 4; i++) a.w[i] &= ~b.w[i]; return a; }
+static int __set_eq(__Set a, __Set b) { for (int i = 0; i < 4; i++) if (a.w[i] != b.w[i]) return 0; return 1; }
+static int __set_le(__Set a, __Set b) { for (int i = 0; i < 4; i++) if (a.w[i] & ~b.w[i]) return 0; return 1; } /* a is a subset of b */
+static int64_t __set_count(__Set a) { int64_t n = 0; for (int i = 0; i < 4; i++) n += __builtin_popcountll(a.w[i]); return n; }
 /* ---- standard library primitives (declared 'external' in ppc_std) ---- */
 static int __ppc_argc;
 static char **__ppc_argv;

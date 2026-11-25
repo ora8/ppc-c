@@ -692,7 +692,12 @@ static TypeExpr *parse_type_core(void) {
         t->sd = parse_struct(SK_CLASS);
         return t;
     }
-    if (is_kw("set")) error_at(pos(), "set types are not supported (set literals in 'in' tests are)");
+    if (accept_kw("set")) { /* set of TColor */
+        expect_kw("of");
+        TypeExpr *t = new_te(TE_SET, p);
+        t->elem = parse_type();
+        return t;
+    }
     if (accept_sym("(")) {
         /* enumeration (Red, Green) or enumeration with data (Circle(Radius: Real), Empty) */
         VEC(VariantDecl) vs = {0};

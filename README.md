@@ -531,6 +531,31 @@ WriteLn(Format('%1:s %0:s', ['world', 'hello']));          { hello world }
   `Format: '%d' needs a whole number, but argument 1 is "String"`, too few or too many values.
   A format computed at run time that does not fit stops with run-time error 220.
 
+### Sets: `set of T`
+
+```pascal
+type
+  TColor = (Red, Green, Blue, Yellow);
+  TColors = set of TColor;
+val
+  warm: TColors := [Red, Yellow];
+  all: TColors := [Red..Yellow];
+  vowels: set of Char := ['a', 'e', 'i', 'o', 'u'];
+begin
+  if Green in all - warm then …;      { difference; also + (union), * (intersection) }
+  if warm <= all then …;              { subset; >= superset, = and <> }
+  Include(warm, Green);
+  Exclude(warm, Red);
+  for val c in warm do WriteLn(c);    { the members in order }
+end;
+```
+
+* The element type is an enumeration, `Char`, `Boolean`, `Byte` or a subrange (`set of 0..9`)
+  with at most 256 values. A set is a value of 256 bits: copied by assignment, no allocation.
+* `[...]` takes its type from where it is used (`[]` is the empty set); `val s := [Green, Blue]`
+  is a set of the elements' type. Constant elements outside the range are errors, others stop
+  with run-time error 201 when they are added.
+
 ### Comparing values: `=` and `<>`
 
 Records, arrays (fixed and dynamic), optional values and enumerations with data are compared
@@ -1618,7 +1643,7 @@ once (in every kind of loop); borrows of them are invalid afterwards.
   (owners), blocks with their own sections
 * Types: `Integer`/`LongInt` (32 bit), `ShortInt`, `SmallInt`, `Byte`, `Word`, `Cardinal`,
   `Int64`, `Boolean`, `Char`, `Real`/`Double`, `String` (dynamic, any length),
-  enumerations (also with data), subranges, static (also multi-dimensional) and dynamic arrays, records (with
+  enumerations (also with data), subranges, sets (`set of T`), static (also multi-dimensional) and dynamic arrays, records (with
   methods), `class` (with class methods), `interface`, generics
 * Procedures/functions, nested to any depth (access to outer variables through static links),
   `var`, `out`, `vao` and `T const` parameters, `forward`, recursion, `Result`/function name,
@@ -1637,7 +1662,7 @@ once (in every kind of loop); borrows of them are invalid afterwards.
 
 Not supported: `nil` (replaced by `optional`/`none`), pointers (`^`, `@`, `New`, `Dispose`,
 `Pointer` – replaced by objects, `var` references and `var` parameters), `object` types
-(replaced by `class`), set types (except set literals with `in`), operators on classes, open array parameters
+(replaced by `class`), operators on classes, open array parameters
 (`array of T` is a dynamic array), closures that outlive their routine, `with` (name the variable, or take a short reference
 `var q := a.Inner`), exceptions (replaced by `result T` and `try`), reference-counted
 interfaces, variant records (replaced by enumerations with data), `goto`, Pascal file types (`TextFile`,

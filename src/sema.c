@@ -72,6 +72,11 @@ typedef struct {
     Generic *gm; /* a generic method of Self */
 } Look;
 static void check_visible(Look *L, Pos p, const char *name);
+static int set_elem_ok(Type *st, Type *t);
+static Expr *set_binary(Expr *e);
+static Expr *set_literal(Expr *e, Type *to);
+static Type *set_of_elems(Expr *e);
+static Expr *cast_expr(Type *t, ExprVec *args, Pos p);
 static void operator_rules(Struct *s, MethodDecl *md);
 static void operator_check(Struct *s, Routine *r);
 static int arg_cost(Param *pm, Expr *a);
@@ -204,6 +209,7 @@ const char *type_name(Type *t) {
     if (t->name) return t->name;
     switch (t->kind) {
     case T_VOID: return "untyped";
+    case T_SET: return "set";
     case T_INT: return "Integer";
     case T_BOOL: return "Boolean";
     case T_CHAR: return "Char";
@@ -314,6 +320,7 @@ static int same_type(Type *a, Type *b) {
     case T_PARAM: return 0; /* two placeholders are only the same if they are one object */
     case T_DYN: return same_type(a->base, b->base);
     case T_PROC: return a->closure == b->closure && same_signature(a->proc, b->proc);
+    case T_SET: return a->lo == b->lo && a->hi == b->hi && (same_type(a->base, b->base) || (is_int(a->base) && is_int(b->base)));
     case T_RES:
         if (!a->base || !b->base) return !a->base && !b->base && same_type(a->err, b->err);
         return same_type(a->base, b->base) && same_type(a->err, b->err);
@@ -442,6 +449,10 @@ static Expr *literal_to(Expr *e, Type *to, const char *ctx) {
         for (int i = 0; i < e->args.len; i++) e->args.items[i] = coerce(value(e->args.items[i]), to->base, "array literal");
         e->type = to;
         return e;
+    }
+    if (e->kind == E_SET) {
+        if (to->kind != T_SET) error_at(e->pos, "a set [...] cannot be used as \"%s\" in %s", type_name(to), ctx);
+        return set_literal(e, to);
     }
     /* E_RECLIT */
     if (to->kind != T_RECORD) error_at(e->pos, "a record literal cannot be used as \"%s\" in %s", type_name(to), ctx);
@@ -1105,7 +1116,7 @@ static long long range_of(TypeExpr *te, long long *lo, Type **idx) {
         break;
     default: break;
     }
-    error_at(te->pos, "invalid array index type \"%s\"", type_name(t));
+    error_at(te->pos, "invalid array index or set element type \"%s\" (an enumeration, Char, Boolean, Byte or a subrange)", type_name(t));
 }
 
 static Type *resolve_type_inner(TypeExpr *te);
@@ -1584,6 +1595,15 @@ static Type *resolve_type_inner(TypeExpr *te) {
         Type *pt = proc_type(sig);
         if (te->closure) closure_of(pt);
         return pt;
+    }
+    case TE_SET: { /* set of TColor / set of 'a'..'z' / set of Byte */
+        Type *t = new_type(T_SET, NULL);
+        t->hi = range_of(te->elem, &t->lo, &t->index);
+        if (t->hi - t->lo >= 256)
+            error_at(te->pos, "a set can have at most 256 values (%lld..%lld has %lld)", t->lo, t->hi, t->hi - t->lo + 1);
+        t->base = t->index;
+        t->name = t->base->kind == T_INT ? sfmt("set of %lld..%lld", t->lo, t->hi) : sfmt("set of %s", type_name(t->base));
+        return t;
     }
     case TE_RESULT: {
         Type *b = te->elem ? resolve_type(te->elem) : NULL;
@@ -2532,6 +2552,7 @@ static Expr *ex(Expr *e) {
     case E_MEMBER: return resolve_ref(e, NULL);
     case E_CALL:
         if (e->a->kind == E_IDENT || e->a->kind == E_MEMBER) return resolve_ref(e->a, &e->args);
+        if (e->a->kind == E_TYPEREF) return cast_expr(e->a->ctype, &e->args, e->pos); /* made by the compiler: T(x) */
         {
             Expr *f = value(e->a); /* Pick(True)(1, 5): call of a function value */
             if (f->type->kind == T_PROC) return indirect_call(f, &e->args, e->pos);
@@ -2632,6 +2653,7 @@ static Expr *ex(Expr *e) {
         Type *ta = e->a->type, *tb = e->b->type;
         int op = e->op;
         if (ta->kind == T_PARAM || tb->kind == T_PARAM) return param_binary(e);
+        if (ta->kind == T_SET || tb->kind == T_SET || (e->a->kind == E_SET && e->b->kind == E_SET)) return set_binary(e);
         if (ta->kind == T_RECORD || tb->kind == T_RECORD) { /* class operator Add(a, b: TVec): TVec ... */
             Expr *r = user_operator(e, op, e->a, e->b);
             if (r) return r;
@@ -2726,7 +2748,14 @@ static Expr *ex(Expr *e) {
     case E_IN: {
         e->a = value(e->a);
         if (!is_ordinal(e->a->type)) error_at(e->pos, "ordinal expression expected before 'in'");
-        if (e->b->kind != E_SET) error_at(e->b->pos, "set constructor [...] expected after 'in'");
+        if (e->b->kind != E_SET) { /* x in s */
+            e->b = value(e->b);
+            Type *st = e->b->type;
+            if (st->kind != T_SET) error_at(e->b->pos, "a set or [...] expected after 'in', not \"%s\"", type_name(st));
+            if (!set_elem_ok(st, e->a->type)) error_at(e->a->pos, "\"%s\" is not an element type of \"%s\"", type_name(e->a->type), type_name(st));
+            e->type = t_bool;
+            return e;
+        }
         Expr *s = e->b;
         for (int i = 0; i < s->args.len; i++) {
             for (int k = 0; k < 2; k++) {
@@ -2762,7 +2791,14 @@ static Expr *ex(Expr *e) {
         return e;
     }
     case E_FMT: error_at(e->pos, "format specifiers are only allowed in Write/WriteLn/Str");
-    case E_SET: error_at(e->pos, "set constructors are only supported on the right side of 'in'");
+    case E_SET: /* [Red, Blue], ['a'..'z'], []: a set, typed by where it is used */
+        for (int i = 0; i < e->args.len; i++) {
+            e->args.items[i] = value(e->args.items[i]);
+            if (!is_ordinal(e->args.items[i]->type)) error_at(e->args.items[i]->pos, "set elements must be ordinal values");
+            if (e->args2.items[i]) e->args2.items[i] = value(e->args2.items[i]);
+        }
+        e->type = t_lit;
+        return e;
     case E_LIST: case E_RECLIT: case E_DEFAULT:
         e->type = t_lit; /* typed later from the target (coerce) */
         return e;
@@ -2785,7 +2821,7 @@ static int same_agg(Type *a, Type *b) {
 }
 static int equatable(Type *t) {
     switch (t->kind) {
-    case T_INT: case T_BOOL: case T_CHAR: case T_REAL: case T_STR: case T_ENUM: case T_CLASS: case T_PTR: return 1;
+    case T_INT: case T_BOOL: case T_CHAR: case T_REAL: case T_STR: case T_ENUM: case T_CLASS: case T_PTR: case T_SET: return 1;
     case T_OPT: case T_ARRAY: case T_DYN: return equatable(t->base);
     case T_RECORD:
         for (int i = 0; i < t->st->fields.len; i++)
@@ -2876,6 +2912,52 @@ static int has_operator(Type *t, const char *nm) {
     for (int i = 0; i < t->st->methods.len; i++)
         if (t->st->methods.items[i]->is_operator && STREQ(t->st->methods.items[i]->name, nm)) return 1;
     return 0;
+}
+
+/* ---- sets: set of T ---- */
+static int set_elem_ok(Type *st, Type *t) {
+    return (is_int(t) && is_int(st->base)) || same_type(t, st->base) || (t->kind == T_ENUM && st->base->kind == T_ENUM && t->en == st->base->en);
+}
+/* the set type of a literal without context: from its first element */
+static Type *set_of_elems(Expr *e) {
+    if (!e->args.len) error_at(e->pos, "the type of [] is not known here: write the set type ('val s: TColors := []')");
+    Type *b = e->args.items[0]->type;
+    Type *t = new_type(T_SET, NULL);
+    t->base = t->index = b;
+    if (b->kind == T_ENUM) t->lo = 0, t->hi = b->en->names.len - 1;
+    else if (b->kind == T_BOOL) t->lo = 0, t->hi = 1;
+    else t->lo = 0, t->hi = 255; /* Char, numbers: 0..255 */
+    if (is_int(b)) t->base = t->index = t_int;
+    t->name = b->kind == T_ENUM || b->kind == T_CHAR || b->kind == T_BOOL ? sfmt("set of %s", type_name(b)) : xstrdup("set of 0..255");
+    return t;
+}
+static Expr *set_literal(Expr *e, Type *to) {
+    for (int i = 0; i < e->args.len; i++)
+        for (int k = 0; k < 2; k++) {
+            Expr *x = k ? e->args2.items[i] : e->args.items[i];
+            if (!x) continue;
+            if (!set_elem_ok(to, x->type))
+                error_at(x->pos, "\"%s\" cannot be an element of \"%s\"", type_name(x->type), type_name(to));
+            long long v;
+            if (lit_ord(x, &v) && (v < to->lo || v > to->hi))
+                error_at(x->pos, "%lld is not in the range %lld..%lld of \"%s\"", v, to->lo, to->hi, type_name(to));
+        }
+    e->type = to;
+    return e;
+}
+static Expr *set_binary(Expr *e) {
+    int op = e->op;
+    if (e->a->type->kind == T_LIT && e->b->type->kind == T_LIT) e->a = set_literal(e->a, set_of_elems(e->a->args.len ? e->a : e->b));
+    if (e->a->type->kind == T_LIT) e->a = coerce(e->a, e->b->type, "set operation");
+    if (e->b->type->kind == T_LIT) e->b = coerce(e->b, e->a->type, "set operation");
+    Type *ta = e->a->type, *tb = e->b->type;
+    if (ta->kind != T_SET || tb->kind != T_SET || !same_type(ta, tb))
+        error_at(e->pos, "set operations need two sets of the same type, not \"%s\" and \"%s\"", type_name(ta), type_name(tb));
+    switch (op) {
+    case OP_ADD: case OP_SUB: case OP_MUL: e->type = ta; return e;
+    case OP_EQ: case OP_NE: case OP_LE: case OP_GE: e->type = t_bool; return e;
+    default: error_at(e->pos, "this operator is not defined for sets (+ - * = <> <= >=, and 'in')");
+    }
 }
 /* operators on a placeholder type parameter: only what its constraints allow */
 static Expr *param_binary(Expr *e) {
@@ -3142,6 +3224,43 @@ static void for_in(Stmt *s) {
         elem = new_expr(E_INDEX, p);
         elem->a = coll;
         vpush(elem->args, mk_ident(iname, p));
+    } else if (t->kind == T_SET) { /* for val c in colors: the members in order */
+        if (s->decl_var != 1) error_at(s->pos, "the elements of a set are values: write 'for val %s in ...'", s->var.name);
+        Stmt *loop = new_stmt(S_FOR, p);
+        loop->decl_var = 1;
+        loop->var = (Ident){iname, p};
+        loop->a = mk_int(t->lo, p);
+        loop->b = mk_int(t->hi, p);
+        Expr *cast = new_expr(E_CALL, p); /* TColor(__i) */
+        Expr *tn = new_expr(E_TYPEREF, p);
+        tn->ctype = t->base;
+        tn->type = t->base;
+        cast->a = tn;
+        vpush(cast->args, mk_ident(iname, p));
+        Block *b = NEW(Block);
+        Decl *d = NEW(Decl);
+        d->kind = D_VAR;
+        VarDecl vd = {0};
+        vpush(vd.names, s->var);
+        vd.init = cast;
+        vpush(d->vars, vd);
+        vpush(b->decls, d);
+        vpush(b->body, s->s1);
+        Stmt *blk = new_stmt(S_BLOCK, p);
+        blk->blk = b;
+        Expr *in = new_expr(E_IN, p);
+        Expr *cast2 = new_expr(E_CALL, p);
+        cast2->a = tn;
+        vpush(cast2->args, mk_ident(iname, p));
+        in->a = cast2;
+        in->b = coll;
+        Stmt *iff = new_stmt(S_IF, p);
+        iff->a = in;
+        iff->s1 = blk;
+        loop->s1 = iff;
+        *s = *loop;
+        stmt(s);
+        return;
     } else if (t->kind == T_CLASS || t->kind == T_RECORD) { /* a container with Count and Get(i) */
         Field *f;
         Routine *m;
@@ -3446,7 +3565,7 @@ static const struct {
     {"Trunc", BI_TRUNC}, {"Round", BI_ROUND}, {"Frac", BI_FRAC}, {"Int", BI_INT}, {"Odd", BI_ODD},
     {"High", BI_HIGH}, {"Low", BI_LOW}, {"SizeOf", BI_SIZEOF}, {"Copy", BI_COPY}, {"Pos", BI_POS},
     {"Delete", BI_DELETE}, {"Insert", BI_INSERT}, {"IntToStr", BI_INTTOSTR}, {"StrToInt", BI_STRTOINT},
-    {"FloatToStr", BI_FLOATTOSTR}, {"Format", BI_FORMAT}, {"Str", BI_STR}, {"UpCase", BI_UPCASE}, {"UpperCase", BI_UPPERCASE},
+    {"FloatToStr", BI_FLOATTOSTR}, {"Format", BI_FORMAT}, {"Include", BI_INCLUDE}, {"Exclude", BI_EXCLUDE}, {"Str", BI_STR}, {"UpCase", BI_UPCASE}, {"UpperCase", BI_UPPERCASE},
     {"LowerCase", BI_LOWERCASE}, {"Concat", BI_CONCAT}, {"Halt", BI_HALT}, {"Random", BI_RANDOM},
     {"Randomize", BI_RANDOMIZE}, {"Assigned", BI_ASSIGNED}, {"New", BI_NEW}, {"Dispose", BI_DISPOSE},
     {"FreeAndNil", BI_FREEANDNIL}, {"Take", BI_TAKE}, {"SetLength", BI_SETLENGTH},
@@ -3639,6 +3758,18 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
         vpush(e->args, coerce(value(A(0)), t_str, nm));
         e->type = t_int;
         return e;
+    case BI_INCLUDE: case BI_EXCLUDE: { /* Include(s, Red) / Exclude(s, Red) */
+        NARGS(2, 2);
+        Expr *st = value(A(0));
+        if (st->type->kind != T_SET) error_at(st->pos, "%s needs a set variable", nm);
+        check_writable(st, sfmt("the set of %s", nm));
+        Expr *x = value(A(1));
+        if (!set_elem_ok(st->type, x->type)) error_at(x->pos, "\"%s\" is not an element type of \"%s\"", type_name(x->type), type_name(st->type));
+        vpush(e->args, st);
+        vpush(e->args, x);
+        e->type = t_void;
+        return e;
+    }
     case BI_FORMAT: { /* Format('%d of %s', [n, s]) */
         NARGS(2, 2);
         Expr *f = coerce(value(A(0)), t_str, nm);
@@ -4426,6 +4557,7 @@ static void add_init(StmtVec *dst, Var *v, Expr *init) {
 static Type *infer_type(Expr *r, Pos p, const char *name) {
     if (r->kind == E_TYPEREF || r->type == t_void) error_at(p, "cannot infer the type of '%s' from this expression", name);
     if (r->type->kind == T_NIL) error_at(p, "cannot infer the type of '%s' from none: declare it as '%s: optional T'", name, name);
+    if (r->kind == E_SET && r->type->kind == T_LIT && r->args.len) return set_literal(r, set_of_elems(r))->type;
     if (r->type->kind == T_LIT)
         error_at(p, "cannot infer the type of '%s' from a literal or 'default': declare the type ('%s: T := ...')", name, name);
     if (r->type->kind == T_PTR && r->type->base && r->kind == E_BUILTIN && r->bi == BI_BOXNEW) return r->type->base;

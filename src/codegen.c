@@ -127,6 +127,7 @@ static char *ctype(Type *t) {
     case T_NIL: return "void*";
     case T_LIT: return "void";
     case T_PARAM: return "void"; /* placeholders never reach the C code */
+    case T_SET: return "__Set";
     case T_PROC: { /* function value: a C function pointer */
         if (t->closure) return "__Closure";
         Routine *r = t->proc;
@@ -824,6 +825,8 @@ static char *gbuiltin(Expr *e) {
     case BI_INTTOSTR: return sfmt("__int_to_str(%s)", G(0));
     case BI_STRTOINT: return sfmt("__str_to_int(%s)", G(0));
     case BI_FLOATTOSTR: return sfmt("__float_to_str(%s)", G(0));
+    case BI_INCLUDE: return sfmt("__set_incl(&(%s), (int64_t)(%s), %lld, %lld)", G(0), G(1), A->items[0]->type->lo, A->items[0]->type->hi);
+    case BI_EXCLUDE: return sfmt("__set_excl(&(%s), (int64_t)(%s), %lld, %lld)", G(0), G(1), A->items[0]->type->lo, A->items[0]->type->hi);
     case BI_FORMAT: {
         if (A->len == 1) return sfmt("__format(%s, 0, NULL)", G(0));
         Buf b = {0};
@@ -1021,6 +1024,17 @@ static char *gx(Expr *e) {
         Type *ta = e->a->type;
         char *a = gx(e->a), *b = gx(e->b);
         int op = e->op;
+        if (ta->kind == T_SET) {
+            switch (op) {
+            case OP_ADD: return sfmt("__set_or(%s, %s)", a, b);
+            case OP_SUB: return sfmt("__set_sub(%s, %s)", a, b);
+            case OP_MUL: return sfmt("__set_and(%s, %s)", a, b);
+            case OP_EQ: return sfmt("__set_eq(%s, %s)", a, b);
+            case OP_NE: return sfmt("(!__set_eq(%s, %s))", a, b);
+            case OP_LE: return sfmt("__set_le(%s, %s)", a, b);
+            case OP_GE: return sfmt("__set_le(%s, %s)", b, a);
+            }
+        }
         if (ta->kind == T_STR) {
             if (op == OP_ADD) return sfmt("__pstr_cat(%s, %s)", a, b);
             return sfmt("(__pstr_cmp(%s, %s) %s 0)", a, b, binop_str(op));
@@ -1054,6 +1068,8 @@ static char *gx(Expr *e) {
         return sfmt("(%s %s %s)", a, binop_str(op), b);
     }
     case E_IN: {
+        if (e->b->kind != E_SET || e->b->type->kind == T_SET) /* x in s */
+            return sfmt("__set_has(%s, (int64_t)(%s), %lld, %lld)", gx(e->b), gx(e->a), e->b->type->lo, e->b->type->hi);
         int id = ++tmpc;
         Expr *s = e->b;
         Buf c = {0};
@@ -1091,6 +1107,21 @@ static char *gx(Expr *e) {
     case E_DEFAULT: /* zero value of the target type */
         if (e->type->kind == T_CLASS) return "((void*)0)";
         return sfmt("((%s){0})", ctype(e->type));
+    case E_SET: { /* [Red, Blue..Green]: a set value */
+        Type *t = e->type;
+        int id = ++tmpc;
+        Buf b = {0};
+        buf_printf(&b, "({ __Set __st%d = {{0, 0, 0, 0}}; ", id);
+        for (int i = 0; i < e->args.len; i++) {
+            if (e->args2.items[i])
+                buf_printf(&b, "__set_range(&__st%d, (int64_t)(%s), (int64_t)(%s), %lld, %lld); ", id, gx(e->args.items[i]),
+                           gx(e->args2.items[i]), t->lo, t->hi);
+            else
+                buf_printf(&b, "__set_incl(&__st%d, (int64_t)(%s), %lld, %lld); ", id, gx(e->args.items[i]), t->lo, t->hi);
+        }
+        buf_printf(&b, "__st%d; })", id);
+        return xstrdup(buf_str(&b));
+    }
     case E_LIST: { /* array literal */
         Buf b = {0};
         if (e->type->kind == T_DYN) { /* (1, 2, 3) for 'array of T': a fresh buffer */
