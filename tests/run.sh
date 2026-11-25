@@ -32,5 +32,9 @@ for f in runtime_fail/*.pas; do
   if [ $rc -ne 0 ] && grep -qF "$exp" <<<"$err"; then ok "$f"; else bad "$f" "expected: $exp
 got (rc=$rc): $err"; fi
 done
+# the language server, driven like an editor (needs python3)
+if command -v python3 >/dev/null; then
+  if out=$(python3 lsp/lsp_test.py "$PPC" 2>&1); then ok "lsp/lsp_test.py"; else bad "lsp/lsp_test.py" "$out"; fi
+fi
 echo "--- $pass passed, $fail failed"
 [ $fail -eq 0 ]

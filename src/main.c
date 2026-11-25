@@ -88,11 +88,26 @@ static void usage(void) {
             "  --cc <compiler>    C compiler to use (default: $CC or gcc)\n"
             "  -O0 .. -O3         optimization level passed to the C compiler (default -O2)\n"
             "  -g                 debug information for gdb (with -O0 and the C file kept): break and step in the .pas file\n"
-            "  --no-line          no #line directives (C compiler messages and gdb then refer to the generated C file)\n");
+            "  --no-line          no #line directives (C compiler messages and gdb then refer to the generated C file)\n"
+            "  --check            only check the program (syntax, types, borrow checker), produce nothing\n"
+            "  --stdin            read the source from standard input (file.pas still names it and its directory)\n"
+            "  --lsp              run as a language server (LSP over standard input/output) for editors\n");
     exit(2);
 }
 
+static char *read_stdin(void) {
+    Buf b = {0};
+    char tmp[65536];
+    size_t n;
+    while ((n = fread(tmp, 1, sizeof tmp, stdin)) > 0) buf_putn(&b, tmp, n);
+    return xstrdup(buf_str(&b));
+}
+
+int lsp_main(const char *self);
+
 int main(int argc, char **argv) {
+    if (argc >= 2 && STREQ(argv[1], "--lsp")) return lsp_main(argv[0]);
+    int check_only = 0, from_stdin = 0;
     const char *input = NULL, *output = NULL, *cc = getenv("CC");
     const char *opt = "-O2";
     int debug = 0;
@@ -104,6 +119,8 @@ int main(int argc, char **argv) {
         else if (STREQ(a, "-k")) keep = 1;
         else if (STREQ(a, "-g")) debug = 1, keep = 1;
         else if (STREQ(a, "--no-line")) g_line_dirs = 0;
+        else if (STREQ(a, "--check")) check_only = 1;
+        else if (STREQ(a, "--stdin")) from_stdin = 1;
         else if (STREQ(a, "--no-borrow-check")) borrow = 0;
         else if (STREQ(a, "--no-nil-check")) g_nil_check = 0;
         else if (STREQ(a, "--no-range-check")) g_range_check = 0;
@@ -128,7 +145,7 @@ int main(int argc, char **argv) {
     g_filename = "<prelude>";
     Block *prelude = parse_decls_only(PRELUDE);
     g_filename = input;
-    char *src = read_file(input);
+    char *src = from_stdin ? read_stdin() : read_file(input);
     char *pname;
     Pos end_pos;
     Block *prog_block = parse_program(src, &pname, &end_pos);
@@ -163,6 +180,7 @@ int main(int argc, char **argv) {
         }
     }
 
+    if (check_only) return 0;
     char *cfile = (emit_only || keep) ? sfmt("%s.c", output) : sfmt("/tmp/ppc_%d_%s.c", (int)getpid(), "out");
     FILE *f = fopen(cfile, "w");
     if (!f) {

@@ -55,7 +55,46 @@ make test       # test suite (output, borrow/optional/stack/const/result/clone/g
 ./ppc --cc clang -O3 x.pas    # other C compiler / optimization
 ./ppc -g program.pas          # with debug information for gdb (-O0, keeps program.c)
 ./ppc --no-line x.pas         # no #line directives in the C code
+./ppc --check x.pas           # only check (errors, warnings), produce nothing
+./ppc --lsp                   # language server for editors (see below)
 ```
+
+### Editor support: `ppc --lsp`
+
+`ppc --lsp` is a language server (LSP over standard input/output). Editors show the compiler's
+messages while you type – syntax and type errors, borrow and nil errors, warnings – on the
+right line and column, also for unsaved changes. Every check runs `ppc --check` on the current
+text; modules next to the file are found as usual, and an error inside an imported module is
+shown at the top of the importing file.
+
+Neovim (`init.lua`):
+
+```lua
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = 'pascal',
+  callback = function()
+    vim.lsp.start({ name = 'ppc', cmd = { 'ppc', '--lsp' }, root_dir = vim.fn.getcwd() })
+  end,
+})
+```
+
+Helix (`languages.toml`):
+
+```toml
+[language-server.ppc]
+command = "ppc"
+args = ["--lsp"]
+
+[[language]]
+name = "pascal"
+language-servers = ["ppc"]
+```
+
+Emacs (eglot): `(add-to-list 'eglot-server-programs '(pascal-mode "ppc" "--lsp"))`.
+
+Other editors: configure `ppc --lsp` as the language server for `.pas` files. Without an editor:
+`ppc --check file.pas` checks a file (`--stdin` reads the text from standard input). The server
+offers diagnostics only (no completion or hover yet).
 
 ### Debugging
 

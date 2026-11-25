@@ -1,7 +1,7 @@
 CC      ?= gcc
 CFLAGS  ?= -std=gnu11 -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare
 BUILD   := build
-SRCS    := src/util.c src/parser.c src/sema.c src/borrow.c src/codegen.c src/main.c
+SRCS    := src/util.c src/parser.c src/sema.c src/borrow.c src/codegen.c src/lsp.c src/main.c
 OBJS    := $(SRCS:src/%.c=$(BUILD)/%.o) $(BUILD)/runtime.o $(BUILD)/stdlib.o
 
 all: ppc
