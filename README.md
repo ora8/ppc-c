@@ -53,7 +53,28 @@ make test       # test suite (output, borrow/optional/stack/const/result/clone/g
 ./ppc --no-nil-check x.pas    # no allocation analysis, check at run time instead
 ./ppc --no-range-check x.pas  # no run-time check of array/string indexes
 ./ppc --cc clang -O3 x.pas    # other C compiler / optimization
+./ppc -g program.pas          # with debug information for gdb (-O0, keeps program.c)
+./ppc --no-line x.pas         # no #line directives in the C code
 ```
+
+### Debugging
+
+The generated C code carries `#line` directives: every C line of a statement names the line of
+the `.pas` file it comes from. So messages of the C compiler, AddressSanitizer reports and the
+debugger refer to the Pascal source. With `-g` the program is built for gdb:
+
+```bash
+./ppc -g program.pas
+gdb ./program
+(gdb) break program.pas:38      # stop at line 38 of the Pascal source
+(gdb) run
+(gdb) next                      # step by Pascal lines
+(gdb) info locals               # local variables (C names: L_Sum, __f.L_Sum in routines with a frame)
+```
+
+The C names follow the Pascal names: locals `L_Name` (or `L12_Name` in nested blocks), parameters
+`p_Name`, globals `G_Name`, routines `R_Name`, methods `M<n>_Name`, `self` for `Self`. The code
+that frees owners at the end of a routine maps to the C file.
 
 ## Error messages
 

@@ -86,19 +86,24 @@ static void usage(void) {
             "  --no-nil-check     replace the compile-time nil analysis by runtime nil checks\n"
             "  --no-range-check   no runtime check of array and string indexes\n"
             "  --cc <compiler>    C compiler to use (default: $CC or gcc)\n"
-            "  -O0 .. -O3         optimization level passed to the C compiler (default -O2)\n");
+            "  -O0 .. -O3         optimization level passed to the C compiler (default -O2)\n"
+            "  -g                 debug information for gdb (with -O0 and the C file kept): break and step in the .pas file\n"
+            "  --no-line          no #line directives (C compiler messages and gdb then refer to the generated C file)\n");
     exit(2);
 }
 
 int main(int argc, char **argv) {
     const char *input = NULL, *output = NULL, *cc = getenv("CC");
     const char *opt = "-O2";
+    int debug = 0;
     int emit_only = 0, keep = 0, borrow = 1;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         if (STREQ(a, "-o") && i + 1 < argc) output = argv[++i];
         else if (STREQ(a, "-S")) emit_only = 1;
         else if (STREQ(a, "-k")) keep = 1;
+        else if (STREQ(a, "-g")) debug = 1, keep = 1;
+        else if (STREQ(a, "--no-line")) g_line_dirs = 0;
         else if (STREQ(a, "--no-borrow-check")) borrow = 0;
         else if (STREQ(a, "--no-nil-check")) g_nil_check = 0;
         else if (STREQ(a, "--no-range-check")) g_range_check = 0;
@@ -164,14 +169,17 @@ int main(int argc, char **argv) {
         fprintf(stderr, "ppc: cannot write '%s'\n", cfile);
         return 2;
     }
+    g_cfile = cfile;
     codegen(prog, f);
     fclose(f);
     if (emit_only) return 0;
 
     pid_t pid = fork();
     if (pid == 0) {
-        execlp(cc, cc, "-std=gnu11", opt, "-w", "-fwrapv", "-fno-strict-aliasing", "-o", output, cfile, "-lm",
-               (char *)NULL);
+        if (debug)
+            execlp(cc, cc, "-std=gnu11", "-O0", "-g", "-w", "-fwrapv", "-fno-strict-aliasing", "-o", output, cfile, "-lm", (char *)NULL);
+        else
+            execlp(cc, cc, "-std=gnu11", opt, "-w", "-fwrapv", "-fno-strict-aliasing", "-o", output, cfile, "-lm", (char *)NULL);
         fprintf(stderr, "ppc: cannot run C compiler '%s'\n", cc);
         _exit(127);
     }

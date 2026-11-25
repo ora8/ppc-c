@@ -456,6 +456,8 @@ int is_owning_type(Type *t);
 int struct_descends(Struct *d, Struct *b);
 extern int g_param_owning; /* a type parameter without Copy counts as an object (checking generic bodies) */
 int res_temp(Expr *e);
+extern int g_line_dirs;     /* #line directives: C compiler messages and debuggers show the Pascal source */
+extern const char *g_cfile; /* the generated C file (for #line back to it) */
 extern int g_allow_external; /* the standard library may declare 'external' routines */
 const char *type_name(Type *t);
 
