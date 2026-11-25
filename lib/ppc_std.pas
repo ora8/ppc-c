@@ -33,8 +33,10 @@ type
     procedure Add(vao x: T);                       { append, takes over x }
     function Count: Integer; const;
     function Get(i: Integer): var optional T;      { element i (objects: borrowed) }
+    procedure Put(i: Integer; vao x: T);           { replace element i (the old one is freed) }
     function Extract(i: Integer): optional T;      { take element i out }
     procedure Clear;                               { free all elements }
+    property Item[i: Integer]: optional T read Get write Put; default; { l[i], l[i] := x }
   end;
 
   TStack<T> = class
@@ -55,6 +57,7 @@ type
     function Contains(k: K): Boolean; const;
     function Remove(k: K): optional V;             { take out }
     function Count: Integer; const;
+    property Value[k: K]: optional V read Get write Put; default; { m[k], m[k] := v }
   end;
 
 procedure Sort<T: Comparable>(var a: array of T);
@@ -164,6 +167,11 @@ end;
 function TList<T>.Get(i: Integer): var optional T;
 begin
   Result := Items[i];
+end;
+
+procedure TList<T>.Put(i: Integer; vao x: T);
+begin
+  Items[i] := x;
 end;
 
 function TList<T>.Extract(i: Integer): optional T;

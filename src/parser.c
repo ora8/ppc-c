@@ -495,6 +495,18 @@ static StructDecl *parse_struct(int kind) {
         if (accept_kw("property")) {
             PropDecl pd = {0};
             pd.name = ident();
+            if (accept_sym("[")) { /* property Item[i: Integer]: T read Get write Put */
+                for (;;) {
+                    ParamGroup g = {0};
+                    g.mode = PM_VALUE;
+                    g.names = ident_list();
+                    expect_sym(":");
+                    g.ty = parse_type();
+                    vpush(pd.idx, g);
+                    if (!accept_sym(";")) break;
+                }
+                expect_sym("]");
+            }
             expect_sym(":");
             pd.ty = parse_type();
             for (;;) {
@@ -510,6 +522,12 @@ static StructDecl *parse_struct(int kind) {
                     break;
             }
             expect_sym(";");
+            if (is_kw("default")) { /* x[i] for x.Item[i] */
+                next();
+                expect_sym(";");
+                if (!pd.idx.len) error_at(pd.name.pos, "only a property with an index ('property Item[i: Integer]: T ...') can be 'default'");
+                pd.is_default = 1;
+            }
             pd.vis = vis;
             vpush(sd->props, pd);
             continue;

@@ -186,6 +186,32 @@ if s is ISolid then ...                      { run-time test; also 'as' }
 * A call through an interface looks up the class's table for that interface (a short search in
   the VMT); calls on the class type itself stay direct.
 
+### Indexers: `property Item[i: Integer]: T … default;`
+
+A property with index parameters (an *array property* in Delphi) is read and written with
+brackets; with `default` the property name can be left out:
+
+```pascal
+type
+  TGrid = class
+    function GetCell(x, y: Integer): Integer; const;
+    procedure SetCell(x, y: Integer; v: Integer);
+    property Cell[x, y: Integer]: Integer read GetCell write SetCell; default;
+  end;
+
+g.Cell[2, 1] := 7;              { SetCell(2, 1, 7) }
+g[0, 0] := g[2, 1] + 1;         { default indexer }
+if l[0] is some x then …;       { TList<T> in ppc_std: property Item[i]: optional T; default }
+m['Anna'] := 30;                { TMap<String, Integer> }
+```
+
+* The reader is a function with the index parameters and the property's type as result, the
+  writer a procedure with the index parameters and then the value (for an `optional T`
+  property the writer may take a `T`). They are ordinary methods: ownership, borrowing and
+  visibility apply as for direct calls.
+* Inside the class an indexer is used without `Self.` (`Cell[x, y]`). `x.Cell` without an index
+  is an error, and only indexed properties can be `default`.
+
 ### Class methods: `class function` / `class procedure`
 
 As in Delphi, class methods belong to the class, not to an object. They have no `Self` and are
@@ -959,9 +985,9 @@ end.                                                 { all containers free their
 
 | Name | Contents |
 |---|---|
-| `TList<T>` | `Add(vao x)`, `Count`, `Get(i)` (borrowed), `Extract(i)` (take out), `Clear`; index from 0 |
+| `TList<T>` | `Add(vao x)`, `Count`, `Get(i)` (borrowed), `Put(i, vao x)` (replace), `Extract(i)` (take out), `Clear`; `l[i]`, `l[i] := x`; index from 0 |
 | `TStack<T>` | `Push(vao x)`, `Pop` (take out), `Peek` (look), `Count`, `IsEmpty` |
-| `TMap<K: Comparable; V>` | `Put(k, vao v)` (insert/replace), `Get(k)`, `Contains(k)`, `Remove(k)`, `Count`; sorted by key, binary search |
+| `TMap<K: Comparable; V>` | `Put(k, vao v)` (insert/replace), `Get(k)`, `Contains(k)`, `Remove(k)`, `Count`; `m[k]`, `m[k] := v`; sorted by key, binary search |
 | `Sort<T: Comparable>(var a: array of T)` | sorts ascending (quicksort) |
 | `SortBy<T>(var a: array of T; Less: function(x, y: T): Boolean)` | sorts with a comparison function (stable) |
 | `Filter<T: Copy>(a: array of T; Keep: function(x: T): Boolean): array of T` | the elements for which `Keep` is true |

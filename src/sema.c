@@ -72,6 +72,7 @@ typedef struct {
     Generic *gm; /* a generic method of Self */
 } Look;
 static void check_visible(Look *L, Pos p, const char *name);
+static Expr *autoderef(Expr *e);
 static Generic *find_gmethod(Struct *st, const char *name);
 static Expr *gmethod_call(Generic *g, Expr *base, TypeExprVec *targs, ExprVec *args, Pos p);
 static void generic_method(Struct *s, MethodDecl *md);
@@ -1033,6 +1034,12 @@ static void define_record(Struct *s, TypeExpr *te) {
         pr->type = resolve_type(pd->ty);
         pr->read = pd->has_read ? pd->read.name : NULL;
         pr->write = pd->has_write ? pd->write.name : NULL;
+        pr->is_default = pd->is_default;
+        if (pd->idx.len) { /* indexer: the types of the index parameters */
+            Routine tmp = {0};
+            build_params(&tmp, &pd->idx);
+            for (int k = 0; k < tmp.params.len; k++) vpush(pr->idx, tmp.params.items[k].type);
+        }
         pr->pos = pd->name.pos;
         pr->vis = pd->vis;
         pr->owner = s;
@@ -1936,6 +1943,12 @@ static void define_struct(Struct *s, StructDecl *sd) {
         p->type = resolve_type(pd->ty);
         p->read = pd->has_read ? pd->read.name : NULL;
         p->write = pd->has_write ? pd->write.name : NULL;
+        p->is_default = pd->is_default;
+        if (pd->idx.len) { /* indexer: the types of the index parameters */
+            Routine tmp = {0};
+            build_params(&tmp, &pd->idx);
+            for (int k = 0; k < tmp.params.len; k++) vpush(p->idx, tmp.params.items[k].type);
+        }
         p->pos = pd->name.pos;
         p->vis = pd->vis;
         p->owner = s;
@@ -2131,6 +2144,73 @@ static void check_visible(Look *L, Pos p, const char *name) {
              vis == VIS_PRIVATE ? " (only its own methods can use it)" : " (only its methods and those of its descendants can use it)");
 }
 
+
+/* ---- indexers: property Item[i: Integer]: T read Get write Put; default; ---- */
+static Prop *default_prop(Struct *st) {
+    for (Struct *c = st; c; c = c->parent)
+        for (int i = 0; i < c->props.len; i++)
+            if (c->props.items[i]->is_default) return c->props.items[i];
+    return NULL;
+}
+/* e is x.Item[...], Item[...] (in a method) or x[...] with a default indexer: its object and property */
+static int indexer_of(Expr *e, Expr **base, Prop **pr) {
+    Expr *x = e->a;
+    if (x->kind == E_MEMBER && !(x->a->kind == E_IDENT && lookup(x->a->id.name).kind == LK_SYM &&
+                                 lookup(x->a->id.name).sym->kind == SY_TYPE)) {
+        Expr *b = autoderef(value(x->a));
+        x->a = b;
+        if (b->type->kind == T_CLASS || b->type->kind == T_RECORD) {
+            Look L = {0};
+            if (find_member(b->type->st, x->id.name, &L.f, &L.m, &L.p) && L.p && L.p->idx.len) {
+                check_visible(&L, x->pos, x->id.name);
+                *base = b;
+                *pr = L.p;
+                return 1;
+            }
+        }
+        return 0;
+    }
+    if (x->kind == E_IDENT && !x->targs.len) {
+        Look L = lookup(x->id.name);
+        if (L.kind == LK_MEMBER && L.p && L.p->idx.len) {
+            *base = var_expr(L.base, x->pos);
+            *pr = L.p;
+            return 1;
+        }
+        if (L.kind == LK_MEMBER || L.kind == LK_NONE) return 0;
+    }
+    Expr *a = value(x);
+    e->a = a;
+    Type *t = a->type;
+    if ((t->kind == T_CLASS || t->kind == T_RECORD) && default_prop(t->st)) {
+        *base = a;
+        *pr = default_prop(t->st);
+        return 1;
+    }
+    return 0;
+}
+static Routine *indexer_accessor(Expr *base, Prop *pr, int write, Pos p) {
+    const char *nm = write ? pr->write : pr->read;
+    if (!nm) error_at(p, "the indexer \"%s\" is %s", pr->name, write ? "read-only (it has no 'write')" : "write-only (it has no 'read')");
+    Look R = {0};
+    if (!find_member(base->type->st, nm, &R.f, &R.m, &R.p) || !R.m)
+        error_at(pr->pos, "the %s \"%s\" of the indexer \"%s\" must be a method", write ? "writer" : "reader", nm, pr->name);
+    Routine *m = R.m;
+    int n = pr->idx.len;
+    int ok = m->params.len == n + write && (write ? m->kind == RK_PROC : m->kind == RK_FUNC);
+    for (int i = 0; ok && i < n; i++) ok = same_type(m->params.items[i].type, pr->idx.items[i]);
+    if (ok && !write) ok = same_type(m->ret, pr->type);
+    if (ok && write) { /* the value: the property's type, or for an optional property the value inside */
+        Type *vt = m->params.items[n].type, *pt = pr->type;
+        ok = same_type(vt, pt) || (pt->kind == T_OPT && same_type(vt, pt->base)) ||
+             (pt->kind == T_CLASS && pt->nilable && vt->kind == T_CLASS && vt->st == pt->st && !vt->nilable);
+    }
+    if (!ok)
+        error_at(pr->pos, "the %s \"%s\" of the indexer \"%s\" must be a %s with the index parameters%s",
+                 write ? "writer" : "reader", nm, pr->name, write ? "procedure" : "function",
+                 write ? " and then the value" : sfmt(" and the result type \"%s\"", type_name(pr->type)));
+    return m;
+}
 static Expr *member_ref(Expr *base, Look *L, ExprVec *args, Pos p, const char *name) {
     if (L->f) {
         if (args && L->f->type->kind == T_PROC) {
@@ -2152,6 +2232,7 @@ static Expr *member_ref(Expr *base, Look *L, ExprVec *args, Pos p, const char *n
     if (L->m) return make_call(L->m, base, args, -1, NULL, p);
     if (args) error_at(p, "\"%s\" is a property, not a method", name);
     Prop *pr = L->p;
+    if (pr->idx.len) error_at(p, "\"%s\" is an indexed property: write '%s[...]'", name, name);
     if (!pr->read) error_at(p, "property \"%s\" is write-only", name);
     Look R = {0};
     if (!find_member(base->type->st, pr->read, &R.f, &R.m, &R.p) || R.p)
@@ -2461,6 +2542,15 @@ static Expr *ex(Expr *e) {
         return e;
     }
     case E_INDEX: {
+        {
+            Expr *ib = NULL;
+            Prop *ip = NULL;
+            if (indexer_of(e, &ib, &ip)) { /* l[i]: the reader of the indexer */
+                if (e->args.len != ip->idx.len)
+                    error_at(e->pos, "the indexer \"%s\" needs %d index%s", ip->name, ip->idx.len, ip->idx.len == 1 ? "" : "es");
+                return make_call(indexer_accessor(ib, ip, 0, e->pos), ib, &e->args, -1, NULL, e->pos);
+            }
+        }
         Expr *a = value(e->a);
         for (int i = 0; i < e->args.len; i++) {
             if (a->type->kind == T_PTR && a->type->base && a->type->base->kind == T_ARRAY) {
@@ -3699,6 +3789,22 @@ static void move_check(Expr *src, const char *ctx) {
 static void assign(Stmt *s) {
     Expr *l = s->a;
     if (s->b->kind == E_TRY) try_site = s->b;
+    if (l->kind == E_INDEX) {
+        Expr *ib = NULL;
+        Prop *ip = NULL;
+        if (indexer_of(l, &ib, &ip)) { /* l[i] := v: the writer of the indexer */
+            if (l->args.len != ip->idx.len)
+                error_at(l->pos, "the indexer \"%s\" needs %d index%s", ip->name, ip->idx.len, ip->idx.len == 1 ? "" : "es");
+            ExprVec a2 = {0};
+            for (int i = 0; i < l->args.len; i++) vpush(a2, l->args.items[i]);
+            vpush(a2, s->b);
+            Routine *w = indexer_accessor(ib, ip, 1, l->pos);
+            s->kind = S_CALL;
+            s->a = make_call(w, ib, &a2, -1, NULL, l->pos);
+            s->b = NULL;
+            return;
+        }
+    }
     if (l->kind == E_IDENT && cur && cur->ret_ref && STREQ(l->id.name, "Result")) {
         Look R = lookup("Result");
         if (R.kind == LK_SYM && R.sym->kind == SY_VAR && R.sym->var == cur->result) { /* Result := Items[i]: refers to it */

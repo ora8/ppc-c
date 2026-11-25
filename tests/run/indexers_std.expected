@@ -1,0 +1,8 @@
+l[1] = 2
+free 1
+l[0] = 10
+m[b] = 2
+FALSE 2 3
+x
+free 10
+free 2

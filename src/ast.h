@@ -78,6 +78,8 @@ typedef struct {
     Ident read, write;
     int has_read, has_write;
     int vis;
+    ParamGroupVec idx; /* property Item[i: Integer]: T (an indexer) */
+    int is_default;    /* '; default;': x[i] means x.Item[i] */
 } PropDecl;
 
 typedef struct {
@@ -308,6 +310,8 @@ typedef struct {
     Pos pos;
     int vis;
     Struct *owner;
+    VEC(Type *) idx; /* indexer: the types of its index parameters */
+    int is_default;
 } Prop;
 
 typedef struct {
