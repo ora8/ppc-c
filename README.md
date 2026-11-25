@@ -997,6 +997,21 @@ Rules (violations are **errors**, compilation stops):
     Borrows derived from another one (`p is some k`, `k.Next`) are compatible with it.
 * You cannot simply move out of a field (`n := h.Next`) – that is what `Take` is for.
 * `var` parameters must not be left freed/moved when the routine is left.
+* **`var` fields** (references without ownership, `Parent: var optional TNode`) must not
+  outlive the object they refer to:
+  - Allowed when the holder is part of that object: `a.Child.Parent := a`, or in a method
+    `c.Parent := Self` followed by storing `c` in `Self` (`Kids[i] := c`, `Child := c`).
+  - Allowed between local owners of the same routine (or main program): after `b.Parent := a`
+    the owner `b` *carries* a reference to `a`. If `a` is reassigned, freed or moved, `b` may not
+    be used any more, and `a` must be declared before `b` so that it is freed after it:
+    `'b.Parent' would refer to 'a', which is freed before 'b' (declare 'a' before 'b')`.
+  - `b` may then move only into the object it refers to (`a.Add(b)`, `a.Child := b`) or into
+    another local owner; storing a new reference in the field (`b.Parent := root`, `none`)
+    replaces the old one.
+  - Anything the compiler cannot follow is an error, e.g. a parameter stored in a field of
+    another parameter (`c.Parent := p`): `cannot store the reference to 'p' in the 'var' field
+    'c.Parent'`. Store such references from the owner's side instead (`p.Add(c)` with
+    `c.Parent := Self` inside `Add`).
 
 There are no memory leaks any more: whatever is still owned at the end of a scope is freed by
 the generated code.
@@ -1008,8 +1023,8 @@ Example: [tests/run/ownership.pas](tests/run/ownership.pas), error examples in
 [tests/borrow_fail/](tests/borrow_fail/).
 
 Limits of the analysis: it works per routine. Fields and dereferences are not tracked
-individually (only their paths, to invalidate borrows); the lifetime of `var` fields is not
-checked; global owners are only tracked in the main program; moving whole arrays/records that
+individually (only their paths, to invalidate borrows); an object taken out of its parent
+(`Take`) keeps its `var` references; global owners are only tracked in the main program; moving whole arrays/records that
 own objects is secured at run time by emptying the source, not tracked by the checker.
 
 ## Optional values: `optional T`

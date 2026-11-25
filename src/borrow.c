@@ -23,7 +23,8 @@
 #include "ast.h"
 
 enum { O_NULL = 1, O_OWNED = 2, O_MOVED = 4, O_FREED = 8, O_UNK = 16 };
-enum { B_VALID = 1, B_DANGLING = 2, B_CONFLICT = 4 }; /* B_CONFLICT: aliasing rule broken while borrowed */
+enum { B_VALID = 1, B_DANGLING = 2, B_CONFLICT = 4, B_CARRY = 8 }; /* B_CONFLICT: aliasing rule broken while borrowed;
+   B_CARRY: an owner whose object refers (through 'var' fields) to the origins in org */
 enum { TV_OWNER, TV_BORROW };
 enum { N_UNINIT = 1, N_NIL = 2, N_NN = 4 }; /* nil analysis: never allocated / nil / non-nil */
 
@@ -34,6 +35,7 @@ typedef struct {
     char *desc;
     Var *root;
     int stack;
+    char *slot; /* carried by an owner: the 'var' field that holds the reference */
 } Origin;
 typedef VEC(Origin) Origins;
 
@@ -290,12 +292,14 @@ static void cond_owners(Expr *c, VEC(Var *) *out) {
     } else if (c->kind == E_ISSOME && c->var && is_ref_type(c->var->type) && !c->var->borrowed && !c->var->is_stack)
         vpush(*out, c->var);
 }
+static int carrier(State *s, int i) { return tv.items[i].kind == TV_OWNER && (s->bor[i] & B_CARRY); }
 static void invalidate(State *s, const char *path, const char *reason) {
     for (int i = 0; i < tv.len; i++) {
-        if (tv.items[i].kind != TV_BORROW) continue;
+        int c = carrier(s, i);
+        if (tv.items[i].kind != TV_BORROW && !c) continue;
         for (int k = 0; k < s->org[i].len; k++)
             if (has_prefix(s->org[i].items[k].path, path)) {
-                s->bor[i] = B_DANGLING;
+                s->bor[i] = c ? (B_CARRY | B_DANGLING) : B_DANGLING;
                 s->why[i] = (char *)reason;
                 break;
             }
@@ -304,7 +308,7 @@ static void invalidate(State *s, const char *path, const char *reason) {
 
 static void invalidate_root(State *s, Var *root, const char *reason) {
     for (int i = 0; i < tv.len; i++) {
-        if (tv.items[i].kind != TV_BORROW) continue;
+        if (tv.items[i].kind != TV_BORROW && !carrier(s, i)) continue;
         for (int k = 0; k < s->org[i].len; k++)
             if (s->org[i].items[k].root == root) {
                 s->bor[i] |= B_DANGLING;
@@ -312,6 +316,11 @@ static void invalidate_root(State *s, Var *root, const char *reason) {
                 break;
             }
     }
+}
+static void carry_reset(State *s, int i) {
+    s->bor[i] = 0;
+    s->org[i] = (Origins){0};
+    s->why[i] = NULL;
 }
 
 static void check_var_use(Var *v, Pos p, State *s) {
@@ -325,6 +334,9 @@ static void check_var_use(Var *v, Pos p, State *s) {
             berror(p, "use of %smoved value '%s' (ownership was transferred away)", maybe ? "possibly " : "", v->name);
         if (st & O_FREED)
             berror(p, "use of '%s' after it %s freed", v->name, maybe ? "may have been" : "was");
+        if ((s->bor[i] & B_CARRY) && (s->bor[i] & B_DANGLING))
+            berror(p, "'%s' is used after the object it refers to through a 'var' field %s%s", v->name,
+                   (s->bor[i] & B_VALID) ? "may be gone: " : "is gone: ", s->why[i] ? s->why[i] : "it was invalidated");
     } else if ((s->bor[i] & B_DANGLING) && v->is_stack) {
         int maybe = s->bor[i] & B_VALID;
         berror(p, "use of %smoved stack object '%s' (%s)", maybe ? "possibly " : "", v->name,
@@ -918,6 +930,90 @@ static int is_place_kind(Expr *e) {
     return e->kind == E_FIELD || e->kind == E_INDEX || e->kind == E_DEREF || e->kind == E_CAST;
 }
 
+/* a local owner may carry references to other objects in its 'var' fields */
+static int local_owner(Var *v) {
+    int i = v ? slot(v) : -1;
+    return i >= 0 && tv.items[i].kind == TV_OWNER && !tv.items[i].varparam && v->vkind != VK_RESULT;
+}
+
+/* h.F := r with a 'var' field F: r must live at least as long as the object h.
+   Allowed: h lies inside r (a.Child.Parent := a); h is a local owner, which then carries the reference
+   (it is checked like a borrow: if r is freed, changed or moved, h may not be used any more) */
+static void field_store(Expr *lhs, Origins *o, State *s, Pos p) {
+    Var *hroot = NULL;
+    char *hp = path_of(lhs->a, &hroot);
+    char *lp = path_of(lhs, NULL);
+    if (lp && local_owner(hroot)) { /* the field gets a new reference: it forgets the old one */
+        int i = slot(hroot);
+        Origins keep = {0};
+        for (int k = 0; k < s->org[i].len; k++)
+            if (!s->org[i].items[k].slot || !STREQ(s->org[i].items[k].slot, lp)) vpush(keep, s->org[i].items[k]);
+        s->org[i] = keep;
+        if (!keep.len) carry_reset(s, i);
+    }
+    Origins hold = {0};
+    if (hp && hroot && tracked_borrow(hroot)) { /* the holder is reached through a borrow: where that borrow points */
+        const char *suffix = hp + strlen(sfmt("#%d", hroot->id));
+        int i = slot(hroot);
+        for (int k = 0; k < s->org[i].len; k++)
+            if (s->org[i].items[k].path) origin_add(&hold, sfmt("%s%s", s->org[i].items[k].path, suffix), NULL, s->org[i].items[k].root, 0);
+    } else if (hp)
+        origin_add(&hold, hp, NULL, hroot, 0);
+    for (int k = 0; k < o->len; k++) {
+        Origin *x = &o->items[k];
+        if (!x->path) continue;
+        int inside = hold.len > 0;
+        for (int h = 0; h < hold.len; h++)
+            if (!has_prefix(hold.items[h].path, x->path)) inside = 0;
+        if (inside) continue; /* the holder is part of the object it refers to */
+        Var *r = x->root;
+        if (r && r->is_global && slot(r) < 0) continue; /* a global of the program (not tracked here) */
+        if (local_owner(hroot)) {
+            if (local_owner(r) && r->id > hroot->id) {
+                berror(p, "'%s' would refer to '%s', which is freed before '%s' (declare '%s' before '%s')", desc_of(lhs), x->desc,
+                       hroot->name, r->name, hroot->name);
+                continue;
+            }
+            int i = slot(hroot);
+            s->bor[i] |= B_CARRY;
+            Origin c = {x->path, x->desc, r, x->stack, lp};
+            vpush(s->org[i], c);
+            continue;
+        }
+        berror(p, "cannot store the reference to '%s' in the 'var' field '%s': '%s' could be freed while '%s' still refers to it "
+                  "(the object must be part of '%s', or both must be local owners)",
+               x->desc, desc_of(lhs), x->desc, desc_of(lhs->a), x->desc);
+    }
+}
+
+/* a carrier y moves to dest: allowed into the object it refers to, or into another local owner (which then carries) */
+static void carrier_move(Var *y, const char *dest, Var *droot, State *s, Pos p, const char *into) {
+    int i = y ? slot(y) : -1;
+    if (i < 0 || !carrier(s, i)) return;
+    for (int k = 0; k < s->org[i].len; k++) {
+        Origin *x = &s->org[i].items[k];
+        if (!x->path) continue;
+        if (dest && has_prefix(dest, x->path)) continue;
+        Var *r = x->root;
+        if (r && r->is_global && slot(r) < 0) continue;
+        if (local_owner(droot) && droot != y) {
+            if (local_owner(r) && r->id > droot->id) {
+                berror(p, "'%s' refers to '%s' through a 'var' field and cannot be moved into '%s', which is freed after '%s' (declare '%s' before '%s')",
+                       y->name, x->desc, droot->name, r->name, r->name, droot->name);
+                continue;
+            }
+            int j = slot(droot);
+            s->bor[j] |= B_CARRY | (s->bor[i] & B_DANGLING);
+            if (!s->why[j]) s->why[j] = s->why[i];
+            origin_add(&s->org[j], x->path, x->desc, r, x->stack);
+            continue;
+        }
+        berror(p, "'%s' refers to '%s' through a 'var' field and cannot be moved into %s, which could outlive '%s'", y->name, x->desc,
+               into, x->desc);
+    }
+    carry_reset(s, i);
+}
+
 static void escape_check(Origins *o, Pos p, const char *target) {
     for (int k = 0; k < o->len; k++) {
         Origin *x = &o->items[k];
@@ -955,6 +1051,7 @@ static void assign_src(Expr *lhs, Src *src, State *s, Pos p, unsigned nbits) {
         switch (src->kind) {
         case SRC_OWNER:
             if (tvar && src->var == tvar) return;
+            carrier_move(src->var, lpath, root, s, p, sfmt("'%s'", ldesc));
             move_out(src, s, p, sfmt("'%s'", ldesc));
             break;
         case SRC_BORROW:
@@ -977,6 +1074,7 @@ static void assign_src(Expr *lhs, Src *src, State *s, Pos p, unsigned nbits) {
         if (tvar && tracked_owner(tvar)) {
             int i = slot(tvar);
             s->own[i] = src->kind == SRC_NIL ? O_NULL : O_OWNED;
+            if (!(src->kind == SRC_OWNER && local_owner(src->var) && carrier(s, i))) carry_reset(s, i); /* a new object */
         }
         if (lpath) invalidate(s, lpath, sfmt("'%s' was reassigned at line %d", ldesc, p.line));
         return;
@@ -1001,6 +1099,10 @@ static void assign_src(Expr *lhs, Src *src, State *s, Pos p, unsigned nbits) {
         s->bor[i] = B_VALID;
         s->why[i] = NULL;
         s->org[i] = o;
+        return;
+    }
+    if (lhs->kind == E_FIELD && lhs->field->borrowed) { /* a 'var' field */
+        field_store(lhs, &o, s, p);
         return;
     }
     /* borrowed field, borrowed global or other untracked borrow */
@@ -1099,8 +1201,12 @@ static void do_assign(Expr *lhs, Expr *rhs, State *s, Pos p) {
         while ((in->kind == E_OK || in->kind == E_CONV) && in->a) in = in->a;
         if (in != rhs && lhs->type->kind == T_RES && is_owning_type(in->type)) {
             Src src = eval_src(in, s);
-            if (src.kind == SRC_OWNER) move_out(&src, s, p, sfmt("'%s'", desc_of(lhs)));
-            else if (src.kind == SRC_PLACE)
+            if (src.kind == SRC_OWNER) {
+                Var *lr = NULL;
+                char *lp = path_of(lhs, &lr);
+                carrier_move(src.var, lp, lr, s, p, sfmt("'%s'", desc_of(lhs)));
+                move_out(&src, s, p, sfmt("'%s'", desc_of(lhs)));
+            } else if (src.kind == SRC_PLACE)
                 berror(p, "cannot move out of '%s' (it is owned by its container); use Take(%s)", src.desc, src.desc);
             else if (src.kind == SRC_BORROW && !stack_src(&src))
                 berror(p, "cannot store borrowed reference '%s' in the result '%s'", src.desc, desc_of(lhs));
@@ -1293,7 +1399,14 @@ static void call_effects(Expr *e, State *s, Origins *out) {
             nil_flow(pm->type, a, nil_bits(a, s), a->pos, sfmt("parameter '%s' of '%s'", pm->name, r->name));
             if (pm->mode == PM_OWNED) {
                 switch (src.kind) {
-                case SRC_OWNER: move_out(&src, s, a->pos, sfmt("parameter '%s' of '%s'", pm->name, r->name)); break;
+                case SRC_OWNER: {
+                    Var *rr = NULL; /* into a method of the object it refers to (parent.Add(child)): stays inside it */
+                    char *rp = e->a ? path_of(e->a, &rr) : NULL;
+                    if (rp && rr && tracked_borrow(rr)) rp = NULL;
+                    carrier_move(src.var, rp, NULL, s, a->pos, sfmt("parameter '%s' of '%s'", pm->name, r->name));
+                    move_out(&src, s, a->pos, sfmt("parameter '%s' of '%s'", pm->name, r->name));
+                    break;
+                }
                 case SRC_BORROW: case SRC_PLACE:
                     if (src.kind == SRC_PLACE && !src.borrowed_place)
                         berror(a->pos, "cannot move out of '%s' into owned parameter '%s'; use Take(%s)", src.desc, pm->name,
@@ -1486,6 +1599,19 @@ static void exit_checks(State *s, Pos p) {
                 nerror(p, "var parameter '%s' %s nil when '%s' returns, but its type is not nilable", v->name,
                        sure ? "is" : "may be", where);
         }
+        if (tv.items[i].kind == TV_OWNER && carrier(s, i) && (s->own[i] & (O_OWNED | O_UNK))) {
+            if (v->vkind == VK_RESULT || tv.items[i].varparam) {
+                for (int k = 0; k < s->org[i].len; k++) {
+                    Var *r = s->org[i].items[k].root;
+                    if (r && slot(r) >= 0 && tv.items[slot(r)].kind == TV_OWNER && !tv.items[slot(r)].varparam && r->vkind != VK_RESULT)
+                        berror(p, "%s refers to '%s' through a 'var' field, but '%s' frees its object when '%s' returns",
+                               v->vkind == VK_RESULT ? "the function result" : sfmt("var parameter '%s'", v->name),
+                               s->org[i].items[k].desc, r->name, where);
+                }
+            } else if (s->bor[i] & B_DANGLING)
+                berror(p, "'%s' still refers to another object through a 'var' field when it is freed at the end of %s, but %s", v->name,
+                       where, s->why[i] ? s->why[i] : "that object is gone");
+        }
         if (tv.items[i].kind == TV_OWNER) {
             unsigned st = s->own[i];
             if (v->vkind == VK_RESULT) {
@@ -1560,10 +1686,13 @@ static void loop_body(Stmt *st, State *s, int kind) {
 
 /* leaving a block (at its end, or by Break/Continue): its owners free their objects */
 static void leave_block(Stmt *st, State *s, Pos endp) {
-    for (int k = 0; k < st->wvars.len; k++) {
+    for (int k = st->wvars.len - 1; k >= 0; k--) { /* freed in reverse order of declaration */
         Var *v = st->wvars.items[k];
         int i = slot(v);
         if (i < 0 || !s->reach) continue;
+        if (carrier(s, i) && (s->bor[i] & B_DANGLING) && (s->own[i] & (O_OWNED | O_UNK)))
+            berror(endp, "'%s' still refers to another object through a 'var' field when it is freed at the end of its block, but %s",
+                   v->name, s->why[i] ? s->why[i] : "that object is gone");
         if (tv.items[i].kind == TV_OWNER && (s->own[i] & (O_OWNED | O_UNK)))
             invalidate(s, sfmt("#%d", v->id), sfmt("'%s' freed its object at the end of its block (line %d)", v->name, endp.line));
         if (v->is_stack) invalidate(s, sfmt("#%d", v->id), sfmt("'%s' went out of scope at the end of its block (line %d)", v->name, endp.line));
