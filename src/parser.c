@@ -1121,6 +1121,10 @@ static Stmt *parse_stmt(void) {
                 vpush(arm.hi, accept_sym("..") ? parse_expr() : NULL);
                 if (!accept_sym(",")) break;
             }
+            if (CUR.kind == TK_IDENT && STREQ(CUR.s, "when")) { /* a guard: the arm only matches when it is true */
+                next();
+                arm.guard = parse_expr();
+            }
             expect_sym(":");
             arm.body = parse_stmt();
             vpush(s->arms, arm);

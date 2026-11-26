@@ -230,6 +230,7 @@ struct Expr {
     int ro_bind;  /* E_ISSOME from "for val x in": the object is bound read-only */
     int pat_var;  /* E_IDENT 'var x' in a pattern: a changeable binding */
     int forin;    /* E_RCALL of GetEnumerator made by 'for ... in' */
+    int guard;    /* E_BINARY 'and' made from a case guard: b is the 'when' condition */
     Expr *a, *b, *c;
     ExprVec args;
     ExprVec args2; /* set literal: upper bounds (NULL entries for single values) */
@@ -255,6 +256,7 @@ typedef enum {
 
 typedef struct {
     ExprVec lo, hi; /* hi entries may be NULL */
+    Expr *guard;    /* 'when cond' (NULL: none) */
     Stmt *body;
 } CaseArm;
 

@@ -1748,6 +1748,41 @@ case s of Named(var n, _): n := n + '!'; else end;
 
 Internally the value is a record with a tag and the fields of all variants.
 
+### Guards: `when`
+
+An arm of a `case` can have a **guard**: `when` and a Boolean condition after the labels. The arm
+only matches when the condition is true, otherwise the next arms are tried. The names of the
+pattern can be used in the condition:
+
+```pascal
+case s of
+  Circle(r) when r > 10: WriteLn('big circle');
+  Circle(r): WriteLn('circle');
+  Rect(w, h) when w = h: WriteLn('square');
+  Rect, Empty: WriteLn('other');
+end;
+
+case Find(5) of
+  some n when n.V > 5: WriteLn('big node');
+  some n: WriteLn('node');
+  none: WriteLn('nothing');
+end;
+
+case x of
+  90..100 when bonus: WriteLn('A+');
+  90..100: WriteLn('A');
+else WriteLn('-');
+end;
+```
+
+* Guards work with every kind of `case`: enumerations with data, `optional` (`some x`, `none`),
+  `result` (`ok v`, `error e`), ordinals and strings.
+* An arm with a guard does **not** count as handling its variant: a `case` without `else` still needs
+  an arm without `when` for it (`case does not handle the variant Circle …`).
+* An arm after an arm without `when` for the same variant is never reached and is an error.
+* `when` is not a reserved word: it is only special after the labels of a `case` arm.
+* The value of the `case` must not change in a guard (`Circle(r) when Reset(s)` is a borrow error).
+
 ## Loops over collections: `for val x in …`
 
 `for val x in c do …` runs through the elements of an array (fixed or dynamic), a string (the

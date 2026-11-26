@@ -1,0 +1,105 @@
+program CaseGuards;
+{ case arms with guards: 'when cond' – the arm only matches when the condition is true }
+type
+  TShape = (Circle(Radius: Real), Rect(W, H: Real), Named(Name: String; Sides: Integer), Empty);
+  TNode = class V: Integer; constructor Create(AV: Integer); end;
+constructor TNode.Create(AV: Integer); begin inherited Create; V := AV; end;
+
+function Describe(s: TShape): String;
+begin
+  case s of
+    Circle(r) when r > 10: Result := 'big circle';
+    Circle(r): Result := 'circle ' + FloatToStr(r);
+    Rect(w, h) when w = h: Result := 'square';
+    Rect(_, h) when h > 100: Result := 'tall rect';
+    Rect, Empty: Result := 'rect or empty';
+    Named(n, k) when (k > 2) and (n <> ''): Result := n + ' with ' + IntToStr(k);
+    Named(var n, _): begin n := n + '?'; Result := n; end;
+  end;
+end;
+
+function Grade(x: Integer; bonus: Boolean): String;
+begin
+  case x of
+    90..100 when bonus: Result := 'A+';
+    90..100: Result := 'A';
+    50..89, 101 when x mod 2 = 0: Result := 'even pass';
+    50..89: Result := 'pass';
+  else Result := 'fail';
+  end;
+end;
+
+function Find(k: Integer): optional TNode;
+begin if k > 0 then Result := TNode.Create(k) else Result := none; end;
+
+function Divide(a, b: Integer): result Integer;
+begin if b = 0 then Result := error('div by zero') else Result := ok(a div b); end;
+
+procedure Check(o: optional TNode);
+begin
+  case o of
+    some n when n.V > 5: WriteLn('big node ', n.V);
+    some n: WriteLn('node ', n.V);
+    none: WriteLn('no node');
+  end;
+end;
+
+procedure Eat(vao k: TNode); begin WriteLn('eat ', k.V); end;
+procedure Moves(s: TShape);
+vao k := TNode.Create(1);
+begin
+  case s of                              { a move in two arms: only one of them runs }
+    Circle(r) when r > 1: Eat(k);
+    Circle(r): Eat(k);
+  else WriteLn('keep ', k.V);
+  end;
+end;
+
+procedure Limit(o: optional Integer; var n: Integer);
+begin
+  case o of
+    some v when v > n: n := v;
+    some v: WriteLn('small ', v);
+    none: n := 0;
+  end;
+end;
+
+vao a := Find(7);
+vao b := Find(2);
+begin
+  WriteLn(Describe(Circle(20.0)));
+  WriteLn(Describe(Circle(2.0)));
+  WriteLn(Describe(Rect(3.0, 3.0)));
+  WriteLn(Describe(Rect(3.0, 300.0)));
+  WriteLn(Describe(Rect(3.0, 4.0)));
+  WriteLn(Describe(Empty));
+  WriteLn(Describe(Named('hex', 6)));
+  WriteLn(Describe(Named('', 6)));
+  WriteLn(Grade(95, True), ' ', Grade(95, False), ' ', Grade(60, False), ' ', Grade(61, False), ' ', Grade(10, True));
+  Check(a); Check(b); Check(Find(0));
+  case Find(9) of
+    some n when n.V = 9: WriteLn('fresh nine');
+  else WriteLn('other');
+  end;
+  case Divide(10, 2) of
+    ok v when v > 3: WriteLn('large ', v);
+    ok v: WriteLn('small ', v);
+    error e when e = 'x': WriteLn('x');
+    error e: WriteLn('error ', e);
+  end;
+  case Divide(1, 0) of
+    ok v: WriteLn(v);
+    error e when Length(e) > 3: WriteLn('long error: ', e);
+  else WriteLn('short');
+  end;
+  Moves(Circle(2.0)); Moves(Circle(0.5)); Moves(Empty);
+  val name := 'abc';
+  val m: Integer := 3;
+  begin
+    Limit(5, m); WriteLn(m); Limit(2, m); Limit(none, m); WriteLn(m);
+    case name of
+      'abc' when Length(name) = 3: WriteLn('abc of 3');
+    else WriteLn('?');
+    end;
+  end;
+end.

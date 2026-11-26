@@ -60,7 +60,7 @@
       "patterns": [
         {
           "name": "keyword.control.perfectpascal",
-          "match": "\\b(begin|end|if|then|else|case|of|while|do|for|to|downto|in|repeat|until|loop|try|with|goto|Break|Continue|Exit)\\b"
+          "match": "\\b(begin|end|if|then|else|case|of|while|do|for|to|downto|in|repeat|until|loop|when|try|with|goto|Break|Continue|Exit)\\b"
         },
         {
           "name": "storage.type.perfectpascal",

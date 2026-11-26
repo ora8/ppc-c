@@ -165,6 +165,7 @@ static Expr *variant_test(Expr *e);
 static void sum_case(Stmt *s, int from_if);
 static Expr *mk_ident(const char *name, Pos p);
 static Expr *mk_bin(int op, Expr *a, Expr *b, Pos p);
+static void guard_case(Stmt *s);
 #define l_pos(arm) ((arm)->body->pos)
 static void stmt(Stmt *s);
 static Type *proc_type(Routine *sig);
@@ -3476,6 +3477,112 @@ static Expr *variant_test(Expr *e) {
         error_at(e->pos, "store the value in a variable before testing its variant");
     return value(tag_is(e->a, vi, e->pos));
 }
+/* a case with guards ('when') on optional, result, ordinal or string selectors: an if chain on a hidden selector
+     case x of some v when v > 0: A; some v: B; none: C end
+   ==>  begin var __g := x; if __g is some v and (v > 0) then A else if __g is some v then B else if __g = none then C end */
+static void guard_case(Stmt *s) {
+    Pos p = s->pos;
+    Type *t = s->a->type;
+    int opt = is_optional(t), res = t->kind == T_RES;
+    if (!opt && !res && !is_ordinal(t) && t->kind != T_STR) error_at(s->a->pos, "ordinal or string selector expected");
+    char *hn = sfmt("__case%d_%d", p.line, p.col);
+    Block *ob = NEW(Block);
+    Decl *d = NEW(Decl);
+    d->kind = D_VAR;
+    VarDecl hv = {0};
+    vpush(hv.names, ((Ident){hn, p}));
+    hv.init = s->a;
+    if (is_lvalue(s->a) && (opt || res || has_owned(t))) { /* a place: borrowed, not copied or moved */
+        hv.borrowed = 1;
+        hv.ro = 1;
+    } else
+        hv.is_heap = 1; /* a computed value: the hidden variable owns it (vao), freed when the case ends */
+    vpush(d->vars, hv);
+    vpush(ob->decls, d);
+    int full[3] = {0, 0, 0}; /* some/ok, none/error handled by an arm without a guard */
+    Stmt *chain = NULL, **tail = &chain;
+    for (int i = 0; i < s->arms.len; i++) {
+        CaseArm *arm = &s->arms.items[i];
+        Expr *c = NULL;
+        for (int k = 0; k < arm->lo.len; k++) {
+            Expr *l = arm->lo.items[k], *ti;
+            if (opt || res) {
+                int slot;
+                if (arm->lo.len != 1 || arm->hi.items[0])
+                    error_at(arm->body->pos, opt ? "optional case arms are 'some x:' or 'none:'" : "result case arms are 'ok v:' and 'error e:'");
+                if (opt && l->kind == E_SOMEPAT && l->op == 0) slot = 0;
+                else if (opt && l->kind == E_NIL) slot = 1;
+                else if (res && l->kind == E_SOMEPAT && l->op) slot = l->op - 1;
+                else error_at(l->pos, opt ? "optional case arms are 'some x:' and 'none:'" : "result case arms are 'ok v:' and 'error e:'");
+                if (full[slot])
+                    error_at(l->pos, "this arm is never reached: '%s' is already handled by an arm without 'when'",
+                             opt ? (slot ? "none" : "some") : (slot ? "error" : "ok"));
+                if (!arm->guard) full[slot] = 1;
+                if (l->kind == E_NIL) {
+                    ti = mk_bin(OP_EQ, mk_ident(hn, l->pos), new_expr(E_NIL, l->pos), l->pos);
+                } else {
+                    ti = new_expr(E_ISSOME, l->pos);
+                    ti->op = l->op;
+                    ti->a = mk_ident(hn, l->pos);
+                    if (l->has_id) { ti->id = l->id; ti->has_id = 1; }
+                    else if (l->op == 1 && t->base) { ti->id = (Ident){sfmt("__ok%d_%d", l->pos.line, l->pos.col), l->pos}; ti->has_id = 1; }
+                }
+            } else if (arm->hi.items[k]) {
+                ti = mk_bin(OP_AND, mk_bin(OP_GE, mk_ident(hn, l->pos), l, l->pos), mk_bin(OP_LE, mk_ident(hn, l->pos), arm->hi.items[k], l->pos),
+                            l->pos);
+            } else
+                ti = mk_bin(OP_EQ, mk_ident(hn, l->pos), l, l->pos);
+            c = c ? mk_bin(OP_OR, c, ti, l->pos) : ti;
+        }
+        if (arm->guard) {
+            c = mk_bin(OP_AND, c, arm->guard, arm->guard->pos);
+            c->guard = 1;
+        }
+        Stmt *n = new_stmt(S_IF, l_pos(arm));
+        n->a = c;
+        n->s1 = arm->body;
+        *tail = n;
+        tail = &n->s2;
+    }
+    if (s->has_else) {
+        if ((opt || res) && full[0] && full[1])
+            error_at(p, "'else' is unreachable: both '%s' and '%s' are handled", opt ? "some" : "ok", opt ? "none" : "error");
+        Stmt *c = new_stmt(S_COMPOUND, p);
+        c->body = s->else_;
+        *tail = c;
+    }
+    if (!chain) chain = new_stmt(S_EMPTY, p);
+    vpush(ob->body, chain);
+    Stmt *blk = new_stmt(S_BLOCK, p);
+    blk->blk = ob;
+    *s = *blk;
+    stmt(s);
+}
+
+/* a guard of a case arm: the names of the pattern become the fields of the hidden selector (hn.Field);
+   the bodies of lambdas are not entered */
+static void subst_binds(Expr *e, Ident *nm, char **fld, int n, const char *hn) {
+    if (!e) return;
+    if (e->kind == E_IDENT && !e->targs.len) {
+        for (int i = 0; i < n; i++)
+            if (STREQ(e->id.name, nm[i].name)) {
+                Pos p = e->pos;
+                Expr *m = new_expr(E_MEMBER, p);
+                m->a = mk_ident(hn, p);
+                m->id = (Ident){fld[i], p};
+                *e = *m;
+                return;
+            }
+        return;
+    }
+    if (e->kind == E_LAMBDA) return;
+    subst_binds(e->a, nm, fld, n, hn);
+    subst_binds(e->b, nm, fld, n, hn);
+    subst_binds(e->c, nm, fld, n, hn);
+    for (int i = 0; i < e->args.len; i++) subst_binds(e->args.items[i], nm, fld, n, hn);
+    for (int i = 0; i < e->args2.len; i++) subst_binds(e->args2.items[i], nm, fld, n, hn);
+}
+
 /* case s of Circle(r): A; Rect(w, h): B; Empty: C end
    ==>  begin var __s := s; if __s.#tag = 0 then var r := __s.Circle.Radius; A else if ... end */
 static void sum_case(Stmt *s, int from_if) {
@@ -3496,8 +3603,10 @@ static void sum_case(Stmt *s, int from_if) {
             else if (l->kind == E_IDENT) id = l->id;
             else error_at(l->pos, "a variant of \"%s\" expected (%s)", st->name, variant_list(st));
             int vi = find_variant(st, id);
-            if (seen[vi]) error_at(l->pos, "variant \"%s\" is handled twice", id.name);
-            seen[vi] = 1;
+            if (seen[vi])
+                error_at(l->pos, arm->guard ? "this arm is never reached: variant \"%s\" is already handled by an arm without 'when'"
+                                            : "variant \"%s\" is handled twice", id.name);
+            if (!arm->guard) seen[vi] = 1; /* an arm with a guard does not cover its variant */
             VariantInfo *v = &st->variants.items[vi];
             if (binds) {
                 if (arm->lo.len > 1) error_at(l->pos, "an arm with names can only have one variant");
@@ -3567,6 +3676,25 @@ static void sum_case(Stmt *s, int from_if) {
                 bv.ro = !x->pat_var;
                 vpush(bd->vars, bv);
             }
+        }
+        if (arm->guard) { /* the guard is tested before the arm's names exist: they are replaced by the fields they name */
+            Ident *nm = NULL;
+            char **fld = NULL;
+            int nb = 0;
+            Expr *l = arm->lo.items[0];
+            if (l->kind == E_CALL) {
+                VariantInfo *v = &st->variants.items[find_variant(st, l->a->id)];
+                nm = (Ident *)xcalloc(l->args.len + 1, sizeof(Ident));
+                fld = (char **)xcalloc(l->args.len + 1, sizeof(char *));
+                for (int b = 0; b < l->args.len; b++)
+                    if (!STREQ(l->args.items[b]->id.name, "_")) {
+                        nm[nb] = l->args.items[b]->id;
+                        fld[nb++] = st->fields.items[v->first + b]->name;
+                    }
+            }
+            subst_binds(arm->guard, nm, fld, nb, hn);
+            c = mk_bin(OP_AND, c, arm->guard, arm->guard->pos);
+            c->guard = 1;
         }
         Stmt *body = arm->body;
         if (bd->vars.len) {
@@ -4567,6 +4695,14 @@ static Expr *cond(Expr *e);
 /* condition that may unpack optionals: 'x is some k', joined with 'and' */
 static Expr *cond_bind(Expr *e) {
     if (e->kind == E_ISSOME) return bind_some(e);
+    if (e->kind == E_BINARY && e->op == OP_AND && e->guard) { /* pattern test and (when condition) */
+        e->a = cond_bind(e->a);
+        Expr *g = value(e->b);
+        if (g->type->kind != T_BOOL) error_at(e->b->pos, "the 'when' condition must be Boolean, got \"%s\"", type_name(g->type));
+        e->b = g;
+        e->type = t_bool;
+        return e;
+    }
     if (e->kind == E_BINARY && e->op == OP_AND && (e->a->kind == E_ISSOME || e->b->kind == E_ISSOME ||
                                                    (e->a->kind == E_BINARY && e->a->op == OP_AND))) {
         e->a = cond_bind(e->a);
@@ -4906,6 +5042,11 @@ static void stmt(Stmt *s) {
             sum_case(s, 0);
             return;
         }
+        for (int i = 0; i < s->arms.len; i++)
+            if (s->arms.items[i].guard) {
+                guard_case(s);
+                return;
+            }
         if (t->kind == T_RES) {
             /* case r of ok v: A; error e: B end  ==>  tmp := r; if tmp is ok v then A else if tmp is error e then B */
             Expr *okp = NULL, *errp = NULL;

@@ -299,6 +299,8 @@ static void carry_reset(State *s, int i) {
     s->why[i] = NULL;
 }
 
+static int is_case_sel(Var *v) { return strncmp(v->name, "__sum", 5) == 0 || strncmp(v->name, "__case", 6) == 0; }
+
 static void check_var_use(Var *v, Pos p, State *s) {
     if (!s->reach) return;
     int i = slot(v);
@@ -324,6 +326,9 @@ static void check_var_use(Var *v, Pos p, State *s) {
     } else if ((s->bor[i] & B_CONFLICT) && strncmp(v->name, "__src", 5) == 0) { /* the collection of 'for ... in' (GetEnumerator) */
         berror(p, "the collection of this 'for ... in' loop must not change while the loop runs, but %s",
                s->why[i] ? s->why[i] : "it was changed");
+    } else if ((s->bor[i] & B_CONFLICT) && is_case_sel(v)) { /* the selector of a 'case' with patterns */
+        berror(p, "the value of this 'case' must not change while its arm is chosen or its names are in use, but %s",
+               s->why[i] ? s->why[i] : "it was changed");
     } else if (s->bor[i] & B_CONFLICT) {
         berror(p, "borrowed reference '%s' is used here, but %s", v->name, s->why[i] ? s->why[i] : "its object was used otherwise");
     }
@@ -336,7 +341,9 @@ static void check_var_use(Var *v, Pos p, State *s) {
 static int in_base; /* >0 while the container part of a place expression is being evaluated */
 
 enum { ACC_READ, ACC_WRITE, ACC_BORROW_MUT, ACC_BORROW_CONST };
-static const char *vdisp(Var *v) { return strncmp(v->name, "__src", 5) == 0 ? "the loop" : v->name; } /* hidden for-in variable */
+static const char *vdisp(Var *v) { /* hidden variables of 'for ... in' and 'case' */
+    return strncmp(v->name, "__src", 5) == 0 ? "the loop" : is_case_sel(v) ? "the case" : v->name;
+}
 static void access_path(State *s, const char *path, Var *ex1, Var *ex2, int kind, Pos p, const char *desc) {
     int write = kind == ACC_WRITE || kind == ACC_BORROW_MUT;
     if (!s->reach || !path) return;
