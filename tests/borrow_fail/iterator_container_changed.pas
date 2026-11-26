@@ -1,4 +1,4 @@
-{ EXPECT: the collection of this 'for ... in' loop must not change while the loop runs }
+{* EXPECT: the collection of this 'for ... in' loop must not change while the loop runs *}
 program T;
 type
   TBag = class;

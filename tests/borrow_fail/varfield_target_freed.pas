@@ -1,4 +1,4 @@
-{ EXPECT: 'b' is used after the object it refers to through a 'var' field is gone: 'a' was freed }
+{* EXPECT: 'b' is used after the object it refers to through a 'var' field is gone: 'a' was freed *}
 program T;
 type
   TNode = class

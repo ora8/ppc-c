@@ -1,16 +1,16 @@
 program NoPointers;
-{ Typical pointer tasks of classic Pascal - in ppc without ^, @, New, Dispose
+{* Typical pointer tasks of classic Pascal - in ppc without ^, @, New, Dispose
   and without nil:
     1. linked list                -> heap objects with an 'optional' successor
     2. binary search tree         -> optional subtrees, unpacking with 'is some'
     3. changing values "by pointer" -> var parameters
     4. reference to an object     -> 'var' (reference without ownership)
-    5. a result that may be missing -> 'optional Integer' (like Option<i32>) }
+    5. a result that may be missing -> 'optional Integer' (like Option<i32>) *}
 type
-  { ---------------------------------------------------- 1. list }
+  {* ---------------------------------------------------- 1. list *}
   TNode = class
     Value: Integer;
-    Next: optional TNode;             { owns the successor; none = end of the list }
+    Next: optional TNode;             {* owns the successor; none = end of the list *}
     constructor Create(W: Integer);
   end;
 
@@ -24,10 +24,10 @@ type
     procedure Show;
   end;
 
-  { ---------------------------------------------------- 2. tree }
+  {* ---------------------------------------------------- 2. tree *}
   TTree = class
     Value: Integer;
-    Left, Right: optional TTree;      { owns the subtrees }
+    Left, Right: optional TTree;      {* owns the subtrees *}
     constructor Create(W: Integer);
     procedure InsertValue(W: Integer);
     function Contains(W: Integer): Boolean;
@@ -35,13 +35,13 @@ type
     function Height: Integer;
   end;
 
-  { ---------------------------------------------------- 4. reference }
+  {* ---------------------------------------------------- 4. reference *}
   TPoint = class
     X, Y: Integer;
     constructor Create(AX, AY: Integer);
   end;
 
-{ ======================================================= TNode / TList }
+{* ======================================================= TNode / TList *}
 constructor TNode.Create(W: Integer); begin inherited Create; Value := W; end;
 
 procedure TList.PushFront(W: Integer);
@@ -49,31 +49,31 @@ vao
   k: TNode := TNode.Create(W);
 begin
   
-  k.Next := Take(Head);                 { the old chain moves behind the new node }
-  Head := k;                            { Move: k owns nothing afterwards }
+  k.Next := Take(Head);                 {* the old chain moves behind the new node *}
+  Head := k;                            {* Move: k owns nothing afterwards *}
   Inc(Size);
 end;
 
-procedure TList.Reverse;              { classic pointer relinking, only with moves }
+procedure TList.Reverse;              {* classic pointer relinking, only with moves *}
 vao
   rest, fresh: optional TNode := none;
 begin
   fresh := none;
   rest := Take(Head);
-  while Take(rest) is some k do begin   { k owns the front node }
+  while Take(rest) is some k do begin   {* k owns the front node *}
     rest := Take(k.Next);
-    k.Next := fresh;                      { put it in front of the new list }
+    k.Next := fresh;                      {* put it in front of the new list *}
     fresh := k;
   end;
   Head := fresh;
 end;
 
 function TList.Sum: Integer;
-var p: optional TNode := none;       { borrow for walking through }
+var p: optional TNode := none;       {* borrow for walking through *}
 begin
   Result := 0;
   p := Head;
-  while p is some k do begin            { like: while let Some(k) = p }
+  while p is some k do begin            {* like: while let Some(k) = p *}
     Result := Result + k.Value;
     p := k.Next;
   end;
@@ -87,7 +87,7 @@ begin
   p := Head;
   i := 1;
   while p is some k do begin
-    if k.Value = W then Exit(i);         { Integer becomes 'some i' automatically }
+    if k.Value = W then Exit(i);         {* Integer becomes 'some i' automatically *}
     p := k.Next;
     Inc(i);
   end;
@@ -102,7 +102,7 @@ begin
 end;
 
 
-{ ======================================================= TTree }
+{* ======================================================= TTree *}
 constructor TTree.Create(W: Integer); begin inherited Create; Value := W; end;
 
 procedure TTree.InsertValue(W: Integer);
@@ -137,23 +137,23 @@ begin
   if hl > hr then Result := hl + 1 else Result := hr + 1;
 end;
 
-{ ======================================================= 3. var parameters }
-procedure Swap(var A, B: Integer);   { instead of Swap(pa, pb: ^Integer) }
+{* ======================================================= 3. var parameters *}
+procedure Swap(var A, B: Integer);   {* instead of Swap(pa, pb: ^Integer) *}
 val t: Integer := default;
 begin t := A; A := B; B := t; end;
 
-{ ======================================================= 4. reference }
+{* ======================================================= 4. reference *}
 constructor TPoint.Create(AX, AY: Integer); begin inherited Create; X := AX; Y := AY; end;
 
-procedure Shift(P: TPoint; DX: Integer);   { gets a reference, not a ^TPoint }
+procedure Shift(P: TPoint; DX: Integer);   {* gets a reference, not a ^TPoint *}
 begin P.X := P.X + DX; end;
 
 vao
-  list := TList.Create;             { vao: owns the object }
+  list := TList.Create;             {* vao: owns the object *}
   tree := TTree.Create(50);
   pt := TPoint.Create(3, 4);
 var
-  ref: TPoint := pt;                 { reference to it (instead of @pt) }
+  ref: TPoint := pt;                 {* reference to it (instead of @pt) *}
 val
   a, b, i: Integer := default;
 begin
@@ -165,7 +165,7 @@ begin
   list.Show;
 
   WriteLn('--- 5. optional Integer ---');
-  case list.Position(30) of            { like: match list.position(30) }
+  case list.Position(30) of            {* like: match list.position(30) *}
     some pos: WriteLn('30 is at position ', pos);
     none: WriteLn('30 not found');
   end;
@@ -188,6 +188,6 @@ begin
   WriteLn('a=', a, ' b=', b);
 
   WriteLn('--- 4. reference to an object ---');
-  Shift(ref, 10);                  { like @pt, but checked for safety }
+  Shift(ref, 10);                  {* like @pt, but checked for safety *}
   WriteLn('pt = (', pt.X, ',', pt.Y, ')');
 end.

@@ -169,6 +169,18 @@ prog.pas: 3 syntax error(s), compilation aborted
   `public`, `property … read … write …`, `optional`, `some`, `none`, `default`, `result`, `ok`,
   `error`, `try`, `auto`.
 
+## Comments
+
+```pascal
+{* a comment over
+   several lines *}
+(* also a comment over several lines *)
+// a comment to the end of the line
+```
+
+`{ }` is **not** a comment (unlike standard Pascal): in the brace syntax `{ }` are blocks, and the
+same comments work in both syntaxes. Comments do not nest.
+
 ## The brace syntax: `.ppb` files
 
 Files ending in **`.ppb`** use a second syntax of the same language: `func` and `proc` instead of
@@ -178,7 +190,7 @@ syntaxes are compiled by the same `ppc`, and a program in one syntax can import 
 ```pascal
 program Hello;
 import ppc_std;
-// comments are // and (* ... *): { } are blocks
+// comments are {* ... *}, (* ... *) and //: { } are blocks
 type
   TColor = (Red, Green, Blue);
   TPoint = record { X, Y: Integer; }
@@ -219,7 +231,7 @@ val c: TColor := Green;
 | `case x of … end` | `case x of { … }` |
 | `begin … end.` (the program) | `{ … }` (a final `.` is allowed) |
 | `module M; … implementation … end.` | `module M; … implementation …` (ends with the file) |
-| comments `{ }`, `(* *)`, `//` | comments `(* *)`, `//` |
+| comments `{* *}`, `(* *)`, `//` | the same comments; `{ }` without `*` is a block |
 
 * A `;` after a `}` can be left out (`proc P; { … }` and `{ … } WriteLn(1)`).
 * `begin`, `end`, `function` and `procedure` are errors in a `.ppb` file (`in the brace syntax
@@ -243,10 +255,10 @@ Reference types, implicitly derived from `TObject`:
 type
   TAccount = class
   private
-    FBalance: Integer;                 { only the methods of TAccount }
+    FBalance: Integer;                 {* only the methods of TAccount *}
     procedure Log(s: String);
   protected
-    FOwner: String;                    { also the methods of descendants }
+    FOwner: String;                    {* also the methods of descendants *}
   public
     constructor Create(AOwner: String);
     property Balance: Integer read FBalance;
@@ -272,13 +284,13 @@ type
     function Area: Real; const;
     function Name: String; const;
   end;
-  ISolid = interface(IShape)                 { extends IShape }
+  ISolid = interface(IShape)                 {* extends IShape *}
     function Volume(h: Real): Real; const;
   end;
-  TCircle = class(IShape)                    { parent TObject, implements IShape }
+  TCircle = class(IShape)                    {* parent TObject, implements IShape *}
     ...
   end;
-  TCube = class(TShapeBase, ISolid, IScalable) { one parent class, then interfaces }
+  TCube = class(TShapeBase, ISolid, IScalable) {* one parent class, then interfaces *}
     ...
   end;
 
@@ -288,10 +300,10 @@ begin
 end;
 
 vao c := TCircle.Create(1);
-Show(c);                                     { a TCircle is an IShape }
-var s: IShape := c;                          { reference to the object }
-vao shapes: array of optional IShape := ...; { owns objects of different classes }
-if s is ISolid then ...                      { run-time test; also 'as' }
+Show(c);                                     {* a TCircle is an IShape *}
+var s: IShape := c;                          {* reference to the object *}
+vao shapes: array of optional IShape := ...; {* owns objects of different classes *}
+if s is ISolid then ...                      {* run-time test; also 'as' *}
 ```
 
 * The class (or an ancestor) needs a method with the same name, parameters and result for every
@@ -309,7 +321,7 @@ if s is ISolid then ...                      { run-time test; also 'as' }
 ```pascal
 type
   TShape = class
-    constructor Create(ASize: Integer); virtual;     { virtual constructor }
+    constructor Create(ASize: Integer); virtual;     {* virtual constructor *}
     class function Kind: String;
   end;
   TShapeClass = class of TShape;
@@ -319,7 +331,7 @@ type
 
 function Make(c: TShapeClass; n: Integer): TShape;
 begin
-  Result := c.Create(n);          { an object of the class in c, with its constructor }
+  Result := c.Create(n);          {* an object of the class in c, with its constructor *}
 end;
 
 val kinds: array of TShapeClass := (TSquare, TCircle);
@@ -347,7 +359,7 @@ type
   public
     class var Prefix: String;
     class var Default: optional TItem;
-  var                                   { back to ordinary fields }
+  var                                   {* back to ordinary fields *}
     Id: Integer;
     constructor Create;
     class function Created: Integer;
@@ -355,11 +367,11 @@ type
 
 constructor TCounter.Create;
 begin
-  Inc(FCreated);                        { inside methods and class methods without a prefix }
+  Inc(FCreated);                        {* inside methods and class methods without a prefix *}
   Id := FCreated;
 end;
 
-TCounter.Prefix := '#';                 { from outside through the type (or an object) }
+TCounter.Prefix := '#';                 {* from outside through the type (or an object) *}
 ```
 
 * As in Delphi, `class var` starts a section: the following fields are class fields too, until a
@@ -382,10 +394,10 @@ type
     property Cell[x, y: Integer]: Integer read GetCell write SetCell; default;
   end;
 
-g.Cell[2, 1] := 7;              { SetCell(2, 1, 7) }
-g[0, 0] := g[2, 1] + 1;         { default indexer }
-if l[0] is some x then …;       { TList<T> in ppc_std: property Item[i]: optional T; default }
-m['Anna'] := 30;                { TMap<String, Integer> }
+g.Cell[2, 1] := 7;              {* SetCell(2, 1, 7) *}
+g[0, 0] := g[2, 1] + 1;         {* default indexer *}
+if l[0] is some x then …;       {* TList<T> in ppc_std: property Item[i]: optional T; default *}
+m['Anna'] := 30;                {* TMap<String, Integer> *}
 ```
 
 * The reader is a function with the index parameters and the property's type as result, the
@@ -453,14 +465,14 @@ changeable reference, `x: T` borrows an object or copies a simple value.
 ```pascal
 procedure Demo;
 vao
-  k := TCircle.Create(4, 5, 1.0);     { owns the object }
+  k := TCircle.Create(4, 5, 1.0);     {* owns the object *}
 var
-  r: TFigure := k;                    { borrows it }
+  r: TFigure := k;                    {* borrows it *}
 val
   n := 3;
 begin
-  Show(r);                            { same type, virtual methods, polymorphism }
-end;                                  { k is freed here, r is not }
+  Show(r);                            {* same type, virtual methods, polymorphism *}
+end;                                  {* k is freed here, r is not *}
 ```
 
 * A class variable in `val` is a stack object and must be created with a constructor;
@@ -487,16 +499,16 @@ segment) – without `malloc` and `free`. Class, methods, inheritance and VMT ar
 heap objects:
 
 ```pascal
-procedure Draw(F: TFigure);                 { takes stack and heap objects }
+procedure Draw(F: TFigure);                 {* takes stack and heap objects *}
 
 procedure Local;
-val k := TCircle.Create(1, 2.5);            { constructed in the stack frame }
+val k := TCircle.Create(1, 2.5);            {* constructed in the stack frame *}
 begin
-  Draw(k);                                  { borrow, virtual methods as usual }
-  k.Name := TFigure.Create(99);             { owning fields work too }
-  var f: TFigure := k;                      { reference to the stack object }
+  Draw(k);                                  {* borrow, virtual methods as usual *}
+  k.Name := TFigure.Create(99);             {* owning fields work too *}
+  var f: TFigure := k;                      {* reference to the stack object *}
   begin f.X := 5; end;
-end;                                        { k.Destroy runs here, k.Name is freed }
+end;                                        {* k.Destroy runs here, k.Name is freed *}
 ```
 
 * The object is constructed in its declaration and destroyed automatically at the end of its
@@ -518,7 +530,7 @@ end;                                        { k.Destroy runs here, k.Name is fre
   val k := TK.Create(n);
   begin
     k.Part := TK.Create(n + 100);
-    Result := k;                    { the object with its part moves to the heap }
+    Result := k;                    {* the object with its part moves to the heap *}
   end;
   ```
 * **From the heap to the stack:** `val k := h` (or a function result, `val k := Make(1)`) copies
@@ -551,17 +563,17 @@ as in Delphi):
 
 ```pascal
 val numbers: array of Integer := (1, 2, 3);
-vao customers: array of optional TCustomer := default;   { empty }
+vao customers: array of optional TCustomer := default;   {* empty *}
 begin
-  SetLength(numbers, 5);                    { new elements are 0 }
+  SetLength(numbers, 5);                    {* new elements are 0 *}
   numbers[4] := 42;
-  WriteLn(Length(numbers), ' ', High(numbers));   { 5 4 }
+  WriteLn(Length(numbers), ' ', High(numbers));   {* 5 4 *}
   SetLength(customers, 1);
   customers[0] := TCustomer.Create('Anna');
-end;                                        { buffer and customers are freed }
+end;                                        {* buffer and customers are freed *}
 
-function Sum(a: array of Integer): Integer;       { borrow, no copy }
-procedure Fill(var a: array of Integer; n: Integer);   { may change the length }
+function Sum(a: array of Integer): Integer;       {* borrow, no copy *}
+procedure Fill(var a: array of Integer; n: Integer);   {* may change the length *}
 ```
 
 * `Length(a)`, `High(a)` (= `Length(a) - 1`), `Low(a)` (= 0); every access is checked
@@ -585,11 +597,11 @@ val
   q: TPair := default;
   z: TPair := default;
 begin
-  a[1] := TK.Create(1);        { the object now belongs to the array }
+  a[1] := TK.Create(1);        {* the object now belongs to the array *}
   q := Make(4);
-  z := q;                      { move like in Rust: q is empty afterwards (all fields none) }
-  q := Make(5);                { the old q is freed }
-end;                           { a, q and z free their objects here }
+  z := q;                      {* move like in Rust: q is empty afterwards (all fields none) *}
+  q := Make(5);                {* the old q is freed *}
+end;                           {* a, q and z free their objects here *}
 ```
 
 * Such values are **never copied** but moved: assignment and initialization empty the source.
@@ -622,11 +634,11 @@ Everything that owns objects is **moved**. A copy of it only exists explicitly w
 type
   TPerson = class
     Name: String;
-    Address: optional TAddress;              { owned: is cloned along }
-    Boss: var optional TPerson;              { reference: keeps pointing to the same boss }
+    Address: optional TAddress;              {* owned: is cloned along *}
+    Boss: var optional TPerson;              {* reference: keeps pointing to the same boss *}
     function Clone: TPerson; const; virtual; auto;
   end;
-  TEmployee = class(TPerson)                 { inherits Clone; its fields are copied too }
+  TEmployee = class(TPerson)                 {* inherits Clone; its fields are copied too *}
     Office: optional TAddress;
   end;
   TPair = record
@@ -634,9 +646,9 @@ type
     function Clone: TPair; const; auto;
   end;
 …
-vao dup := anna.Clone;                       { a new object, dup owns it }
+vao dup := anna.Clone;                       {* a new object, dup owns it *}
 var p: TPerson := employee;
-vao k := p.Clone;                            { a TEmployee with all its fields }
+vao k := p.Clone;                            {* a TEmployee with all its fields *}
 val q := pair.Clone;
 ```
 
@@ -659,13 +671,13 @@ Rust). They are used like a normal value; at the end of the scope they are freed
 
 ```pascal
 vao
-  I: Integer := 20;            { creates the heap cell }
-  V: TVector := default;       { record on the heap }
+  I: Integer := 20;            {* creates the heap cell *}
+  V: TVector := default;       {* record on the heap *}
 begin
   I := I + 1;
-  Duplicate(I);                { var parameter: reference to the heap value }
+  Duplicate(I);                {* var parameter: reference to the heap value *}
   V.Scale(2);
-end;                           { I and V are freed here }
+end;                           {* I and V are freed here *}
 ```
 
 * Every assignment stores a new **value** in the cell; `J := I` between two heap values copies
@@ -681,11 +693,11 @@ management and no reference counting:
 ```pascal
 val
   a := 'Hello';
-  b := a;                   { a copy }
+  b := a;                   {* a copy *}
 begin
-  b[1] := 'J';              { changes only b: Hello Jello }
+  b[1] := 'J';              {* changes only b: Hello Jello *}
   for val i := 1 to 200 do b := b + 'abc';
-  WriteLn(Length(b));       { 605 }
+  WriteLn(Length(b));       {* 605 *}
 end;
 ```
 
@@ -701,10 +713,10 @@ end;
 **Format** (as in Delphi) builds a string from a format and the values in brackets:
 
 ```pascal
-WriteLn(Format('%d items for %s', [n, Name]));             { 3 items for Anna }
+WriteLn(Format('%d items for %s', [n, Name]));             {* 3 items for Anna *}
 WriteLn(Format('[%5d] [%-6s] [%8.2f] [%x] [%n]', [42, 'ab', 3.14159, 255, 1234567.891]));
-{ [   42] [ab    ] [    3.14] [FF] [1,234,567.89] }
-WriteLn(Format('%1:s %0:s', ['world', 'hello']));          { hello world }
+{* [   42] [ab    ] [    3.14] [FF] [1,234,567.89] *}
+WriteLn(Format('%1:s %0:s', ['world', 'hello']));          {* hello world *}
 ```
 
 * Specifiers `%[index:][-][width][.precision]type`: `d` (whole number), `u`, `x` (hex), `f`
@@ -725,11 +737,11 @@ val
   all: TColors := [Red..Yellow];
   vowels: set of Char := ['a', 'e', 'i', 'o', 'u'];
 begin
-  if Green in all - warm then …;      { difference; also + (union), * (intersection) }
-  if warm <= all then …;              { subset; >= superset, = and <> }
+  if Green in all - warm then …;      {* difference; also + (union), * (intersection) *}
+  if warm <= all then …;              {* subset; >= superset, = and <> *}
   Include(warm, Green);
   Exclude(warm, Red);
-  for val c in warm do WriteLn(c);    { the members in order }
+  for val c in warm do WriteLn(c);    {* the members in order *}
 end;
 ```
 
@@ -747,9 +759,9 @@ object), optional values are equal if both are empty or both hold equal values.
 
 ```pascal
 val a: TPoint := (X: 1; Y: 2);
-if a = (X: 1; Y: 2) then …;          { record literal on one side }
-if anna.Tags <> bert.Tags then …;    { array of String }
-if s = Circle(2.0) then …;           { enumeration with data }
+if a = (X: 1; Y: 2) then …;          {* record literal on one side *}
+if anna.Tags <> bert.Tags then …;    {* array of String *}
+if s = Circle(2.0) then …;           {* enumeration with data *}
 ```
 
 Such types also satisfy the constraint `Equatable`. Records with a function value or a `result`
@@ -759,9 +771,9 @@ inside cannot be compared (`"TR" cannot be compared with '='`).
 
 ```pascal
 val
-  p: TPoint := (X: 1; Y: 2);                     { record literal }
-  a: array[1..3] of Integer := (10, 20, 30);    { array literal }
-  z: TBig := default;                            { all 0 / '' / none }
+  p: TPoint := (X: 1; Y: 2);                     {* record literal *}
+  a: array[1..3] of Integer := (10, 20, 30);    {* array literal *}
+  z: TBig := default;                            {* all 0 / '' / none *}
 ```
 
 Literals adapt to the expected type (initializer, assignment, argument, `Result`).
@@ -772,12 +784,12 @@ Without a type, the initializer determines the type; after that it is fixed:
 
 ```pascal
 val
-  N := 3.5;              { Real }
-  S := 'Hello';          { String }
+  N := 3.5;              {* Real *}
+  S := 'Hello';          {* String *}
 vao
-  I := 5;                { Integer on the heap }
+  I := 5;                {* Integer on the heap *}
 begin
-  N := 'x';              { error: N is Real }
+  N := 'x';              {* error: N is Real *}
 end;
 ```
 
@@ -802,10 +814,10 @@ variables in every iteration:
 ```pascal
 begin
   val j := 10;
-  vao s := TFoo.Create(1);   { belongs to this block only }
+  vao s := TFoo.Create(1);   {* belongs to this block only *}
   begin
     WriteLn(j, ' ', s.V);
-  end;                       { s is freed here, j is no longer visible }
+  end;                       {* s is freed here, j is no longer visible *}
 
   while i < 3 do
     val q := i * 100;
@@ -829,7 +841,7 @@ typed constants:
 const
   Max = 100;
   Name = 'ppc';
-  Limit: Integer = 5;          { read-only }
+  Limit: Integer = 5;          {* read-only *}
 ```
 
 For unchangeable values that are only known at run time there is the type modifier
@@ -838,15 +850,15 @@ For unchangeable values that are only known at run time there is the type modifi
 ```pascal
 procedure P(n: Integer);
 val
-  Square: Integer const := n * n;        { unchangeable, value at run time }
-  w: TVector const := v;                 { unchangeable copy of a record }
+  Square: Integer const := n * n;        {* unchangeable, value at run time *}
+  w: TVector const := v;                 {* unchangeable copy of a record *}
 var
-  reader: TPerson const := anna;         { read-only borrow of an object }
+  reader: TPerson const := anna;         {* read-only borrow of an object *}
 begin
-  Square := 1;                           { error }
-  w.X := 1;                              { error: part of a constant }
-  w.Scale(2);                            { error: Scale is no const method }
-  WriteLn(w.Len);                        { allowed: const method }
+  Square := 1;                           {* error *}
+  w.X := 1;                              {* error: part of a constant *}
+  w.Scale(2);                            {* error: Scale is no const method *}
+  WriteLn(w.Len);                        {* allowed: const method *}
 ```
 
 * Everything inside the value is unchangeable: record fields and array elements. On constant
@@ -859,7 +871,7 @@ read-only – like `const T&` in C++ or `&T` in Rust. Useful for strings, record
 expressions as arguments are put into a temporary copy:
 
 ```pascal
-function Sum(A: TBig const): Integer;               { no copy of the array }
+function Sum(A: TBig const): Integer;               {* no copy of the array *}
 procedure Show(S: String const; V: TVector const);
 …
 WriteLn(Twice(Square + 1));
@@ -884,14 +896,14 @@ a `T const` parameter is an error.
 type
   TVector = record
     X, Y: Real;
-    procedure Scale(F: Real);              { may change Self }
-    function Len: Real; const;             { does not change Self }
+    procedure Scale(F: Real);              {* may change Self *}
+    function Len: Real; const;             {* does not change Self *}
   end;
   TAccount = class
     function Description: String; const; virtual;
   end;
 
-function SquareOf(N: Integer): Integer; const;   { free routine without side effects }
+function SquareOf(N: Integer): Integer; const;   {* free routine without side effects *}
 begin Result := N * N; end;
 ```
 
@@ -916,11 +928,11 @@ procedure Show(P: TPerson const);
 function Older(A, B: TPerson const): var TPerson const;
 function BestFriend: var optional TPerson const; const;
 var
-  reader: TPerson const := anna;                { changeable -> read-only: allowed }
+  reader: TPerson const := anna;                {* changeable -> read-only: allowed *}
 begin
-  WriteLn(reader.Info);                         { const method: allowed }
-  reader.Birthday;                              { error: no const method }
-  reader.Age := 1;                              { error: the object is read-only }
+  WriteLn(reader.Info);                         {* const method: allowed *}
+  reader.Birthday;                              {* error: no const method *}
+  reader.Age := 1;                              {* error: the object is read-only *}
 ```
 
 * **Everything reached through it is read-only:** fields of class type
@@ -950,23 +962,23 @@ type
   end;
   TNode<T> = class
     Value: T;
-    Next: optional TNode<T>;                 { recursive }
+    Next: optional TNode<T>;                 {* recursive *}
   end;
-  TCustomerList = class(TList<TCustomer>)    { inherits from an instance }
+  TCustomerList = class(TList<TCustomer>)    {* inherits from an instance *}
     function Find(N: String const): var optional TCustomer;
   end;
 
-procedure TList<T>.Add(vao x: T);           { methods repeat <T> }
+procedure TList<T>.Add(vao x: T);           {* methods repeat <T> *}
 begin
   Inc(Size);
-  Items[Size] := x;                          { move, even if T is an object }
+  Items[Size] := x;                          {* move, even if T is an object *}
 end;
 …
 val p: TPair<String, Integer> := (First: 'Anna'; Second: 30);
 vao numbers := TList<Integer>.Create;
 vao customers := TCustomerList.Create;
 customers.Add(TCustomer.Create('Anna'));
-if customers.Find('Anna') is some k then WriteLn(k.Name);    { k is a TCustomer }
+if customers.Find('Anna') is some k then WriteLn(k.Name);    {* k is a TCustomer *}
 ```
 
 * Generic types are declared at program (or module) level; records, classes, functions and
@@ -986,11 +998,11 @@ begin a := b; b := h; end;
 
 function MakePair<A, B>(x: A; y: B): TPair<A, B>;
 …
-WriteLn(Max(3, 7), Max('Anna', 'Bert'));     { T from the arguments: Integer, String }
-WriteLn(Max(3, 7.5));                        { Integer and Real: T = Real }
-WriteLn(Max<Real>(1, 2));                    { T written out }
+WriteLn(Max(3, 7), Max('Anna', 'Bert'));     {* T from the arguments: Integer, String *}
+WriteLn(Max(3, 7.5));                        {* Integer and Real: T = Real *}
+WriteLn(Max<Real>(1, 2));                    {* T written out *}
 Swap(i, j);
-val p := MakePair('x', 42);                  { TPair<Char, Integer> }
+val p := MakePair('x', 42);                  {* TPair<Char, Integer> *}
 ```
 
 * The type arguments are inferred from the arguments – also through `optional T`, arrays,
@@ -1006,10 +1018,10 @@ val p := MakePair('x', 42);                  { TPair<Char, Integer> }
 ```pascal
 function Max<T: Comparable>(a, b: T): T;
 function Equal<T: Equatable>(a, b: T): Boolean;
-function CloneOf<T: Clone>(x: T): T;          { x.Clone }
+function CloneOf<T: Clone>(x: T): T;          {* x.Clone *}
 type
-  TPair<K: Comparable; V> = record … end;     { K constrained, V free }
-  TZoo<T: TAnimal> = class … end;             { T must be TAnimal or a descendant }
+  TPair<K: Comparable; V> = record … end;     {* K constrained, V free *}
+  TZoo<T: TAnimal> = class … end;             {* T must be TAnimal or a descendant *}
 ```
 
 | Constraint | allowed types |
@@ -1033,14 +1045,14 @@ call fields and methods:
 
 ```pascal
 function Sum<T>(a, b: T): T;
-begin Result := a + b; end;           { error: operator needs the constraint 'T: Numeric' (in Sum<T>) }
+begin Result := a + b; end;           {* error: operator needs the constraint 'T: Numeric' (in Sum<T>) *}
 
 function Name<T>(x: T): String;
-begin Result := x.Name; end;          { error: 'Name' is not known for type parameter "T" … }
+begin Result := x.Name; end;          {* error: 'Name' is not known for type parameter "T" … *}
 
 function Factorial<T: Numeric>(n: T): T;
 begin
-  if n <= 1 then Result := 1 else Result := n * Factorial(n - 1);   { ok }
+  if n <= 1 then Result := 1 else Result := n * Factorial(n - 1);   {* ok *}
 end;
 ```
 
@@ -1056,14 +1068,14 @@ end;
   procedure Twice<T>(vao x: T);
   begin
     Keep(x);
-    Keep(x);      { use of moved value 'x' (in the generic Twice: a type parameter without
-  end;              'Copy' may be an object) }
+    Keep(x);      {* use of moved value 'x' (in the generic Twice: a type parameter without
+  end;              'Copy' may be an object) *}
 
   function First<T>(a: array of optional T): optional T;
-  begin Result := a[0]; end;             { cannot move out of 'a[...]' ... use Take(a[...]) }
+  begin Result := a[0]; end;             {* cannot move out of 'a[...]' ... use Take(a[...]) *}
 
   function Twice<T: Copy>(x: T): TPair<T>;
-  begin Result.A := x; Result.B := x; end;   { ok: T is a value }
+  begin Result.A := x; Result.B := x; end;   {* ok: T is a value *}
   ```
 
   Such an error is reported once for the generic, not for every instance. Every instance is
@@ -1090,14 +1102,14 @@ type
     class function Make<T: class>(n: Integer): TPrinter;
   end;
 
-function TPrinter.Pick<T>(a, b: T): T; const;   { the implementation repeats <T> }
+function TPrinter.Pick<T>(a, b: T): T; const;   {* the implementation repeats <T> *}
 begin
   if a < b then Result := b else Result := a;
 end;
 
-WriteLn(p.Pick(3, 9), p.Pick('b', 'a'));        { T from the arguments }
-WriteLn(p.Show<Real>(2.5));                     { or written out }
-vao q := TPrinter.Make<TItem>(7);               { class method }
+WriteLn(p.Pick(3, 9), p.Pick('b', 'a'));        {* T from the arguments *}
+WriteLn(p.Show<Real>(2.5));                     {* or written out *}
+vao q := TPrinter.Make<TItem>(7);               {* class method *}
 ```
 
 * An instance is made for every type combination used; the body is checked once on its own
@@ -1119,8 +1131,8 @@ A program includes modules with **`import`**. A module is a file of its own that
 The module ends with `end.`:
 
 ```pascal
-module Geometry;                        { file Geometry.pas }
-import ppc_std;                         { imports come right after the header }
+module Geometry;                        {* file Geometry.pas *}
+import ppc_std;                         {* imports come right after the header *}
 
 interface
 
@@ -1130,11 +1142,11 @@ type
     function Distance(b: TPoint): Real; const;
   end;
 
-function TotalArea(l: TList<TFigure>): Real;   { header only }
+function TotalArea(l: TList<TFigure>): Real;   {* header only *}
 
 implementation
 
-function Square(x: Real): Real;         { private: not visible to importers }
+function Square(x: Real): Real;         {* private: not visible to importers *}
 begin Result := x * x; end;
 
 function TPoint.Distance(b: TPoint): Real; const;
@@ -1147,13 +1159,13 @@ end.
 ```
 
 ```pascal
-program Main;                           { file Main.pas in the same directory }
+program Main;                           {* file Main.pas in the same directory *}
 import ppc_std, Geometry;
 
 val a: TPoint := (X: 0; Y: 0);
 val b: TPoint := (X: 3; Y: 4);
 begin
-  WriteLn(a.Distance(b):0:1);           { 5.0 }
+  WriteLn(a.Distance(b):0:1);           {* 5.0 *}
 end.
 ```
 
@@ -1183,13 +1195,13 @@ val numbers: array of Integer := (5, 3, 9, 1, 7);
 vao customers := TList<TCustomer>.Create;
 vao ages := TMap<String, Integer>.Create;
 begin
-  Sort(numbers);                                     { 1 3 5 7 9 }
-  if IndexOf(numbers, 7) is some p then WriteLn(p);  { 3 }
+  Sort(numbers);                                     {* 1 3 5 7 9 *}
+  if IndexOf(numbers, 7) is some p then WriteLn(p);  {* 3 *}
   customers.Add(TCustomer.Create('Anna'));
   if customers.Get(0) is some k then WriteLn(k.Name);
   ages.Put('Anna', 30);
   if ages.Get('Anna') is some a then WriteLn(a);
-end.                                                 { all containers free their objects }
+end.                                                 {* all containers free their objects *}
 ```
 
 | Name | Contents |
@@ -1226,9 +1238,9 @@ end.                                                 { all containers free their
 ```pascal
 case WriteFile('notes.txt', 'one'#10'two'#10) of
   ok: WriteLn('saved');
-  error e: WriteLn(e);                 { cannot open 'notes.txt': Permission denied }
+  error e: WriteLn(e);                 {* cannot open 'notes.txt': Permission denied *}
 end;
-val lines := ReadLines('notes.txt');   { result array of String }
+val lines := ReadLines('notes.txt');   {* result array of String *}
 if lines is ok ls then for val l in ls do WriteLn(l);
 ```
 
@@ -1249,8 +1261,8 @@ if TTextFile.OpenRead('notes.txt') is ok f then
 **Directories and paths:**
 
 ```pascal
-if ForceDirs('out/logs') is error e then WriteLn(e);      { with all missing parents }
-val r := ListDir('out');                                  { result array of String, sorted }
+if ForceDirs('out/logs') is error e then WriteLn(e);      {* with all missing parents *}
+val r := ListDir('out');                                  {* result array of String, sorted *}
 if r is ok names then
   for val n in names do
     if DirExists(JoinPath('out', n)) then WriteLn(n, '/') else WriteLn(n);
@@ -1287,9 +1299,9 @@ type
   TVector = record
     X, Y: Real;
     procedure Put(AX, AY: Real);
-    procedure Scale(F: Real);                   { changes the record itself }
+    procedure Scale(F: Real);                   {* changes the record itself *}
     function Len: Real;
-    function Plus(B: TVector const): TVector;   { returns a new value }
+    function Plus(B: TVector const): TVector;   {* returns a new value *}
     property Width: Real read X write X;
   end;
 
@@ -1299,11 +1311,11 @@ function TVector.Plus(B: TVector const): TVector; begin Result.Put(X + B.X, Y + 
 val
   a: TVector := (X: 3; Y: 4);
   b: TVector := default;
-  points: array[1..100] of TVector := default;  { 100 values in a row, no allocation }
+  points: array[1..100] of TVector := default;  {* 100 values in a row, no allocation *}
 begin
-  b := a;                               { copy }
-  b.Scale(2);                           { a stays (3, 4) }
-  WriteLn(a.Plus(b).Len:0:1);           { methods on result values too }
+  b := a;                               {* copy *}
+  b.Scale(2);                           {* a stays (3, 4) *}
+  WriteLn(a.Plus(b).Len:0:1);           {* methods on result values too *}
 end.
 ```
 
@@ -1405,36 +1417,36 @@ type, like `Option<T>` in Rust and `std::optional<T>` in C++. The empty value is
 type
   TNode = class
     Value: Integer;
-    Next: optional TNode;                { Option<Box<Node>> }
+    Next: optional TNode;                {* Option<Box<Node>> *}
   end;
 
 function Find(n: Integer): optional Integer;
 begin
-  if n > 0 then Result := n * 2          { Integer becomes some(...) automatically }
+  if n > 0 then Result := n * 2          {* Integer becomes some(...) automatically *}
   else Result := none;
 end;
 
 val
-  age: optional Integer := 42;           { std::optional<int> }
+  age: optional Integer := 42;           {* std::optional<int> *}
 vao
-  head: optional TNode := none;          { Option<Box<Node>> }
+  head: optional TNode := none;          {* Option<Box<Node>> *}
 var
-  p: optional TNode := none;             { Option<&Node> }
+  p: optional TNode := none;             {* Option<&Node> *}
 begin
-  if age is some a then WriteLn(a);                { if let Some(a) = age }
+  if age is some a then WriteLn(a);                {* if let Some(a) = age *}
   p := head;
-  while p is some k do begin                       { while let Some(k) = p }
+  while p is some k do begin                       {* while let Some(k) = p *}
     Write(k.Value, ' ');
     p := k.Next;
   end;
-  if (p is some k) and (k.Value > 10) then …       { binding + another condition }
-  case Find(5) of                                  { match }
+  if (p is some k) and (k.Value > 10) then …       {* binding + another condition *}
+  case Find(5) of                                  {* match *}
     some v: WriteLn('found ', v);
     none:   WriteLn('nothing');
   end;
-  WriteLn(age.ValueOr(0));                         { unwrap_or / value_or }
-  if age.HasValue then …                           { is_some / has_value }
-  if age = none then …                             { is_none }
+  WriteLn(age.ValueOr(0));                         {* unwrap_or / value_or *}
+  if age.HasValue then …                           {* is_some / has_value *}
+  if age = none then …                             {* is_none *}
 end.
 ```
 
@@ -1501,7 +1513,7 @@ type TError = (DivByZero, TooBig);
 function Divide(a, b: Integer): result Integer;
 begin
   if b = 0 then Result := error('division by 0')
-  else Result := a div b;                      { a value is ok(...) automatically }
+  else Result := a div b;                      {* a value is ok(...) automatically *}
 end;
 
 function Check(n: Integer): result of TError;
@@ -1511,20 +1523,20 @@ end;
 
 function Compute(a, b, c: Integer): result Integer;
 begin
-  val q := try Divide(a, b);                   { error: Compute returns it at once }
+  val q := try Divide(a, b);                   {* error: Compute returns it at once *}
   begin
     Result := try Divide(q, c);
   end;
 end;
 …
-case Divide(1, 0) of                           { match }
+case Divide(1, 0) of                           {* match *}
   ok v:    WriteLn('value ', v);
   error e: WriteLn('error: ', e);
 end;
-if r is ok v then WriteLn(v);                  { if let Ok(v) = r }
-if Check(5) is ok then …;                      { result without a value }
-WriteLn(Divide(7, 0).ValueOr(-1));             { unwrap_or }
-if r.IsError then …;                           { is_err; also r.IsOk }
+if r is ok v then WriteLn(v);                  {* if let Ok(v) = r *}
+if Check(5) is ok then …;                      {* result without a value *}
+WriteLn(Divide(7, 0).ValueOr(-1));             {* unwrap_or *}
+if r.IsError then …;                           {* is_err; also r.IsOk *}
 ```
 
 * **Creating:** `ok(v)`, `ok` (without a value), `error(e)`; a value of type `T` becomes
@@ -1554,18 +1566,18 @@ A `result TFile` **owns** its object, like a `vao` variable:
 function Open(Name: String): result TFile;
 begin
   if Name = '' then Result := error('no name')
-  else Result := ok(TFile.Create(Name));      { ok(f) with 'vao f' moves f }
+  else Result := ok(TFile.Create(Name));      {* ok(f) with 'vao f' moves f *}
 end;
 
-if Open('a.txt') is ok f then f.Write('x');   { f takes the object; freed after the 'if' }
-case Open('b.txt') of                         { the same in a case; freed after the case }
+if Open('a.txt') is ok f then f.Write('x');   {* f takes the object; freed after the 'if' *}
+case Open('b.txt') of                         {* the same in a case; freed after the case *}
   ok f: f.Write('y');
   error e: WriteLn(e);
 end;
-vao f := try Open('c.txt');                   { in a function returning a result }
+vao f := try Open('c.txt');                   {* in a function returning a result *}
 
-val r := Open('d.txt');                       { r owns the object ... }
-if r is ok f then f.Write('z');               { ... f only borrows it }
+val r := Open('d.txt');                       {* r owns the object ... *}
+if r is ok f then f.Write('z');               {* ... f only borrows it *}
 ```
 
 * From a fresh result (a call) `is ok f` gives `f` the object, which is freed when the `if`
@@ -1599,8 +1611,8 @@ type
     function Describe(Prefix: String): String; overload;
   end;
   TCircle = class(TShape)
-    function Describe: String; override;              { overrides the variant without parameters }
-    function Describe(Times: Integer): String; overload; { a third variant }
+    function Describe: String; override;              {* overrides the variant without parameters *}
+    function Describe(Times: Integer): String; overload; {* a third variant *}
   end;
 
 WriteLn(Show(5), Show('hi'), Show(1, 2));
@@ -1633,7 +1645,7 @@ type
     X, Y: Real;
     class operator Add(a, b: TVec): TVec;
     class operator Multiply(a: TVec; f: Real): TVec;
-    class operator Multiply(f: Real; a: TVec): TVec;   { several variants }
+    class operator Multiply(f: Real; a: TVec): TVec;   {* several variants *}
     class operator Negative(a: TVec): TVec;
     class operator Equal(a, b: TVec): Boolean;
   end;
@@ -1644,7 +1656,7 @@ begin
   Result.Y := a.Y + b.Y;
 end;
 
-c := a + b * 2 - a;           { the usual precedence }
+c := a + b * 2 - a;           {* the usual precedence *}
 if -a = c then …;
 ```
 
@@ -1674,7 +1686,7 @@ begin
   for val i := 0 to High(a) do act(a[i]);
 end;
 
-val cmp: TCompare := Desc;                      { a routine as a value }
+val cmp: TCompare := Desc;                      {* a routine as a value *}
 begin
   WriteLn(cmp(1, 5));
   ForEach(nums, procedure(x: Integer) begin Write(x * 10, ' '); end);
@@ -1710,7 +1722,7 @@ end;
 procedure Demo(Limit: Integer);
 val Sum := 0;
 begin
-  ForEach(nums, procedure(x: Integer) begin Sum := Sum + x; end);      { Sum is changed }
+  ForEach(nums, procedure(x: Integer) begin Sum := Sum + x; end);      {* Sum is changed *}
   WriteLn(CountIf(nums, function(x: Integer): Boolean begin Result := x > Limit; end));
   val Twice: reference to function(x: Integer): Integer :=
     function(x: Integer): Integer begin Result := 2 * x + Sum; end;
@@ -1742,9 +1754,9 @@ A method of an object can be passed where a `reference to` function is expected;
 on that object (virtual methods in the object's class, also through interfaces and on records):
 
 ```pascal
-ForEach(nums, printer.Print);         { printer.Print(x) for every element }
-SortBy(names, cmp.Less);              { a const method as the comparison }
-Twice(counter.Tick);                  { a method without parameters: not called here }
+ForEach(nums, printer.Print);         {* printer.Print(x) for every element *}
+SortBy(names, cmp.Less);              {* a const method as the comparison *}
+Twice(counter.Tick);                  {* a method without parameters: not called here *}
 ```
 
 * A method value can only be **passed directly as an argument**: during the call its object
@@ -1768,7 +1780,7 @@ type
     Empty
   );
 
-val s := Circle(2.0);                    { or TShape.Circle(2.0) }
+val s := Circle(2.0);                    {* or TShape.Circle(2.0) *}
 s := Empty;
 ```
 
@@ -1787,7 +1799,7 @@ begin
 end;
 
 if s is Named(n, k) then WriteLn(n, ' ', k) else WriteLn('not named');
-if s is Empty then ...                   { a test without names: an ordinary Boolean }
+if s is Empty then ...                   {* a test without names: an ordinary Boolean *}
 case s of Named(var n, _): n := n + '!'; else end;
 ```
 
@@ -1883,7 +1895,7 @@ case f of
 else WriteLn('some figure');
 end;
 
-if f is TSquare(q) then WriteLn(q.S);          { one pattern as the condition of an if }
+if f is TSquare(q) then WriteLn(q.S);          {* one pattern as the condition of an if *}
 val area := case f of TCircle(c): 3 * c.R * c.R; TSquare(q): q.S * q.S else 0 end;
 ```
 
@@ -1904,22 +1916,22 @@ Patterns can contain patterns: a field of a variant can be tested with a variant
 ```pascal
 case it of
   Single(Circle(r)) when r > 5: WriteLn('big circle');
-  Single(Rect(0, h)): WriteLn('flat, height ', h);     { a constant: W must be 0 }
+  Single(Rect(0, h)): WriteLn('flat, height ', h);     {* a constant: W must be 0 *}
   Pair(Empty, Empty): WriteLn('two empties');
   Box(some n): WriteLn('box with ', n);
   Box(none): WriteLn('empty box');
-  Paint(Red, n): WriteLn('red ', n);                    { an enumeration value }
+  Paint(Red, n): WriteLn('red ', n);                    {* an enumeration value *}
 else WriteLn('other');
 end;
 
 case Find(k) of
-  some Circle(r): ...;      { an optional value that holds a Circle }
+  some Circle(r): ...;      {* an optional value that holds a Circle *}
   some Empty: ...;
   some _: ...;
   none: ...;
 end;
 
-case f of some TCircle(c): ... end;    { an optional object of class TCircle }
+case f of some TCircle(c): ... end;    {* an optional object of class TCircle *}
 if Find(3) is some Circle(r) then ...;
 ```
 
@@ -1946,12 +1958,12 @@ characters), a container with the methods `Count` and `Get(i)` (such as `TList<T
 
 ```pascal
 val a: array[1..4] of Integer := (3, 1, 4, 1);
-for var x in a do x := x * 10;               { a = (30, 10, 40, 10) }
-for val c in 'abc' do Write(c, '-');         { a-b-c- }
+for var x in a do x := x * 10;               {* a = (30, 10, 40, 10) *}
+for val c in 'abc' do Write(c, '-');         {* a-b-c- *}
 
 vao people := TList<TPerson>.Create;
 ...
-for val p in people do WriteLn(p.Name);      { optional elements: empty ones are skipped }
+for val p in people do WriteLn(p.Name);      {* optional elements: empty ones are skipped *}
 ```
 
 Optional elements (`optional T`, as returned by `TList<T>.Get`) are unpacked; empty elements are
@@ -1969,7 +1981,7 @@ record or an object – has `function MoveNext: Boolean` and `Current` (a functi
 type
   TRangeEnum = record
     Cur, Hi: Integer;
-    function MoveNext: Boolean;              { Inc(Cur); Result := Cur <= Hi }
+    function MoveNext: Boolean;              {* Inc(Cur); Result := Cur <= Hi *}
     property Current: Integer read Cur;
   end;
   TRange = record
@@ -1980,7 +1992,7 @@ type
 for val i in Range(1, 10) do Write(i, ' ');
 
   TBagEnum = record
-    Bag: var optional TBag;                  { refers to its container }
+    Bag: var optional TBag;                  {* refers to its container *}
     I: Integer;
     function MoveNext: Boolean;
     function Current: Integer; const;
@@ -1989,7 +2001,7 @@ for val i in Range(1, 10) do Write(i, ' ');
 function TBag.GetEnumerator: TBagEnum;
 begin
   Result.I := -1;
-  Result.Bag := Self;                        { allowed in GetEnumerator }
+  Result.Bag := Self;                        {* allowed in GetEnumerator *}
 end;
 
 for val x in bag do Write(x, ' ');
@@ -2018,9 +2030,9 @@ loop
   end;
 
 loop
-  vao k := TJob.Create(n);           { a fresh owner in every iteration }
+  vao k := TJob.Create(n);           {* a fresh owner in every iteration *}
   begin
-    if not k.Run then Break;         { k is freed on Break too }
+    if not k.Run then Break;         {* k is freed on Break too *}
   end;
 ```
 

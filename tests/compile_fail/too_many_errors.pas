@@ -1,4 +1,4 @@
-{ EXPECT: too many errors (20), stopping }
+{* EXPECT: too many errors (20), stopping *}
 program E4; begin
   WriteLn(1 + 'a');
   WriteLn(1 + 'a');

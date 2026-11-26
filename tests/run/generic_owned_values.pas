@@ -57,7 +57,7 @@ begin
     WriteLn(st.Count);
     m.Put('k1', MakeOrder('m1', 11));
     m.Put('k2', MakeOrder('m2', 12));
-    m.Put('k1', MakeOrder('m1b', 13));          { replaces: frees item 11 }
+    m.Put('k1', MakeOrder('m1b', 13));          {* replaces: frees item 11 *}
     if m.Get('k1') is some g then Show(g);
     if m.Get('zz') is some z then Show(z) else WriteLn('no zz');
     if m.Remove('k2') is some r then Show(r);
@@ -65,7 +65,7 @@ begin
     Consume(MakeOrder('c', 21));
     if Wrap(MakeOrder('w', 22)) is some w then Show(w);
     Keep(o);
-    WriteLn('[', o.Name, ']');                  { moved: empty }
+    WriteLn('[', o.Name, ']');                  {* moved: empty *}
     lists.Add(words);
     lists.Add(Split('a,b,c', ','));
     if lists.Get(1) is some ws then WriteLn(Length(ws), ' ', Join(ws, '+'));

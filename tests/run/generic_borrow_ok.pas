@@ -1,5 +1,5 @@
 program generic_borrow_ok;
-{ generic bodies that are correct for objects and for values }
+{* generic bodies that are correct for objects and for values *}
 type
   TItem = class
     N: Integer;

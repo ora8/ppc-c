@@ -1,5 +1,5 @@
 program DynamicArrays;
-{ dynamic arrays (generics stage 5): array of T, SetLength, Length, High, Move, Clone }
+{* dynamic arrays (generics stage 5): array of T, SetLength, Length, High, Move, Clone *}
 type
   TK = class
     N: Integer;
@@ -29,7 +29,7 @@ begin
 end;
 function TStack<T>.Size: Integer; const; begin Result := Length(Items); end;
 
-function Sum(a: array of Integer): Integer;   { borrow, no copy }
+function Sum(a: array of Integer): Integer;   {* borrow, no copy *}
 begin
   Result := 0;
   for val i := 0 to High(a) do Result := Result + a[i];
@@ -56,9 +56,9 @@ begin
   SetLength(p, 2);
   p[1].X := 7;
   WriteLn('p[1].X = ', p[1].X, ', p[0].X = ', p[0].X);
-  w := z;                                  { Move: z is empty afterwards }
+  w := z;                                  {* Move: z is empty afterwards *}
   WriteLn('w ', Length(w), ', z ', Length(z));
-  val c := w.Clone;                        { a copy of its own }
+  val c := w.Clone;                        {* a copy of its own *}
   begin
     c[0] := 99;
     WriteLn('w[0] = ', w[0], ', c[0] = ', c[0]);
@@ -66,7 +66,7 @@ begin
   SetLength(objs, 3);
   objs[0] := TK.Create(1);
   objs[2] := TK.Create(3);
-  SetLength(objs, 1);                      { frees TK 3 }
+  SetLength(objs, 1);                      {* frees TK 3 *}
   WriteLn('objs ', Length(objs));
   st.Push(TK.Create(10));
   st.Push(TK.Create(20));

@@ -1,4 +1,4 @@
-{ EXPECT: identifier not found "k" }
+{* EXPECT: identifier not found "k" *}
 program T;
 type TShape = (Circle(Radius: Real), Empty);
 procedure P(s: TShape);

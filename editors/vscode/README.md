@@ -3,7 +3,7 @@
 Support for [Perfect Pascal](../../README.md) (`ppc`) in Visual Studio Code:
 
 * syntax highlighting (`val`/`var`/`vao`, `optional`, `result`, `reference to`, …), comment
-  toggling (`//`, `{ }`), brackets, `begin`/`end` folding and indentation;
+  toggling (`//`, `{* *}`), brackets, `begin`/`end` folding and indentation;
 * through the language server `ppc --lsp`: errors and warnings while you type (also borrow and
   nil errors), hover, go to definition (F12) and completion (after `.` and for names);
 * commands **Perfect Pascal: Run File** (also the ▷ button above the editor), **Check File** and
@@ -30,5 +30,5 @@ code --install-extension perfect-pascal-0.1.0.vsix
 | `ppc.trace.server` | `messages` / `verbose`: log the LSP traffic (Output: Perfect Pascal) |
 
 Files ending in `.pas` are Perfect Pascal files, files ending in `.ppb` use the brace syntax
-(`func`, `proc`, `{ }`; comments `//` and `(* *)`) with their own highlighting. If another Pascal extension claims them, choose
+(`func`, `proc`, `{ }`; comments `{* *}`, `(* *)` and `//`) with their own highlighting. If another Pascal extension claims them, choose
 *Perfect Pascal* with *Change Language Mode*.

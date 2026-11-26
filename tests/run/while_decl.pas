@@ -1,5 +1,5 @@
 program WhileDecl;
-{ while val i := 0; i < n do ...: the variable belongs to the loop (created once) }
+{* while val i := 0; i < n do ...: the variable belongs to the loop (created once) *}
 type TK = class N: Integer; destructor Destroy; override; end;
 destructor TK.Destroy; begin WriteLn('freed ', N); inherited Destroy; end;
 begin

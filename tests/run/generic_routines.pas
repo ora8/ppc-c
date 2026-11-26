@@ -1,5 +1,5 @@
 program GenericRoutines;
-{ generic functions and procedures (stage 2): type from the arguments or written out }
+{* generic functions and procedures (stage 2): type from the arguments or written out *}
 type
   TCustomer = class
     Name: String;
@@ -32,7 +32,7 @@ end;
 function First<A: Copy; B>(p: TPair<A, B>): A;
 begin Result := p.First; end;
 
-function Factorial<T: Numeric>(n: T): T;          { recursive }
+function Factorial<T: Numeric>(n: T): T;          {* recursive *}
 begin
   if n <= 1 then Result := 1 else Result := n * Factorial(n - 1);
 end;

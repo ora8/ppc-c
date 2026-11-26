@@ -1,4 +1,4 @@
-{ EXPECT: use of possibly moved value 'k' }
+{* EXPECT: use of possibly moved value 'k' *}
 program T;
 type TShape = (Circle(Radius: Real), Empty);
   TK = class V: Integer; end;

@@ -2,8 +2,8 @@
   "comments": {
     "lineComment": "//",
     "blockComment": [
-      "(*",
-      "*)"
+      "{*",
+      "*}"
     ]
   },
   "brackets": [
@@ -44,6 +44,13 @@
     {
       "open": "(*",
       "close": "*)",
+      "notIn": [
+        "string"
+      ]
+    },
+    {
+      "open": "{*",
+      "close": " *}",
       "notIn": [
         "string"
       ]

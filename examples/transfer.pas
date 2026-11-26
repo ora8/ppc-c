@@ -1,7 +1,7 @@
 program Transfer;
-{ Error handling without exceptions: 'result T of E' (like Result<T, E> in Rust),
+{* Error handling without exceptions: 'result T of E' (like Result<T, E> in Rust),
   pass errors on with 'try' (like '?'), unpack with case / is ok / ValueOr.
-  Compile with:  ./ppc examples/transfer.pas }
+  Compile with:  ./ppc examples/transfer.pas *}
 type
   TError = (NoMoney, UnknownAccount, InvalidAmount);
   TAccount = class
@@ -24,7 +24,7 @@ begin
   Result := error(UnknownAccount);
   for val i := 1 to 3 do
     if Accounts[i] is some k then
-      if k.Name = Name then Result := i;       { a value is ok(i) automatically }
+      if k.Name = Name then Result := i;       {* a value is ok(i) automatically *}
 end;
 
 function TBank.Withdraw(Nr, Amount: Integer): result of TError;
@@ -38,14 +38,14 @@ end;
 
 function TBank.Transfer(Source, Dest: String const; Amount: Integer): result Integer of TError;
 begin
-  val a := try Find(Source);                     { error: Transfer ends here }
+  val a := try Find(Source);                     {* error: Transfer ends here *}
   val b := try Find(Dest);
   begin
-    try Withdraw(a, Amount);                    { statement: only the error counts }
+    try Withdraw(a, Amount);                    {* statement: only the error counts *}
     if Accounts[b] is some k then
     begin
       k.Balance := k.Balance + Amount;
-      Result := k.Balance;                       { new balance of the receiver }
+      Result := k.Balance;                       {* new balance of the receiver *}
     end;
   end;
 end;

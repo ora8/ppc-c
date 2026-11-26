@@ -1,5 +1,5 @@
 program FunctionValuesStd;
-{ lambdas with ppc_std: SortBy, Filter, optional event fields }
+{* lambdas with ppc_std: SortBy, Filter, optional event fields *}
 import ppc_std;
 type
   TPerson = record Name: String; Age: Integer; end;

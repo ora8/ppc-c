@@ -2,16 +2,16 @@ program Ownership;
 type
   TItem = class
     Value: Integer;
-    Next: optional TItem;         { owns the next element (none at the end) }
+    Next: optional TItem;         {* owns the next element (none at the end) *}
     constructor Create(V: Integer);
     destructor Destroy; override;
   end;
   TList = class
     Head: optional TItem;
     Count: Integer;
-    procedure Push(vao Item: TItem);   { takes over the ownership }
+    procedure Push(vao Item: TItem);   {* takes over the ownership *}
     function Find(V: Integer): var optional TItem;
-    function PopFront: optional TItem;    { gives the ownership to the caller }
+    function PopFront: optional TItem;    {* gives the ownership to the caller *}
     destructor Destroy; override;
   end;
 
@@ -20,13 +20,13 @@ begin inherited Create; Value := V; end;
 
 destructor TItem.Destroy;
 begin
-  inherited Destroy;             { Next (and with it the whole chain) is freed automatically }
+  inherited Destroy;             {* Next (and with it the whole chain) is freed automatically *}
 end;
 
 procedure TList.Push(vao Item: TItem);
 begin
-  Item.Next := Take(Head);       { Head -> none, ownership moves to Item.Next }
-  Head := Item;                  { move of the parameter into the field }
+  Item.Next := Take(Head);       {* Head -> none, ownership moves to Item.Next *}
+  Head := Item;                  {* move of the parameter into the field *}
   Inc(Count);
 end;
 
@@ -55,7 +55,7 @@ begin
   inherited Destroy;
 end;
 
-procedure PrintList(L: TList);   { value parameter = borrow }
+procedure PrintList(L: TList);   {* value parameter = borrow *}
 var it: optional TItem := none;
 begin
   it := L.Head;
@@ -72,11 +72,11 @@ type
 constructor TVec.Create(AX, AY: Real); begin inherited Create; X := AX; Y := AY; end;
 function TVec.Len: Real; begin Result := Sqrt(X * X + Y * Y); end;
 
-procedure Scale(V: TVec; F: Real);   { a borrow is enough to change the fields }
+procedure Scale(V: TVec; F: Real);   {* a borrow is enough to change the fields *}
 begin V.X := V.X * F; V.Y := V.Y * F; end;
 
 vao
-  list: TList := TList.Create;                   { owners }
+  list: TList := TList.Create;                   {* owners *}
   item: TItem := TItem.Create(99);
   popped: optional TItem := none;
 var
@@ -91,8 +91,8 @@ begin
   
   for i := 1 to 5 do list.Push(TItem.Create(i * 10));
   
-  list.Push(item);               { item is moved afterwards }
-  item := TItem.Create(7);       { assigning again is allowed }
+  list.Push(item);               {* item is moved afterwards *}
+  item := TItem.Create(7);       {* assigning again is allowed *}
   list.Push(item);
   PrintList(list);
   found := list.Find(30);
@@ -102,7 +102,7 @@ begin
   PrintList(list);
 
   
-                         { borrow of v }
+                         {* borrow of v *}
   Scale(pv, 2);
   WriteLn('Len: ', pv.Len:0:1);
 end.

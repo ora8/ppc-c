@@ -1,4 +1,4 @@
-{ EXPECT: 'l' was changed at line 9 while 'it' was borrowing it }
+{* EXPECT: 'l' was changed at line 9 while 'it' was borrowing it *}
 program T;
 import ppc_std;
 type TItem = class N: Integer; end;

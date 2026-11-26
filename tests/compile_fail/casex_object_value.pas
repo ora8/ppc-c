@@ -1,4 +1,4 @@
-{ EXPECT: a case expression cannot give objects or values that own them ("TK"): use a case statement }
+{* EXPECT: a case expression cannot give objects or values that own them ("TK"): use a case statement *}
 program T;
 type TK = class end;
 vao a := TK.Create;

@@ -1,31 +1,96 @@
 {
   "comments": {
     "lineComment": "//",
-    "blockComment": ["{", "}"]
+    "blockComment": [
+      "{*",
+      "*}"
+    ]
   },
   "brackets": [
-    ["(", ")"],
-    ["[", "]"],
-    ["begin", "end"],
-    ["case", "end"],
-    ["record", "end"],
-    ["class", "end"],
-    ["interface", "end"]
+    [
+      "(",
+      ")"
+    ],
+    [
+      "[",
+      "]"
+    ],
+    [
+      "begin",
+      "end"
+    ],
+    [
+      "case",
+      "end"
+    ],
+    [
+      "record",
+      "end"
+    ],
+    [
+      "class",
+      "end"
+    ],
+    [
+      "interface",
+      "end"
+    ]
   ],
   "autoClosingPairs": [
-    { "open": "(", "close": ")" },
-    { "open": "[", "close": "]" },
-    { "open": "'", "close": "'", "notIn": ["string", "comment"] },
-    { "open": "(*", "close": "*)", "notIn": ["string"] },
-    { "open": "{", "close": "}", "notIn": ["string"] }
+    {
+      "open": "(",
+      "close": ")"
+    },
+    {
+      "open": "[",
+      "close": "]"
+    },
+    {
+      "open": "'",
+      "close": "'",
+      "notIn": [
+        "string",
+        "comment"
+      ]
+    },
+    {
+      "open": "(*",
+      "close": "*)",
+      "notIn": [
+        "string"
+      ]
+    },
+    {
+      "open": "{*",
+      "close": " *}",
+      "notIn": [
+        "string"
+      ]
+    }
   ],
-  "surroundingPairs": [["(", ")"], ["[", "]"], ["'", "'"], ["{", "}"]],
+  "surroundingPairs": [
+    [
+      "(",
+      ")"
+    ],
+    [
+      "[",
+      "]"
+    ],
+    [
+      "'",
+      "'"
+    ]
+  ],
   "wordPattern": "[A-Za-z_][A-Za-z0-9_]*",
   "indentationRules": {
     "increaseIndentPattern": "^\\s*(begin|repeat|record|case\\b.*\\bof|try|loop)\\b.*$|^\\s*\\w+\\s*=\\s*(class|record|interface)\\b(?!.*\\bend\\b).*$",
     "decreaseIndentPattern": "^\\s*(end|until)\\b.*$"
   },
   "folding": {
-    "markers": { "start": "^\\s*(begin|record|case\\b|class\\b|interface\\b|repeat)\\b", "end": "^\\s*(end|until)\\b" }
+    "markers": {
+      "start": "^\\s*(begin|record|case\\b|class\\b|interface\\b|repeat)\\b",
+      "end": "^\\s*(end|until)\\b"
+    }
   }
 }

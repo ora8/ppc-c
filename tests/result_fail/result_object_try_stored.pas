@@ -1,4 +1,4 @@
-{ EXPECT: 'try' on a stored result would take its object }
+{* EXPECT: 'try' on a stored result would take its object *}
 program r2;
 type
   TFile = class

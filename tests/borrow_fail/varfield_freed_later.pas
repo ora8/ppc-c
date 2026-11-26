@@ -1,4 +1,4 @@
-{ EXPECT: 'b' still refers to another object through a 'var' field when it is freed at the end of its block }
+{* EXPECT: 'b' still refers to another object through a 'var' field when it is freed at the end of its block *}
 program T;
 type
   TNode = class

@@ -1,4 +1,4 @@
-{ EXPECT: this value owns objects: store it in a variable before the case expression ('val x := ...') }
+{* EXPECT: this value owns objects: store it in a variable before the case expression ('val x := ...') *}
 program T;
 type TK = class V: Integer; end;
 function Find: optional TK; begin Result := TK.Create; end;

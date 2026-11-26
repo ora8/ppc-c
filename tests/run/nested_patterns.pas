@@ -1,5 +1,5 @@
 program NestedPatterns;
-{ nested patterns: patterns inside patterns, constants, some/none/ok/error inside, in statements, if and expressions }
+{* nested patterns: patterns inside patterns, constants, some/none/ok/error inside, in statements, if and expressions *}
 type
   TColor = (Red, Green, Blue);
   TShape = (Circle(Radius: Real), Rect(W, H: Integer), Empty);

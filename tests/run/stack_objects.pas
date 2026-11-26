@@ -1,5 +1,5 @@
 program StackObjects;
-{ stack objects: 'val k := TClass.Create(...)' lives in the stack frame, Destroy at the end of the block }
+{* stack objects: 'val k := TClass.Create(...)' lives in the stack frame, Destroy at the end of the block *}
 type
   TFigure = class
     X: Integer;
@@ -25,7 +25,7 @@ procedure Local;
 val k := TCircle.Create(1, 2.5);
 begin
   Draw(k);
-  k.Name := TFigure.Create(99);           { owning field of a stack object }
+  k.Name := TFigure.Create(99);           {* owning field of a stack object *}
   var f: TFigure := k;
   begin f.X := 5; end;
   k.Show;

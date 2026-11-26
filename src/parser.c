@@ -31,7 +31,7 @@ static const char *SYMS[] = {":=", "<=", ">=", "<>", "..", "+", "-", "*", "/", "
 typedef VEC(Token) TokVec;
 
 /* the brace syntax (files ending in .ppb): func, proc, { } instead of function, procedure, begin, end;
-   comments are // and (* *) */
+   comments are {* *}, (* *) and // in both syntaxes */
 int is_brace_file(const char *f) {
     size_t n = f ? strlen(f) : 0;
     return n > 4 && strcmp(f + n - 4, ".ppb") == 0;
@@ -66,6 +66,15 @@ static TokVec tokenize(const char *src) {
             continue;
         }
         Pos pos = {line, col, g_filename};
+        if (c == '{' && i + 1 < n && b[i + 1] == '*') { /* {* ... *}: a comment (both syntaxes) */
+            ADV();
+            ADV();
+            while (i + 1 < n && !(b[i] == '*' && b[i + 1] == '}')) ADV();
+            if (i + 1 >= n) error_at(pos, "unterminated comment ('{*' without '*}')");
+            ADV();
+            ADV();
+            continue;
+        }
         if (br && (c == '{' || c == '}')) {
             Token t = {0};
             t.pos = pos;
@@ -77,12 +86,8 @@ static TokVec tokenize(const char *src) {
             vpush(out, t);
             continue;
         }
-        if (c == '{') {
-            while (i < n && b[i] != '}') ADV();
-            if (i >= n) error_at(pos, "unterminated comment");
-            ADV();
-            continue;
-        }
+        if (c == '{' || c == '}')
+            error_at(pos, "'%c' is not a comment: comments are written {* ... *}, (* ... *) or // to the end of the line", c);
         if (c == '(' && i + 1 < n && b[i + 1] == '*') {
             ADV();
             ADV();

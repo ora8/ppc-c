@@ -1,4 +1,4 @@
-{ EXPECT: identifier not found "Secret" }
+{* EXPECT: identifier not found "Secret" *}
 program T;
 import Shapes;
 vao b := TBox.Create;

@@ -1,5 +1,5 @@
 program Optionals;
-{ optional T like Option<T> (Rust) / std::optional<T> (C++) }
+{* optional T like Option<T> (Rust) / std::optional<T> (C++) *}
 type
   TNode = class
     Value: Integer;
@@ -8,7 +8,7 @@ type
   end;
   TEntry = record
     Name: String;
-    Age: optional Integer;           { value optional as a record field }
+    Age: optional Integer;           {* value optional as a record field *}
   end;
 
 constructor TNode.Create(W: Integer); begin inherited Create; Value := W; end;
@@ -28,7 +28,7 @@ begin
     if not (s[i] in ['0'..'9']) then Exit;
     v := v * 10 + Ord(s[i]) - Ord('0');
   end;
-  Result := v;                         { Integer -> some(v) }
+  Result := v;                         {* Integer -> some(v) *}
 end;
 
 function Big(k: optional TNode): Boolean;
@@ -63,7 +63,7 @@ begin
   if a <> none then WriteLn('a is set');
   if b = none then WriteLn('b is empty');
 
-  r := 3;                              { Integer -> optional Real }
+  r := 3;                              {* Integer -> optional Real *}
   if r is some x then WriteLn('r = ', x:0:1);
   case Root(16) of some w: WriteLn('Root(16) = ', w:0:1); none: WriteLn('no root'); end;
   case Root(-1) of some w: WriteLn('Root(-1) = ', w:0:1); none: WriteLn('Root(-1): none'); end;
@@ -98,7 +98,7 @@ begin
   p := list;
   while p is some n do begin Write(n.Value, ' '); p := n.Next; end;
   WriteLn;
-  if Take(list) is some first then begin   { Take hands over the ownership }
+  if Take(list) is some first then begin   {* Take hands over the ownership *}
     WriteLn('taken: ', first.Value, ', list empty: ', list = none);
   end;
 end.

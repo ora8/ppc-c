@@ -1,5 +1,5 @@
 module Geometry;
-{ a module of our own: included by modules.pas with 'import Geometry;' }
+{* a module of our own: included by modules.pas with 'import Geometry;' *}
 import ppc_std;
 
 interface
@@ -27,7 +27,7 @@ function TotalArea(l: TList<TFigure>): Real;
 
 implementation
 
-function Square(x: Real): Real;                    { private: not visible to importers }
+function Square(x: Real): Real;                    {* private: not visible to importers *}
 begin Result := x * x; end;
 
 function TPoint.Distance(b: TPoint): Real; const;

@@ -1,4 +1,4 @@
-{ EXPECT: was resized by SetLength }
+{* EXPECT: was resized by SetLength *}
 program T;
 val d: array of Integer := (1, 2, 3);
 begin

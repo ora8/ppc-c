@@ -1,4 +1,4 @@
-{ EXPECT: procedure call used as a value }
+{* EXPECT: procedure call used as a value *}
 program T;
 procedure P; begin end;
 val i: Integer := 1;

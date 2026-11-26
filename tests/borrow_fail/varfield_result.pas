@@ -1,4 +1,4 @@
-{ EXPECT: cannot store the reference to 'a' in the 'var' field 'Result.Parent' }
+{* EXPECT: cannot store the reference to 'a' in the 'var' field 'Result.Parent' *}
 program T;
 type
   TNode = class

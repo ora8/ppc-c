@@ -1,4 +1,4 @@
-{ EXPECT: borrowed reference 'c' is used after its owner 'f' was moved into parameter 'f' of 'Eat' }
+{* EXPECT: borrowed reference 'c' is used after its owner 'f' was moved into parameter 'f' of 'Eat' *}
 program T;
 type TFigure = class X: Integer; end; TCircle = class(TFigure) R: Real; end;
 procedure Eat(vao f: TFigure); begin end;

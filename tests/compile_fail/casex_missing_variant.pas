@@ -1,4 +1,4 @@
-{ EXPECT: case expression does not handle the variant Empty of "TShape" (add it or an 'else') }
+{* EXPECT: case expression does not handle the variant Empty of "TShape" (add it or an 'else') *}
 program T;
 type TShape = (Circle(Radius: Real), Empty);
 val s: TShape := Empty;

@@ -1,4 +1,4 @@
-{ EXPECT: 'else' is unreachable: both 'ok' and 'error' are handled }
+{* EXPECT: 'else' is unreachable: both 'ok' and 'error' are handled *}
 program T;
 procedure P(r: result Integer);
 begin

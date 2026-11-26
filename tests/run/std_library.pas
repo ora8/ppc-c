@@ -1,5 +1,5 @@
 program StdLibrary;
-{ standard library (generics stage 6): import ppc_std -> TList, TStack, TMap, Sort, IndexOf }
+{* standard library (generics stage 6): import ppc_std -> TList, TStack, TMap, Sort, IndexOf *}
 import ppc_std;
 type
   TCustomer = class
@@ -50,7 +50,7 @@ begin
 
   map.Put(2, TCustomer.Create('Zwei'));
   map.Put(1, TCustomer.Create('Eins'));
-  map.Put(2, TCustomer.Create('Zwei fresh'));    { the old Two is freed }
+  map.Put(2, TCustomer.Create('Zwei fresh'));    {* the old Two is freed *}
   if map.Get(2) is some k then WriteLn('map[2]: ', k.Name);
   WriteLn('End');
 end.

@@ -1,4 +1,4 @@
-{ EXPECT: use of possibly moved value 'a' (ownership was transferred away) }
+{* EXPECT: use of possibly moved value 'a' (ownership was transferred away) *}
 program T;
 type TK = class N: Integer; constructor Create(AN: Integer); end; constructor TK.Create(AN: Integer); begin inherited Create; N := AN; end;
 procedure Extract(vao k: TK); begin end;

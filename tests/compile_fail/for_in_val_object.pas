@@ -1,4 +1,4 @@
-{ EXPECT: cannot modify a part of 'it', which is constant }
+{* EXPECT: cannot modify a part of 'it', which is constant *}
 program T;
 import ppc_std;
 type TItem = class N: Integer; end;

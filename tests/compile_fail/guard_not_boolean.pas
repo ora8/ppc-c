@@ -1,4 +1,4 @@
-{ EXPECT: the 'when' condition must be Boolean, got "Real" }
+{* EXPECT: the 'when' condition must be Boolean, got "Real" *}
 program T;
 type TShape = (Circle(Radius: Real), Empty);
 procedure P(s: TShape);

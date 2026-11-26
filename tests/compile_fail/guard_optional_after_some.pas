@@ -1,4 +1,4 @@
-{ EXPECT: this arm is never reached: 'some' is already handled by an arm without 'when' }
+{* EXPECT: this arm is never reached: 'some' is already handled by an arm without 'when' *}
 program T;
 procedure P(o: optional Integer);
 begin

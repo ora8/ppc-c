@@ -1,5 +1,5 @@
 program CaseExpressions2;
-{ case expressions: nested, with guards, moves in arms, in a lambda }
+{* case expressions: nested, with guards, moves in arms, in a lambda *}
 type TShape = (Circle(Radius: Real), Named(Name: String), Empty);
   TK = class V: Integer; constructor Create(AV: Integer); end;
 constructor TK.Create(AV: Integer); begin inherited Create; V := AV; end;

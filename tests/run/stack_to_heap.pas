@@ -1,5 +1,5 @@
 program StackToHeap;
-{ moving a stack object to the heap: vao h := k, Result := k, vao parameter (like Box::new) }
+{* moving a stack object to the heap: vao h := k, Result := k, vao parameter (like Box::new) *}
 type
   TK = class
     N: Integer;
@@ -18,10 +18,10 @@ procedure TList.Add(vao k: TK); begin k.Part := Take(Head); Head := k; end;
 vao global: optional TK := none;
 
 function Build(n: Integer): TK;
-val k := TK.Create(n);                 { build it on the stack ... }
+val k := TK.Create(n);                 {* build it on the stack ... *}
 begin
   k.Part := TK.Create(n + 100);
-  Result := k;                          { ... and move it to the heap }
+  Result := k;                          {* ... and move it to the heap *}
 end;
 
 procedure P(flag: Boolean);
@@ -29,12 +29,12 @@ val a := TK.Create(1);
 val b := TK.Create(2);
 vao l := TList.Create;
 begin
-  vao h := a;                           { a moves to the heap }
+  vao h := a;                           {* a moves to the heap *}
   begin
     WriteLn('h = ', h.N);
     global := h;
   end;
-  if flag then l.Add(b);                { b moved on one path only }
+  if flag then l.Add(b);                {* b moved on one path only *}
   WriteLn('P end');
 end;
 

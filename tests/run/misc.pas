@@ -21,7 +21,7 @@ begin
 end;
 
 procedure TAccount.Apply(n: Integer);
-  procedure Step(k: Integer);          { nested in a method, access to Self }
+  procedure Step(k: Integer);          {* nested in a method, access to Self *}
   begin
     Balance := Balance + k;
   end;
@@ -61,7 +61,7 @@ val depth: Integer := default;
     function Inner(z: Integer): Integer;
     begin
       depth := depth + 1;
-      Inner := x + y + z;     { reaches two levels outwards }
+      Inner := x + y + z;     {* reaches two levels outwards *}
     end;
   begin
     Mid := Inner(y * 2);

@@ -1,4 +1,4 @@
-{ EXPECT: 'f' was freed at the end of the 'if' at line 20 }
+{* EXPECT: 'f' was freed at the end of the 'if' at line 20 *}
 program r2;
 type
   TFile = class

@@ -1,4 +1,4 @@
-{ EXPECT: case does not handle the variant Circle of "TShape" (add it or an 'else') }
+{* EXPECT: case does not handle the variant Circle of "TShape" (add it or an 'else') *}
 program T;
 type TShape = (Circle(Radius: Real), Empty);
 procedure P(s: TShape);

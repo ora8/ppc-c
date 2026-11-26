@@ -13,9 +13,9 @@ without `as` casts and as fast as hand-written code.
 ```pascal
 vao customers := TList<TCustomer>.Create;
 customers.Add(TCustomer.Create('Anna'));
-if customers.Get(0) is some k then WriteLn(k.Name);   { k is a TCustomer, not a TObject }
+if customers.Get(0) is some k then WriteLn(k.Name);   {* k is a TCustomer, not a TObject *}
 
-WriteLn(Max(3, 7), ' ', Max('Anna', 'Bert'));          { Max<Integer>, Max<String> }
+WriteLn(Max(3, 7), ' ', Max('Anna', 'Bert'));          {* Max<Integer>, Max<String> *}
 ```
 
 **Non-goals:** no template metaprogramming as in C++, no specialization for single types, no
@@ -27,12 +27,12 @@ In the style of Delphi / Free Pascal (`<...>` after the name):
 
 ```pascal
 type
-  TPair<A, B> = record                         { generic record }
+  TPair<A, B> = record                         {* generic record *}
     First: A;
     Second: B;
   end;
 
-  TList<T> = class                             { generic class }
+  TList<T> = class                             {* generic class *}
     Items: array[1..100] of optional T;
     Size: Integer;
     procedure Add(vao x: T);
@@ -40,17 +40,17 @@ type
     function Len: Integer; const;
   end;
 
-  TCustomerList = class(TList<TCustomer>)      { inherits from an instance }
+  TCustomerList = class(TList<TCustomer>)      {* inherits from an instance *}
     function Find(Name: String const): var optional TCustomer;
   end;
 
-procedure TList<T>.Add(vao x: T);              { methods repeat <T> }
+procedure TList<T>.Add(vao x: T);              {* methods repeat <T> *}
 begin
   Inc(Size);
-  Items[Size] := x;                            { move, even if T is an object }
+  Items[Size] := x;                            {* move, even if T is an object *}
 end;
 
-function Max<T: Comparable>(a, b: T): T;       { generic function with a constraint }
+function Max<T: Comparable>(a, b: T): T;       {* generic function with a constraint *}
 begin
   if a > b then Result := a else Result := b;
 end;
@@ -61,8 +61,8 @@ Use:
 ```pascal
 val p: TPair<String, Integer> := (First: 'Anna'; Second: 30);
 vao l := TList<TCustomer>.Create;
-val m := Max(3, 7);                            { T from the arguments: Integer }
-val r := Max<Real>(3, 7.5);                    { T written out }
+val m := Max(3, 7);                            {* T from the arguments: Integer *}
+val r := Max<Real>(3, 7.5);                    {* T written out *}
 ```
 
 **Ambiguity of `<`:** in expressions, `Max<Real>(…)` could also be read as the comparison
@@ -101,14 +101,14 @@ is always treated like an owner in the generic body.**
 ```pascal
 procedure TList<T>.Swap(i, j: Integer);
 begin
-  val h := Take(Items[i]);          { ok: Take works for optional T }
+  val h := Take(Items[i]);          {* ok: Take works for optional T *}
   Items[i] := Take(Items[j]);
-  Items[j] := h;                     { move }
+  Items[j] := h;                     {* move *}
 end;
 
 function MoveTwice<T>(a: T): TPair<T, T>;
 begin
-  Result := (First: a; Second: a);   { error: a would be moved twice – 'T: Copy' or 'T: Clone' needed }
+  Result := (First: a; Second: a);   {* error: a would be moved twice – 'T: Copy' or 'T: Clone' needed *}
 end;
 ```
 

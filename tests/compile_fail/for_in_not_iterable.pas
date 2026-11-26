@@ -1,4 +1,4 @@
-{ EXPECT: cannot be used in 'for ... in' }
+{* EXPECT: cannot be used in 'for ... in' *}
 program T;
 val i := 5;
 begin

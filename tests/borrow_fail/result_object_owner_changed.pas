@@ -1,4 +1,4 @@
-{ EXPECT: 'r' was changed at line 20 while 'f' was borrowing it }
+{* EXPECT: 'r' was changed at line 20 while 'f' was borrowing it *}
 program r2;
 type
   TFile = class

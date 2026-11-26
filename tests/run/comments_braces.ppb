@@ -1,0 +1,8 @@
+program CommentsBraces;
+{* in the brace syntax a comment starts with a star, { } is a block *}
+proc P; {* the body follows *} { WriteLn('in P'); }
+{
+  {WriteLn('block'); {* comment right after a statement *}}
+  P; (* the paren-star comment *) // and a line comment
+  WriteLn('{braces in a string}');
+}

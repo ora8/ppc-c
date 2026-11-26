@@ -32,7 +32,13 @@
   ],
   "repository": {
     "comments": {
-      "patterns": []
+      "patterns": [
+        {
+          "name": "comment.block.brace-star.perfectpascal-braces",
+          "begin": "\\{\\*",
+          "end": "\\*\\}"
+        }
+      ]
     },
     "strings": {
       "patterns": [

@@ -1,5 +1,5 @@
 program ArrayClone;
-{ arrays with objects: assignment moves, a.Clone copies deeply }
+{* arrays with objects: assignment moves, a.Clone copies deeply *}
 type
   TAnimal = class
     Name: String;
@@ -8,7 +8,7 @@ type
     function Clone: TAnimal; const; auto;
   end;
   TZoo = array[1..3] of optional TAnimal;
-  TEnclosure = record                       { array in a record: Clone is generated }
+  TEnclosure = record                       {* array in a record: Clone is generated *}
     Animals: TZoo;
     function Clone: TEnclosure; const; auto;
   end;
@@ -35,14 +35,14 @@ begin
   a[2] := TAnimal.Create('Mia');
 
   WriteLn('1. assignment = move');
-  b := a;                                { the objects move to b, a is empty }
+  b := a;                                {* the objects move to b, a is empty *}
   Show('a', a);
   Show('b', b);
 
   WriteLn('2. copy with Clone, element by element');
   for val i := 1 to 3 do
     if b[i] is some t then c[i] := t.Clone;
-  if c[1] is some t then t.Name := 'Leo2';     { changes only the copy }
+  if c[1] is some t then t.Name := 'Leo2';     {* changes only the copy *}
   Show('b', b);
   Show('c', c);
 
@@ -60,7 +60,7 @@ begin
   Show('h', h.Animals);
   val numbers: array[1..3] of Integer := (1, 2, 3);
   begin
-    val k := numbers.Clone;                     { without objects: simply a copy }
+    val k := numbers.Clone;                     {* without objects: simply a copy *}
     begin
       k[1] := 9;
       WriteLn('Numbers: ', numbers[1], ' ', k[1]);

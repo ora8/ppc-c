@@ -1,4 +1,4 @@
-{ EXPECT: cannot modify constant/loop variable "x" }
+{* EXPECT: cannot modify constant/loop variable "x" *}
 program T;
 val a: array[1..3] of Integer := (1, 2, 3);
 begin

@@ -1,5 +1,5 @@
 program MoveAll;
-{ moving objects between val (stack), vao (heap) and var (borrow) }
+{* moving objects between val (stack), vao (heap) and var (borrow) *}
 type
   TK = class
     N: Integer;
@@ -18,20 +18,20 @@ vao h := TK.Create(1);
 val s := TK.Create(2);
 begin
   h.Part := TK.Create(10);
-  val a := h;                          { vao -> val: the heap object moves onto the stack }
+  val a := h;                          {* vao -> val: the heap object moves onto the stack *}
   begin
     if a.Part is some t then WriteLn('a = ', a.N, ' / ', t.N);
-    vao b := a;                         { val -> vao: onto the heap again }
+    vao b := a;                         {* val -> vao: onto the heap again *}
     begin
       WriteLn('b = ', b.N);
     end;
   end;
-  val c := Make(3);                    { function result directly onto the stack }
-  val d := c;                          { val -> val }
-  var r: TK := d;                      { val -> var: borrow }
+  val c := Make(3);                    {* function result directly onto the stack *}
+  val d := c;                          {* val -> val *}
+  var r: TK := d;                      {* val -> var: borrow *}
   begin
     WriteLn('r = ', r.N, ', s = ', s.N);
-    val e := r.Clone;                  { var -> val: only as a copy }
+    val e := r.Clone;                  {* var -> val: only as a copy *}
     begin
       WriteLn('e = ', e.N);
     end;

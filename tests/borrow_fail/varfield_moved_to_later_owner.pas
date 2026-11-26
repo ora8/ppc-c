@@ -1,4 +1,4 @@
-{ EXPECT: cannot be moved into 'd', which is freed after 'a' (declare 'a' before 'd') }
+{* EXPECT: cannot be moved into 'd', which is freed after 'a' (declare 'a' before 'd') *}
 program T;
 type
   TNode = class

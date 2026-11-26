@@ -1,4 +1,4 @@
-{ EXPECT: wrong number of arguments calling "function value" (expected 1, got 2) }
+{* EXPECT: wrong number of arguments calling "function value" (expected 1, got 2) *}
 program T;
 type TF = function(x: Integer): Integer;
 function G(x: Integer): Integer; begin Result := x; end;

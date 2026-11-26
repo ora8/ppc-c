@@ -1,5 +1,5 @@
 program Module;
-{ modules of our own: 'import Geometry' loads Geometry.pas from the same directory }
+{* modules of our own: 'import Geometry' loads Geometry.pas from the same directory *}
 import ppc_std, Geometry;
 
 val

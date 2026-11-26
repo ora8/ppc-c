@@ -1,4 +1,4 @@
-{ EXPECT: the field "FShared" of "TBase" is protected }
+{* EXPECT: the field "FShared" of "TBase" is protected *}
 program T;
 type
   TBase = class

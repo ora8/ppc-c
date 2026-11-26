@@ -1,4 +1,4 @@
-{ ppc_std: the standard library of Perfect Pascal  (include it with 'import ppc_std;')
+{* ppc_std: the standard library of Perfect Pascal  (include it with 'import ppc_std;')
 
   TList<T>                  list that grows (index from 0)
   TStack<T>                 stack (last in, first out)
@@ -25,7 +25,7 @@
   SortRange is private to the implementation.
 
   All containers own their elements (objects are freed with the container).
-  Taking elements out (Extract, Pop, Remove) passes the ownership to the caller. }
+  Taking elements out (Extract, Pop, Remove) passes the ownership to the caller. *}
 
 module ppc_std;
 
@@ -34,84 +34,84 @@ interface
 type
   TList<T> = class
     Items: array of optional T;
-    procedure Add(vao x: T);                       { append, takes over x }
+    procedure Add(vao x: T);                       {* append, takes over x *}
     function Count: Integer; const;
-    function Get(i: Integer): var optional T;      { element i (objects: borrowed) }
-    procedure Put(i: Integer; vao x: T);           { replace element i (the old one is freed) }
-    function Extract(i: Integer): optional T;      { take element i out }
-    procedure Clear;                               { free all elements }
-    property Item[i: Integer]: optional T read Get write Put; default; { l[i], l[i] := x }
+    function Get(i: Integer): var optional T;      {* element i (objects: borrowed) *}
+    procedure Put(i: Integer; vao x: T);           {* replace element i (the old one is freed) *}
+    function Extract(i: Integer): optional T;      {* take element i out *}
+    procedure Clear;                               {* free all elements *}
+    property Item[i: Integer]: optional T read Get write Put; default; {* l[i], l[i] := x *}
   end;
 
   TStack<T> = class
     Items: array of optional T;
     procedure Push(vao x: T);
-    function Pop: optional T;                      { take the top element out }
-    function Peek: var optional T;                 { look at the top element }
+    function Pop: optional T;                      {* take the top element out *}
+    function Peek: var optional T;                 {* look at the top element *}
     function Count: Integer; const;
     function IsEmpty: Boolean; const;
   end;
 
   TMap<K: Comparable; V> = class
-    Keys: array of K;                              { sorted ascending }
+    Keys: array of K;                              {* sorted ascending *}
     Values: array of optional V;
-    function Find(k: K): Integer; const;           { first position with Keys[i] >= k }
-    procedure Put(k: K; vao v: V);                 { insert or replace }
+    function Find(k: K): Integer; const;           {* first position with Keys[i] >= k *}
+    procedure Put(k: K; vao v: V);                 {* insert or replace *}
     function Get(k: K): var optional V;
     function Contains(k: K): Boolean; const;
-    function Remove(k: K): optional V;             { take out }
+    function Remove(k: K): optional V;             {* take out *}
     function Count: Integer; const;
-    property Value[k: K]: optional V read Get write Put; default; { m[k], m[k] := v }
+    property Value[k: K]: optional V read Get write Put; default; {* m[k], m[k] := v *}
   end;
 
-  THashMap<K: Hashable; V> = class                 { map key -> value with hashing: Put/Get/Remove in O(1) }
+  THashMap<K: Hashable; V> = class                 {* map key -> value with hashing: Put/Get/Remove in O(1) *}
   private
     FKeys: array of K;
     FValues: array of optional V;
-    FState: array of Integer;                      { per slot: 0 empty, 1 used, 2 removed }
-    FCount, FUsed: Integer;                        { FUsed: used and removed slots }
-    function Slot(k: K): Integer; const;           { the slot of k, -1 if k is not there }
+    FState: array of Integer;                      {* per slot: 0 empty, 1 used, 2 removed *}
+    FCount, FUsed: Integer;                        {* FUsed: used and removed slots *}
+    function Slot(k: K): Integer; const;           {* the slot of k, -1 if k is not there *}
     procedure Grow;
   public
-    procedure Put(k: K; vao v: V);                 { insert or replace (the old value is freed) }
+    procedure Put(k: K; vao v: V);                 {* insert or replace (the old value is freed) *}
     function Get(k: K): var optional V;
     function Contains(k: K): Boolean; const;
-    function Remove(k: K): optional V;             { take out }
+    function Remove(k: K): optional V;             {* take out *}
     function Count: Integer; const;
-    function KeyList: array of K; const;           { the keys (in no particular order) }
+    function KeyList: array of K; const;           {* the keys (in no particular order) *}
     procedure Clear;
-    property Value[k: K]: optional V read Get write Put; default; { m[k], m[k] := v }
+    property Value[k: K]: optional V read Get write Put; default; {* m[k], m[k] := v *}
   end;
 
 procedure Sort<T: Comparable>(var a: array of T);
 procedure SortBy<T: Copy>(var a: array of T; Less: reference to function(x, y: T): Boolean);
 function IndexOf<T: Equatable>(a: array of T; x: T): optional Integer;
 function Filter<T: Copy>(a: array of T; Keep: reference to function(x: T): Boolean): array of T;
-{ ---- strings ---- }
-function Trim(s: String): String;                  { without spaces/control characters at both ends }
+{* ---- strings ---- *}
+function Trim(s: String): String;                  {* without spaces/control characters at both ends *}
 function TrimLeft(s: String): String;
 function TrimRight(s: String): String;
 function StartsWith(s, Prefix: String): Boolean;
 function EndsWith(s, Suffix: String): Boolean;
 function Contains(s, Sub: String): Boolean;
-function PosFrom(Sub, s: String; From: Integer): Integer; external '__std_posfrom'; { first position >= From, 0 if none }
-function ReplaceStr(s, Old, New: String): String;  { every occurrence }
-function Split(s, Sep: String): array of String;    { Split('a,b,,c', ',') = ('a', 'b', '', 'c') }
+function PosFrom(Sub, s: String; From: Integer): Integer; external '__std_posfrom'; {* first position >= From, 0 if none *}
+function ReplaceStr(s, Old, New: String): String;  {* every occurrence *}
+function Split(s, Sep: String): array of String;    {* Split('a,b,,c', ',') = ('a', 'b', '', 'c') *}
 function Join(Parts: array of String; Sep: String): String;
-function SplitLines(s: String): array of String;    { at LF or CR LF; no empty last line }
+function SplitLines(s: String): array of String;    {* at LF or CR LF; no empty last line *}
 function ReverseString(s: String): String;
 function DupeString(s: String; Count: Integer): String;
 function PadLeft(s: String; Width: Integer; Fill: Char): String;
 function PadRight(s: String; Width: Integer; Fill: Char): String;
 function IntToHex(Value: Int64; Digits: Integer): String; external '__std_inttohex';
-function TryStrToInt(s: String): optional Int64;    { none if s is not a whole number }
+function TryStrToInt(s: String): optional Int64;    {* none if s is not a whole number *}
 function TryStrToFloat(s: String): optional Real;
-function StrToFloat(s: String): Real;               { run-time error 106 if s is not a number }
+function StrToFloat(s: String): Real;               {* run-time error 106 if s is not a number *}
 function IsDigit(c: Char): Boolean;
 function IsLetter(c: Char): Boolean;
 function IsSpace(c: Char): Boolean;
 
-{ ---- math ---- }
+{* ---- math ---- *}
 const Pi = 3.14159265358979323846;
 function Min<T: Comparable>(a, b: T): T;
 function Max<T: Comparable>(a, b: T): T;
@@ -127,9 +127,9 @@ function Log10(x: Real): Real; external '__std_log10';
 function Log2(x: Real): Real; external '__std_log2';
 function Hypot(x, y: Real): Real; external '__std_hypot';
 function IsNan(x: Real): Boolean; external '__std_isnan';
-function Sign(x: Real): Integer;                    { -1, 0 or 1 }
+function Sign(x: Real): Integer;                    {* -1, 0 or 1 *}
 
-{ ---- files (whole files; errors as results) ---- }
+{* ---- files (whole files; errors as results) ---- *}
 function ReadFile(Name: String): result String;
 function ReadLines(Name: String): result array of String;
 function WriteFile(Name, Text: String): result;
@@ -137,61 +137,61 @@ function AppendFile(Name, Text: String): result;
 function DeleteFile(Name: String): result;
 function FileExists(Name: String): Boolean; external '__std_fileexists';
 
-{ ---- directories and paths ---- }
-function ListDir(Path: String): result array of String; { the names in a directory (sorted, without . and ..) }
+{* ---- directories and paths ---- *}
+function ListDir(Path: String): result array of String; {* the names in a directory (sorted, without . and ..) *}
 function DirExists(Path: String): Boolean; external '__std_direxists';
 function CreateDir(Path: String): result;
-function ForceDirs(Path: String): result;          { with all missing parents, like mkdir -p }
-function RemoveDir(Path: String): result;          { an empty directory }
+function ForceDirs(Path: String): result;          {* with all missing parents, like mkdir -p *}
+function RemoveDir(Path: String): result;          {* an empty directory *}
 function RenameFile(OldName, NewName: String): result;
 function FileSize(Name: String): result Int64;
 function CurrentDir: String; external '__std_getcwd';
 function SetCurrentDir(Path: String): result;
-function ExtractFileName(Path: String): String;    { 'src/main.pas' -> 'main.pas' }
-function ExtractFileDir(Path: String): String;     { 'src/main.pas' -> 'src' }
-function ExtractFileExt(Path: String): String;     { 'src/main.pas' -> '.pas' }
-function ChangeFileExt(Path, Ext: String): String; { ChangeFileExt('a.pas', '.c') = 'a.c' }
-function JoinPath(Dir, Name: String): String;      { JoinPath('src', 'main.pas') = 'src/main.pas' }
+function ExtractFileName(Path: String): String;    {* 'src/main.pas' -> 'main.pas' *}
+function ExtractFileDir(Path: String): String;     {* 'src/main.pas' -> 'src' *}
+function ExtractFileExt(Path: String): String;     {* 'src/main.pas' -> '.pas' *}
+function ChangeFileExt(Path, Ext: String): String; {* ChangeFileExt('a.pas', '.c') = 'a.c' *}
+function JoinPath(Dir, Name: String): String;      {* JoinPath('src', 'main.pas') = 'src/main.pas' *}
 
 type
-  TTextFile = class                                { a text file read or written line by line }
+  TTextFile = class                                {* a text file read or written line by line *}
   private
     FHandle: Int64;
     FName: String;
     class function Open(Name, Mode: String): result TTextFile;
   public
     class function OpenRead(Name: String): result TTextFile;
-    class function OpenWrite(Name: String): result TTextFile;   { creates or empties the file }
+    class function OpenWrite(Name: String): result TTextFile;   {* creates or empties the file *}
     class function OpenAppend(Name: String): result TTextFile;
-    function ReadLine: optional String;            { the next line, none at the end }
+    function ReadLine: optional String;            {* the next line, none at the end *}
     function EndOfFile: Boolean; const;
     procedure Write(s: String);
     procedure WriteLine(s: String);
     function Name: String; const;
-    destructor Destroy; override;                  { closes the file }
+    destructor Destroy; override;                  {* closes the file *}
   end;
 
-{ ---- time ---- }
+{* ---- time ---- *}
 type
   TDateTime = record
     Year, Month, Day, Hour, Minute, Second, MilliSecond: Integer;
   end;
-function MilliSeconds: Int64; external '__std_milliseconds'; { monotonic clock, for measuring }
-function UnixTime: Int64; external '__std_unixtime';         { seconds since 1970-01-01 UTC }
+function MilliSeconds: Int64; external '__std_milliseconds'; {* monotonic clock, for measuring *}
+function UnixTime: Int64; external '__std_unixtime';         {* seconds since 1970-01-01 UTC *}
 procedure Sleep(ms: Integer); external '__std_sleep';
-function Now: TDateTime;                                      { local time }
-function DateToStr(t: TDateTime): String;                     { 2026-11-25 }
-function TimeToStr(t: TDateTime): String;                     { 14:05:09 }
-function DateTimeToStr(t: TDateTime): String;                 { 2026-11-25 14:05:09 }
+function Now: TDateTime;                                      {* local time *}
+function DateToStr(t: TDateTime): String;                     {* 2026-11-25 *}
+function TimeToStr(t: TDateTime): String;                     {* 14:05:09 *}
+function DateTimeToStr(t: TDateTime): String;                 {* 2026-11-25 14:05:09 *}
 
-{ ---- program ---- }
+{* ---- program ---- *}
 function ParamCount: Integer; external '__std_paramcount';
-function ParamStr(i: Integer): String; external '__std_paramstr'; { 0: the program }
-function GetEnv(Name: String): String; external '__std_getenv';   { '' if not set }
+function ParamStr(i: Integer): String; external '__std_paramstr'; {* 0: the program *}
+function GetEnv(Name: String): String; external '__std_getenv';   {* '' if not set *}
 
 implementation
 
-{ ------------------------------------------------------------------- TList<T> }
+{* ------------------------------------------------------------------- TList<T> *}
 
 procedure TList<T>.Add(vao x: T);
 begin
@@ -225,7 +225,7 @@ begin
   SetLength(Items, 0);
 end;
 
-{ ------------------------------------------------------------------ TStack<T> }
+{* ------------------------------------------------------------------ TStack<T> *}
 
 procedure TStack<T>.Push(vao x: T);
 begin
@@ -259,14 +259,14 @@ begin
   Result := Length(Items) = 0;
 end;
 
-{ ------------------------------------------------------------------ TMap<K, V> }
+{* ------------------------------------------------------------------ TMap<K, V> *}
 
 function TMap<K, V>.Find(k: K): Integer; const;
 val
   lo := 0;
   hi := Length(Keys);
 begin
-  while lo < hi do                                 { binary search }
+  while lo < hi do                                 {* binary search *}
     val m := (lo + hi) div 2;
     begin
       if Keys[m] < k then lo := m + 1 else hi := m;
@@ -278,7 +278,7 @@ procedure TMap<K, V>.Put(k: K; vao v: V);
 val i := Find(k);
 begin
   if (i < Length(Keys)) and (Keys[i] = k) then
-    Values[i] := v                                 { replace: the old value is freed }
+    Values[i] := v                                 {* replace: the old value is freed *}
   else
   begin
     SetLength(Keys, Length(Keys) + 1);
@@ -328,7 +328,7 @@ begin
   Result := Length(Keys);
 end;
 
-{ ---------------------------------------------------------------- THashMap<K, V> }
+{* ---------------------------------------------------------------- THashMap<K, V> *}
 
 function THashMap<K, V>.Slot(k: K): Integer; const;
 val
@@ -349,7 +349,7 @@ end;
 
 procedure THashMap<K, V>.Grow;
 val
-  oldKeys := FKeys;                                { moved out: the fields are empty now }
+  oldKeys := FKeys;                                {* moved out: the fields are empty now *}
   oldValues := FValues;
   oldState := FState;
   n := Length(oldState) * 2;
@@ -370,7 +370,7 @@ val i := Slot(k);
 begin
   if i >= 0 then
   begin
-    FValues[i] := v;                               { replace: the old value is freed }
+    FValues[i] := v;                               {* replace: the old value is freed *}
     Exit;
   end;
   if (FUsed + 1) * 10 >= Length(FState) * 7 then Grow;
@@ -402,7 +402,7 @@ begin
   if i >= 0 then
   begin
     Result := Take(FValues[i]);
-    FState[i] := 2;                                { removed: later keys of the probe chain stay reachable }
+    FState[i] := 2;                                {* removed: later keys of the probe chain stay reachable *}
     Dec(FCount);
   end;
 end;
@@ -431,7 +431,7 @@ begin
   FUsed := 0;
 end;
 
-{ ------------------------------------------------------------- sorting, searching }
+{* ------------------------------------------------------------- sorting, searching *}
 
 procedure SortRange<T: Comparable>(var a: array of T; lo, hi: Integer);
 val
@@ -441,7 +441,7 @@ begin
   if lo >= hi then Exit;
   val pivot: T := a[(lo + hi) div 2];
   begin
-    while i <= j do                                { quicksort }
+    while i <= j do                                {* quicksort *}
     begin
       while a[i] < pivot do Inc(i);
       while pivot < a[j] do Dec(j);
@@ -467,7 +467,7 @@ begin
 end;
 
 procedure SortBy<T: Copy>(var a: array of T; Less: reference to function(x, y: T): Boolean);
-begin                                              { insertion sort: stable }
+begin                                              {* insertion sort: stable *}
   for val i := 1 to High(a) do
     val j := i;
     begin
@@ -500,7 +500,7 @@ begin
     if (a[i] = x) and not Result.HasValue then Result := i;
 end;
 
-{ ------------------------------------------------------------------- strings }
+{* ------------------------------------------------------------------- strings *}
 
 function TrimLeft(s: String): String;
 val i := 1;
@@ -667,7 +667,7 @@ begin
   Result := (c = ' ') or (c = #9) or (c = #10) or (c = #13);
 end;
 
-{ ---------------------------------------------------------------------- math }
+{* ---------------------------------------------------------------------- math *}
 
 function Min<T: Comparable>(a, b: T): T;
 begin
@@ -691,7 +691,7 @@ begin
   if x > 0 then Result := 1 else if x < 0 then Result := -1 else Result := 0;
 end;
 
-{ --------------------------------------------------------------------- files }
+{* --------------------------------------------------------------------- files *}
 
 function __ReadFile(Name: String): String; external '__std_readfile';
 function __WriteFile(Name, Text: String; Append: Boolean): Boolean; external '__std_writefile';
@@ -727,7 +727,7 @@ begin
   if __DeleteFile(Name) then Result := ok else Result := error(__IOError);
 end;
 
-{ ------------------------------------------------------- directories and paths }
+{* ------------------------------------------------------- directories and paths *}
 
 function __DirOpen(Path: String): Int64; external '__std_dir_open';
 function __DirNext(h: Int64; var Name: String): Boolean; external '__std_dir_next';
@@ -819,7 +819,7 @@ val
   name := ExtractFileName(Path);
   p := 0;
 begin
-  for val i := 2 to Length(name) do               { a leading dot ('.bashrc') is not an extension }
+  for val i := 2 to Length(name) do               {* a leading dot ('.bashrc') is not an extension *}
     if name[i] = '.' then p := i;
   if p = 0 then Result := '' else Result := Copy(name, p, Length(name));
 end;
@@ -838,7 +838,7 @@ begin
   else Result := Dir + '/' + Name;
 end;
 
-{ ----------------------------------------------------------------- TTextFile }
+{* ----------------------------------------------------------------- TTextFile *}
 
 function __FOpen(Name, Mode: String): Int64; external '__std_fopen';
 function __FReadLine(h: Int64; var Line: String): Boolean; external '__std_freadline';
@@ -909,7 +909,7 @@ begin
   FHandle := 0;
 end;
 
-{ ---------------------------------------------------------------------- time }
+{* ---------------------------------------------------------------------- time *}
 
 procedure __Now(var y, mo, d, h, mi, s, ms: Integer); external '__std_now';
 

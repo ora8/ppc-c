@@ -1,4 +1,4 @@
-{ EXPECT: ValueOr is not available for a result with an object }
+{* EXPECT: ValueOr is not available for a result with an object *}
 program r2;
 type
   TFile = class

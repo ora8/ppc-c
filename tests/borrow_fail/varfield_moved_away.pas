@@ -1,4 +1,4 @@
-{ EXPECT: 'c' refers to 'a' through a 'var' field and cannot be moved into parameter 'x' of 'P' }
+{* EXPECT: 'c' refers to 'a' through a 'var' field and cannot be moved into parameter 'x' of 'P' *}
 program T;
 type
   TNode = class

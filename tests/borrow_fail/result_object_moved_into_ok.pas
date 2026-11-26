@@ -1,4 +1,4 @@
-{ EXPECT: use of moved value 'f' }
+{* EXPECT: use of moved value 'f' *}
 program r2;
 type
   TFile = class

@@ -1,4 +1,4 @@
-{ EXPECT: the method "Hidden" of "TBase" is private }
+{* EXPECT: the method "Hidden" of "TBase" is private *}
 program T;
 type
   TBase = class

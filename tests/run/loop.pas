@@ -1,5 +1,5 @@
 program Endless;
-{ loop <statement>: endless loop, left with Break, Exit or try }
+{* loop <statement>: endless loop, left with Break, Exit or try *}
 type
   TK = class
     N: Integer;
@@ -31,7 +31,7 @@ begin
   loop
     begin
       Inc(n);
-      val x := try Check(n);               { an error ends the loop and the function }
+      val x := try Check(n);               {* an error ends the loop and the function *}
       begin
         Result := ok(x);
       end;
@@ -40,7 +40,7 @@ end;
 
 val
   i := 0;
-  raise := 5;                               { 'raise' is no keyword any more }
+  raise := 5;                               {* 'raise' is no keyword any more *}
 begin
   loop
     begin
@@ -54,7 +54,7 @@ begin
   case Sum of ok v: WriteLn(v); error e: WriteLn('Error: ', e); end;
   i := 0;
   loop
-    vao k := TK.Create(i);                  { a new owner in every iteration }
+    vao k := TK.Create(i);                  {* a new owner in every iteration *}
     begin
       Inc(i);
       if i = 3 then Break;

@@ -1,4 +1,4 @@
-{ EXPECT: identifier not found "__ReadFile" }
+{* EXPECT: identifier not found "__ReadFile" *}
 program T;
 import ppc_std;
 begin

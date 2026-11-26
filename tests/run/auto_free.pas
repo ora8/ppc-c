@@ -1,10 +1,10 @@
 program AutoFree;
-{ objects and heap values in vao variables are freed automatically when their owner
-  leaves its scope - unless the ownership was passed on. }
+{* objects and heap values in vao variables are freed automatically when their owner
+  leaves its scope - unless the ownership was passed on. *}
 type
   TNode = class
     Value: Integer;
-    Next: optional TNode;            { fields are freed with the object }
+    Next: optional TNode;            {* fields are freed with the object *}
     constructor Create(W: Integer);
     destructor Destroy; override;
   end;
@@ -21,7 +21,7 @@ procedure TList.PushFront(W: Integer);
 vao k := TNode.Create(W);
 begin
   k.Next := Take(Head);
-  Head := k;                           { ownership moves into the list: k is not freed }
+  Head := k;                           {* ownership moves into the list: k is not freed *}
 end;
 
 procedure TList.Show;
@@ -32,26 +32,26 @@ begin
   WriteLn;
 end;
 
-function Build(n: Integer): TList;     { result: ownership goes to the caller }
+function Build(n: Integer): TList;     {* result: ownership goes to the caller *}
 vao l := TList.Create;
 begin
   for val i := 1 to n do l.PushFront(i);
   Result := l;
 end;
 
-procedure Fill(var Target: TNode);   { returned through a var parameter }
+procedure Fill(var Target: TNode);   {* returned through a var parameter *}
 vao fresh := TNode.Create(77);
 begin
-  Target := fresh;                          { the old Target is freed, fresh moves out }
+  Target := fresh;                          {* the old Target is freed, fresh moves out *}
 end;
 
 procedure Local;
 vao
   a := TNode.Create(1);
-  I := 42;                              { heap value }
+  I := 42;                              {* heap value *}
 begin
   WriteLn('Local: a = ', a.Value, ', I = ', I);
-end;                                    { a and I are freed here }
+end;                                    {* a and I are freed here *}
 
 vao
   list: TList := Build(3);

@@ -1,4 +1,4 @@
-{ EXPECT: this arm is never reached: variant "Circle" is already handled by an arm without 'when' }
+{* EXPECT: this arm is never reached: variant "Circle" is already handled by an arm without 'when' *}
 program T;
 type TShape = (Circle(Radius: Real), Empty);
 procedure P(s: TShape);

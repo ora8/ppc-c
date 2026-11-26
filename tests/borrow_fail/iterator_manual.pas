@@ -1,4 +1,4 @@
-{ EXPECT: 'TBag.GetEnumerator' gives an enumerator that refers to the TBag: only 'for ... in' can use it }
+{* EXPECT: 'TBag.GetEnumerator' gives an enumerator that refers to the TBag: only 'for ... in' can use it *}
 program T;
 type
   TBag = class;

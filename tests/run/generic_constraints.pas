@@ -1,5 +1,5 @@
 program GenericConstraints;
-{ constraints (stage 3): Comparable, Equatable, Clone, class, base class }
+{* constraints (stage 3): Comparable, Equatable, Clone, class, base class *}
 type
   TAnimal = class
     Name: String;
@@ -29,7 +29,7 @@ procedure TZoo<T>.Add(vao t: T); begin Inc(Size); Animals[Size] := t; end;
 procedure TZoo<T>.ShowAll;
 begin
   for val i := 1 to Size do
-    if Animals[i] is some t then WriteLn('  ', t.Name, ': ', t.Sound);   { methods of TAnimal are allowed }
+    if Animals[i] is some t then WriteLn('  ', t.Name, ': ', t.Sound);   {* methods of TAnimal are allowed *}
 end;
 
 function Max<T: Comparable>(a, b: T): T;

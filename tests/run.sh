@@ -18,7 +18,7 @@ done
 for d in borrow_fail optional_fail stack_fail const_fail result_fail clone_fail generic_fail proc_fail iface_fail overload_fail set_fail compile_fail; do
   for f in $d/*.pas $d/*.ppb; do
     head -1 "$f" | grep -q '^module ' && continue   # imported by a test
-    exp=$(sed -n -e '1s/^{ EXPECT: \(.*\) }$/\1/p' -e '1s|^// EXPECT: \(.*\)$|\1|p' "$f")
+    exp=$(sed -n -e '1s/^{\* EXPECT: \(.*\) \*}$/\1/p' -e '1s|^// EXPECT: \(.*\)$|\1|p' "$f")
     out=$($PPC -S -o "$TMP/x" "$f" 2>&1); rc=$?
     if [ $rc -ne 0 ] && grep -qF "$exp" <<<"$out"; then ok "$f"; else bad "$f" "expected: $exp
 got: $out"; fi
@@ -26,8 +26,8 @@ got: $out"; fi
 done
 for f in runtime_fail/*.pas; do
   n=$(basename "$f" .pas)
-  exp=$(sed -n '1s/^{ EXPECT: \(.*\) }$/\1/p' "$f")
-  flags=$(sed -n '2s/^{ FLAGS: \(.*\) }$/\1/p' "$f")
+  exp=$(sed -n '1s/^{\* EXPECT: \(.*\) \*}$/\1/p' "$f")
+  flags=$(sed -n '2s/^{\* FLAGS: \(.*\) \*}$/\1/p' "$f")
   if ! out=$($PPC $flags -o "$TMP/$n" "$f" 2>&1); then bad "$f" "$out"; continue; fi
   err=$("$TMP/$n" < /dev/null 2>&1 >/dev/null); rc=$?
   if [ $rc -ne 0 ] && grep -qF "$exp" <<<"$err"; then ok "$f"; else bad "$f" "expected: $exp

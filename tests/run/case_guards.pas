@@ -1,5 +1,5 @@
 program CaseGuards;
-{ case arms with guards: 'when cond' – the arm only matches when the condition is true }
+{* case arms with guards: 'when cond' – the arm only matches when the condition is true *}
 type
   TShape = (Circle(Radius: Real), Rect(W, H: Real), Named(Name: String; Sides: Integer), Empty);
   TNode = class V: Integer; constructor Create(AV: Integer); end;
@@ -48,7 +48,7 @@ procedure Eat(vao k: TNode); begin WriteLn('eat ', k.V); end;
 procedure Moves(s: TShape);
 vao k := TNode.Create(1);
 begin
-  case s of                              { a move in two arms: only one of them runs }
+  case s of                              {* a move in two arms: only one of them runs *}
     Circle(r) when r > 1: Eat(k);
     Circle(r): Eat(k);
   else WriteLn('keep ', k.V);

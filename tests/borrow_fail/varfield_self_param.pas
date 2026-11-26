@@ -1,4 +1,4 @@
-{ EXPECT: cannot store the reference to 'p' in the 'var' field }
+{* EXPECT: cannot store the reference to 'p' in the 'var' field *}
 program T;
 type
   TNode = class

@@ -1,4 +1,4 @@
-{ EXPECT: Current of "TBagEnum" gives a copy }
+{* EXPECT: Current of "TBagEnum" gives a copy *}
 program T;
 type
   TBag = class;

@@ -1,4 +1,4 @@
-{ EXPECT: 'b.Parent' would refer to 'a', which is freed before 'b' (declare 'a' before 'b') }
+{* EXPECT: 'b.Parent' would refer to 'a', which is freed before 'b' (declare 'a' before 'b') *}
 program T;
 type
   TNode = class

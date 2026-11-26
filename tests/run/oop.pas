@@ -1,6 +1,6 @@
 program OOP;
 type
-  { ---- a class hierarchy, objects belong to a vao variable ---- }
+  {* ---- a class hierarchy, objects belong to a vao variable ---- *}
   TShape = class
     X, Y: Integer;
     constructor Create(AX, AY: Integer);
@@ -75,7 +75,7 @@ constructor TCat.Create(AName: String const);
 begin inherited Create(AName); Lives := 7; end;
 function TCat.Sound: String; begin Result := 'Miau'; end;
 
-procedure ShowShape(S: TShape);       { only borrows the object }
+procedure ShowShape(S: TShape);       {* only borrows the object *}
 begin S.Describe; end;
 
 procedure Shift(S: TShape; DX: Integer);
@@ -83,14 +83,14 @@ begin S.X := S.X + DX; end;
 
 procedure LocalFigures;
 vao
-  r := TRect.Create(0, 0, 3, 4);                          { owns r: freed at the end of the procedure }
+  r := TRect.Create(0, 0, 3, 4);                          {* owns r: freed at the end of the procedure *}
 begin
   
   ShowShape(r);
-end;                                 { r is freed automatically here }
+end;                                 {* r is freed automatically here *}
 
 vao
-  c := TCircle.Create(1, 2, 1.5);                        { global owner }
+  c := TCircle.Create(1, 2, 1.5);                        {* global owner *}
 val
   pets: array[1..2] of optional TAnimal := default;
 var
@@ -98,7 +98,7 @@ var
 val
   i: Integer := default;
 vao
-  h: TShape := TRect.Create(5, 5, 2, 2);                         { owners }
+  h: TShape := TRect.Create(5, 5, 2, 2);                         {* owners *}
   dog: TDog := TDog.Create('Bello');
   cat: TCat := TCat.Create('Minka');
 begin
@@ -106,7 +106,7 @@ begin
   
   c.Describe;
   ShowShape(c);
-  Shift(c, 10);                 { value parameter = reference: the original is changed }
+  Shift(c, 10);                 {* value parameter = reference: the original is changed *}
   c.Describe;
   LocalFigures;
   WriteLn('c is TShape: ', c is TShape, ', c is TRect: ', c is TRect, ', class: ', c.ClassName);

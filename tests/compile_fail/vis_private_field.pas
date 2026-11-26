@@ -1,4 +1,4 @@
-{ EXPECT: the field "FSecret" of "TBase" is private }
+{* EXPECT: the field "FSecret" of "TBase" is private *}
 program T;
 type
   TBase = class

@@ -1,4 +1,4 @@
-{ EXPECT: borrowed reference 'x' is used after its owner 'a' was resized by SetLength }
+{* EXPECT: borrowed reference 'x' is used after its owner 'a' was resized by SetLength *}
 program T;
 import ppc_std;
 type

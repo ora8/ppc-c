@@ -1,5 +1,5 @@
 program CaseExpressions;
-{ case as an expression: every arm gives a value, the case must handle every case (or have an 'else') }
+{* case as an expression: every arm gives a value, the case must handle every case (or have an 'else') *}
 type
   TShape = (Circle(Radius: Real), Rect(W, H: Real), Named(Name: String; Sides: Integer), Empty);
   TColor = (Red, Green, Blue);

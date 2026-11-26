@@ -1,5 +1,5 @@
 program TypePatterns;
-{ type patterns: case on the class of an object, also in if ... is TCircle(c) and in case expressions }
+{* type patterns: case on the class of an object, also in if ... is TCircle(c) and in case expressions *}
 type
   TFigure = class
     X: Integer;
@@ -62,7 +62,7 @@ vao e: TFigure := TCircle.Create(8, 1.5);
 begin
   Show(a); Show(b); Show(c); Show(d); Show(e);
   Grow(b); Show(b); Grow(a);
-  case Make(1) of                     { a fresh object: owned by the case, freed after it }
+  case Make(1) of                     {* a fresh object: owned by the case, freed after it *}
     TCircle(k): WriteLn('made circle ', k.R:0:1);
   else WriteLn('made other');
   end;

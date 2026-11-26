@@ -1,11 +1,11 @@
 program ConstMethods;
-{ methods with '; const;': do not change Self;
-  and routines without side effects on global variables }
+{* methods with '; const;': do not change Self;
+  and routines without side effects on global variables *}
 type
   TVector = record
     X, Y: Real;
     procedure Scale(F: Real);
-    function Len: Real; const;               { does not change Self }
+    function Len: Real; const;               {* does not change Self *}
     function Normalized: TVector; const;
     procedure Show; const;
   end;
@@ -20,13 +20,13 @@ type
     function Description: String; const; virtual;
   end;
   TSavings = class(TAccount)
-    function Description: String; const; override; { the override stays const }
+    function Description: String; const; override; {* the override stays const *}
   end;
 
 procedure TVector.Scale(F: Real); begin X := X * F; Y := Y * F; end;
 function TVector.Len: Real; const; begin Result := Sqrt(X * X + Y * Y); end;
 function TVector.Normalized: TVector; const;
-val l := Len;                                 { const method calls a const method }
+val l := Len;                                 {* const method calls a const method *}
 begin
   Result.X := X / l;
   Result.Y := Y / l;
@@ -39,15 +39,15 @@ function TAccount.Balance: Integer; const; begin Result := FBalance; end;
 function TAccount.Description: String; const; begin Result := ClassName + ' ' + IntToStr(Balance); end;
 function TSavings.Description: String; const; begin Result := 'Spar: ' + inherited Description; end;
 
-{ free const function: only parameters and local variables, no side effects }
+{* free const function: only parameters and local variables, no side effects *}
 function SquareOf(N: Integer): Integer; const; begin Result := N * N; end;
 function SumOfSquares(N: Integer): Integer; const;
 begin
   Result := 0;
-  for val i := 1 to N do Result := Result + SquareOf(i);   { calls only const routines }
+  for val i := 1 to N do Result := Result + SquareOf(i);   {* calls only const routines *}
 end;
 
-procedure Print(V: TVector const);         { T const: only const methods }
+procedure Print(V: TVector const);         {* T const: only const methods *}
 begin
   V.Show;
   V.Normalized.Show;
@@ -60,7 +60,7 @@ vao
 begin
   v.X := 3; v.Y := 4;
   Print(v);
-  v.Scale(2);                                { v itself is not constant }
+  v.Scale(2);                                {* v itself is not constant *}
   v.Show;
   k.Deposit(50);
   WriteLn(k.Description, ', Balance ', k.Balance);

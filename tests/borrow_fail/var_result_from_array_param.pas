@@ -1,4 +1,4 @@
-{ EXPECT: borrowed reference 'r' is used after its owner 'a' was resized by SetLength }
+{* EXPECT: borrowed reference 'r' is used after its owner 'a' was resized by SetLength *}
 program T;
 type TK = class end;
 function Get(var a: array of optional TK): var optional TK; begin Result := a[0]; end;

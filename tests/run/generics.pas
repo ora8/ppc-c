@@ -1,5 +1,5 @@
 program Generics;
-{ generic records and classes (stage 1): TPair<A, B>, TList<T>, recursive, inheritance from instances }
+{* generic records and classes (stage 1): TPair<A, B>, TList<T>, recursive, inheritance from instances *}
 type
   TPair<A, B> = record
     First: A;
@@ -15,7 +15,7 @@ type
     function Len: Integer; const;
   end;
 
-  TNode<T> = class                     { recursive }
+  TNode<T> = class                     {* recursive *}
     Value: T;
     Next: optional TNode<T>;
   end;

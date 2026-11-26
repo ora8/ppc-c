@@ -1,4 +1,4 @@
-{ EXPECT: 7 error(s), compilation aborted }
+{* EXPECT: 7 error(s), compilation aborted *}
 program E2;
 type
   TFoo = class

@@ -1,4 +1,4 @@
-{ EXPECT: "TK" does not satisfy 'K: Comparable' (required by TMap<K, V>) }
+{* EXPECT: "TK" does not satisfy 'K: Comparable' (required by TMap<K, V>) *}
 program T;
 import ppc_std;
 type TK = class end;

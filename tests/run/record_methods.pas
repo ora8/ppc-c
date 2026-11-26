@@ -1,18 +1,18 @@
 program RecordMethods;
-{ records with methods: value types with behaviour, without class and heap }
+{* records with methods: value types with behaviour, without class and heap *}
 type
   TVector = record
     X, Y: Real;
     procedure Put(AX, AY: Real);
-    procedure Scale(F: Real);                 { changes the record itself }
+    procedure Scale(F: Real);                 {* changes the record itself *}
     function Len: Real;
-    function Plus(B: TVector const): TVector;    { returns a new value }
+    function Plus(B: TVector const): TVector;    {* returns a new value *}
     function AsText: String;
     property Width: Real read X write X;
   end;
 
   TRectangle = record
-    Corner, Magnitude: TVector;                       { Records in Records }
+    Corner, Magnitude: TVector;                       {* Records in Records *}
     function Area: Real;
     function Contains(P: TVector const): Boolean;
   end;
@@ -36,7 +36,7 @@ begin
             (P.Y >= Corner.Y) and (P.Y <= Corner.Y + Magnitude.Y);
 end;
 
-function vec(AX, AY: Real): TVector;          { "constructor" as a function }
+function vec(AX, AY: Real): TVector;          {* "constructor" as a function *}
 begin Result.Put(AX, AY); end;
 
 val
@@ -47,12 +47,12 @@ val
 begin
   a.Put(3, 4);
   WriteLn('a = ', a.AsText, ', Len ', a.Len:0:1);
-  b := a;                                         { CopyOf }
+  b := a;                                         {* CopyOf *}
   b.Scale(2);
   WriteLn('a = ', a.AsText, ', b = ', b.AsText, '  (b is a copy)');
   c := a.Plus(b);
   WriteLn('a + b = ', c.AsText);
-  WriteLn('Len of vec(6, 8): ', vec(6, 8).Len:0:1);   { method on a result value }
+  WriteLn('Len of vec(6, 8): ', vec(6, 8).Len:0:1);   {* method on a result value *}
   WriteLn('a.Plus(b).Plus(a) = ', a.Plus(b).Plus(a).AsText);
   a.Width := 10;
   WriteLn('after a.Width := 10: ', a.AsText, ', Width ', a.Width:0:1);

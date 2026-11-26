@@ -1,5 +1,5 @@
 program Strings;
-{ dynamic strings: no length limit, own buffer per variable, copied on assignment }
+{* dynamic strings: no length limit, own buffer per variable, copied on assignment *}
 type
   TPerson = record
     Name, City: String;
@@ -19,7 +19,7 @@ end;
 
 function Shout(s: String): String;
 begin
-  s := UpperCase(s);          { changes only the copy }
+  s := UpperCase(s);          {* changes only the copy *}
   s[1] := '!';
   Result := s + '!';
 end;

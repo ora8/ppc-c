@@ -1,5 +1,5 @@
 program StackMove;
-{ val b := k: a stack object is moved (copied byte for byte), k is dead afterwards }
+{* val b := k: a stack object is moved (copied byte for byte), k is dead afterwards *}
 type
   TK = class
     N: Integer;
@@ -16,14 +16,14 @@ begin
   k.Part := TK.Create(2);
   if flag then
   begin
-    val b := k;                       { k moves to b }
+    val b := k;                       {* k moves to b *}
     begin
       b.N := 10;
       WriteLn('b = ', b.N);
-    end;                              { b (with Part) is destroyed here }
+    end;                              {* b (with Part) is destroyed here *}
   end;
   WriteLn('P end');
-end;                                  { k only if it was not moved }
+end;                                  {* k only if it was not moved *}
 
 begin
   P(True);

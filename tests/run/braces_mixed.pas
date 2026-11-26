@@ -1,5 +1,5 @@
 program BracesMixed;
-{ a program in Pascal syntax can import a module in the brace syntax (and the other way round) }
+{* a program in Pascal syntax can import a module in the brace syntax (and the other way round) *}
 import braces_shapes;
 vao s: TShape := TSquare.Create(2);
 begin

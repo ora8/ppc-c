@@ -1,5 +1,5 @@
 program FunctionValues;
-{ function types, routines as values, lambdas }
+{* function types, routines as values, lambdas *}
 type
   TCompare = function(a, b: Integer): Integer;
   TAction = procedure(x: Integer);

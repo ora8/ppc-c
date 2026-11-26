@@ -1,4 +1,4 @@
-{ EXPECT: the field "FX" of "TPoint" is private }
+{* EXPECT: the field "FX" of "TPoint" is private *}
 program T;
 type
   TBase = class

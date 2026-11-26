@@ -11,7 +11,7 @@ type
   public
     class var Prefix: String;
     class var Default: optional TItem;
-  var                                  { ends the class var section }
+  var                                  {* ends the class var section *}
     Id: Integer;
     constructor Create;
     class function Created: Integer;

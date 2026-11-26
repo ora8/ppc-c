@@ -1,4 +1,4 @@
-{ EXPECT: 6 syntax error(s), compilation aborted }
+{* EXPECT: 6 syntax error(s), compilation aborted *}
 program E1;
 procedure A;
 begin

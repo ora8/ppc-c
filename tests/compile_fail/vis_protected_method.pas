@@ -1,4 +1,4 @@
-{ EXPECT: the method "Helper" of "TBase" is protected }
+{* EXPECT: the method "Helper" of "TBase" is protected *}
 program T;
 type
   TBase = class

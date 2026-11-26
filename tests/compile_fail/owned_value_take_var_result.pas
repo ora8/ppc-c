@@ -1,4 +1,4 @@
-{ EXPECT: the result of 'Get' refers into its container and cannot be taken over }
+{* EXPECT: the result of 'Get' refers into its container and cannot be taken over *}
 program T;
 import ppc_std;
 type
