@@ -6369,7 +6369,10 @@ static void routine_body(Routine *rt, RoutineDecl *d) {
     top_scope = save_top;
 }
 
+static Block *g_prog_block; /* the program's (or library's) own block */
 static void decls(Block *b, int has_frame) {
+    if (b->exports.len && b != g_prog_block)
+        error_at(b->exports.items[0].name.pos, "'exports' belongs to the main level of a library ('library Name;'), not to a module or a routine");
     for (int di = 0; di < b->decls.len; di++) /* implementations of generic methods: needed when they are used */
         if (b->decls.items[di]->kind == D_ROUTINE && b->decls.items[di]->rt->has_cls && b->decls.items[di]->rt->tparams.len)
             vpush(gm_impls, b->decls.items[di]->rt);
@@ -6765,7 +6768,73 @@ const char *hover_text(void) {
     return NULL;
 }
 
+/* ---- libraries: 'exports' and the types that can cross the boundary to C ---- */
+/* a value that C code can pass or get: numbers, Boolean, Char, enumerations, records of those */
+static const char *export_type_problem(Type *t, int is_result) {
+    switch (t->kind) {
+    case T_INT: case T_REAL: case T_BOOL: case T_CHAR: case T_ENUM: return NULL;
+    case T_STR: return is_result ? "a String result (who would free it?) is not possible yet" : NULL;
+    case T_RECORD:
+        if (t->st->is_sum) return "an enumeration with data is not possible";
+        for (int i = 0; i < t->st->fields.len; i++) {
+            Type *ft = t->st->fields.items[i]->type;
+            if (ft->kind == T_STR) return sfmt("the record field '%s' is a String (only numbers, Boolean, Char, enumerations and such records)", t->st->fields.items[i]->name);
+            if (export_type_problem(ft, 1)) return sfmt("the record field '%s' is a \"%s\" (only numbers, Boolean, Char, enumerations and such records)",
+                                                    t->st->fields.items[i]->name, type_name(ft));
+        }
+        return NULL;
+    default: return "only numbers, Boolean, Char, enumerations, records of those and String parameters";
+    }
+}
+static int c_ident(const char *s) {
+    if (!s || !*s || !(isalpha((unsigned char)*s) || *s == '_')) return 0;
+    for (; *s; s++)
+        if (!(isalnum((unsigned char)*s) || *s == '_')) return 0;
+    return 1;
+}
+static void check_exports(Block *pb) {
+    if (pb->exports.len && !pb->is_library)
+        error_at(pb->exports.items[0].name.pos, "'exports' is only possible in a library: begin the file with 'library Name;' instead of 'program'");
+    for (int i = 0; i < pb->exports.len; i++) {
+        ExportDecl *x = &pb->exports.items[i];
+        Look L = lookup(x->name.name);
+        if (L.kind != LK_SYM || L.sym->kind != SY_ROUTINE) {
+            if (L.kind == LK_SYM && L.sym->kind == SY_GENERIC)
+                error_at(x->name.pos, "the generic routine '%s' cannot be exported: export a routine that calls it with fixed types", x->name.name);
+            error_at(x->name.pos, "'%s' is not a routine of this library (only routines can be exported)", x->name.name);
+        }
+        Routine *r = L.sym->rt;
+        if (r->is_overload || r->ovl_next)
+            error_at(x->name.pos, "'%s' is overloaded: C has no overloading, export one routine with its own name", x->name.name);
+        if (r->is_external) error_at(x->name.pos, "'%s' is external and cannot be exported", x->name.name);
+        const char *cn = x->cname ? x->cname : r->name;
+        if (!c_ident(cn)) error_at(x->name.pos, "'%s' is not a valid C name for the export", cn);
+        if (strncmp(cn, "__", 2) == 0 || STREQ(cn, "main"))
+            error_at(x->name.pos, "the C name '%s' is reserved (names starting with '__' and 'main')", cn);
+        for (int k = 0; k < prog->exports.len; k++) {
+            if (STREQ(prog->exports.items[k].cname, cn)) error_at(x->name.pos, "the C name '%s' is exported twice", cn);
+            if (prog->exports.items[k].rt == r) error_at(x->name.pos, "'%s' is exported twice", x->name.name);
+        }
+        for (int k = 0; k < r->params.len; k++) {
+            Param *pm = &r->params.items[k];
+            if (pm->mode == PM_VAR || pm->mode == PM_OUT || pm->mode == PM_OWNED)
+                error_at(x->name.pos, "'%s' cannot be exported: its parameter '%s' is a '%s' parameter (only value and const parameters)", x->name.name,
+                         pm->name ? pm->name : "?", pm->mode == PM_VAR ? "var" : pm->mode == PM_OUT ? "out" : "vao");
+            const char *why = export_type_problem(pm->type, 0);
+            if (why) error_at(x->name.pos, "'%s' cannot be exported: its parameter '%s' is a \"%s\": %s", x->name.name, pm->name ? pm->name : "?",
+                              type_name(pm->type), why);
+        }
+        if (r->ret) {
+            if (r->ret_borrowed) error_at(x->name.pos, "'%s' cannot be exported: it returns a reference ('var' result)", x->name.name);
+            const char *why = export_type_problem(r->ret, 1);
+            if (why) error_at(x->name.pos, "'%s' cannot be exported: its result is a \"%s\": %s", x->name.name, type_name(r->ret), why);
+        }
+        vpush(prog->exports, ((typeof(prog->exports.items[0])){r, (char *)cn}));
+    }
+}
+
 Program *sema_program(Block *prelude, Block **libs, int nlibs, Block *pb, const char *name) {
+    g_prog_block = pb;
     prog = NEW(Program);
     prog->name = xstrdup(name);
     t_void = new_type(T_VOID, "untyped");
@@ -6826,6 +6895,8 @@ Program *sema_program(Block *prelude, Block **libs, int nlibs, Block *pb, const 
     pending_bodies.len = 0;
     check_settled(prog->globals.items, prog->globals.len);
     prog->body = pb->body;
+    prog->is_library = pb->is_library;
+    check_exports(pb);
 
     for (int i = 0; i < prog->routines.len; i++) {
         Routine *r = prog->routines.items[i];

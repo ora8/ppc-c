@@ -47,6 +47,7 @@ make test       # test suite (output, borrow/optional/stack/const/result/clone/g
 ```bash
 ./ppc program.pas             # produces ./program
 ./ppc -o hello program.pas    # name of the program
+./ppc mathlib.pas             # 'library MathLib;': produces ./libMathLib.so and ./MathLib.h
 ./ppc -S program.pas          # only produce the C code (program.c)
 ./ppc -k program.pas          # keep the C file as well
 ./ppc --no-borrow-check x.pas # switch off the borrow checker
@@ -92,7 +93,7 @@ language-servers = ["ppc"]
 
 VS Code: the extension in [editors/vscode](editors/vscode/README.md) (syntax highlighting,
 the language server, *Run File*): `cd editors/vscode && npm install && npm run package`, then
-`code --install-extension perfect-pascal-0.1.2.vsix`.
+`code --install-extension perfect-pascal-0.1.3.vsix`.
 
 Emacs (eglot): `(add-to-list 'eglot-server-programs '(pascal-mode "ppc" "--lsp"))`.
 
@@ -1299,6 +1300,81 @@ for paths `ExtractFileName('src/main.pas') = 'main.pas'`, `ExtractFileDir` (`'sr
   caller (`optional T`), `Get` and `Peek` only borrow.
 * Names of the program hide those of the library; the library itself keeps using its own.
 * An unknown module gives `module 'SysUtils' not found (looked for ./SysUtils.pas)`.
+
+## Shared libraries: `library` and `exports`
+
+The same `ppc` makes executables and shared libraries; the first line of the file decides:
+
+| The file starts with | `ppc file.pas` makes |
+|---|---|
+| `program Name;` (or nothing) | an executable `file` |
+| `library Name;` | a shared library `libName.so` and its C header `Name.h` |
+| `module Name;` | nothing on its own: it is imported by programs and libraries |
+
+```pascal
+library MathLib;
+import ppc_std;
+
+type
+  TPoint = record
+    X, Y: Integer;
+  end;
+
+val calls: Integer := 0;               {* state of the library, kept between calls *}
+
+function Add(a, b: Integer): Integer;
+begin
+  Inc(calls);
+  Result := a + b;
+end;
+
+function Middle(a, b: TPoint): TPoint;
+begin
+  Result.X := (a.X + b.X) div 2;
+  Result.Y := (a.Y + b.Y) div 2;
+end;
+
+function CountChar(s: String; c: Char): Integer;
+begin
+  Result := 0;
+  for val ch in s do if ch = c then Inc(Result);
+end;
+
+exports
+  Add, Middle, CountChar name 'count_char';      {* name: another C name *}
+
+begin
+  WriteLn('MathLib loaded');            {* runs when the library is loaded *}
+end.
+```
+
+```bash
+ppc mathlib.pas                                   # libMathLib.so and MathLib.h
+gcc -o client client.c -L. -lMathLib -Wl,-rpath,.
+```
+
+The generated header declares the types and routines for C (and C++):
+
+```c
+typedef struct TPoint { int32_t X; int32_t Y; } TPoint;
+int32_t Add(int32_t a, int32_t b);
+TPoint Middle(TPoint a, TPoint b);
+int32_t count_char(const char *s, char c);
+```
+
+* Only the routines listed in `exports` are visible in the `.so` (with their own name or the one after
+  `name`); everything else stays private. Several Perfect Pascal libraries can be loaded together.
+* At the boundary only values that C understands are possible: integers, `Real` (`double`),
+  `Boolean` (`bool`), `Char` (`char`), enumerations (`int32_t` with constants `TColor_Red`, …) and
+  records of those, as value or `const` parameters (`T const` is a `const T *`) and results;
+  `String` parameters are C strings (`const char *`). Strings as results, objects, `var` parameters,
+  overloaded and generic routines cannot be exported (yet) – the compiler says why.
+* The main block (`begin … end.`) runs when the library is loaded; global objects of the library are
+  freed when it is unloaded (also with `dlclose`).
+* Inside, the library is ordinary Perfect Pascal: modules, `ppc_std`, the borrow checker, both
+  syntaxes (`library` and `exports` work the same in `.pps` files).
+* A run-time error in the library (e.g. a range error) ends the whole program, as in a program.
+* `-o` sets the `.so` (the header is written next to it); `-S` writes the C file and the header.
 
 ## Records with methods
 

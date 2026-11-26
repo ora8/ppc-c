@@ -33,6 +33,20 @@ for f in runtime_fail/*.pas; do
   if [ $rc -ne 0 ] && grep -qF "$exp" <<<"$err"; then ok "$f"; else bad "$f" "expected: $exp
 got (rc=$rc): $err"; fi
 done
+# shared libraries: each library/<name>.pas (and .pps) becomes lib<Name>.so with <Name>.h; the C programs
+# library/<name>_*.c use it (linked, or loaded with dlopen: the .so is their first argument)
+if command -v gcc >/dev/null; then
+  for f in library/*.pas library/*.pps; do
+    lib=$(sed -n 's/^library \([A-Za-z_][A-Za-z0-9_]*\);.*/\1/p' "$f" | head -1)
+    b=$(basename "${f%.*}"); d="$TMP/lib_$(basename "$f")"; mkdir -p "$d"
+    if ! out=$($PPC -o "$d/lib$lib.so" "$f" 2>&1); then bad "$f" "$out"; continue; fi
+    for c in library/${b}_*.c; do
+      x="$d/$(basename "$c" .c)"
+      if ! out=$(gcc -o "$x" "$c" -I"$d" -L"$d" -l"$lib" -ldl -Wl,-rpath,"$d" 2>&1); then bad "$f: $c" "$out"; continue; fi
+      if diff -u "${c%.c}.expected" <("$x" "$d/lib$lib.so" 2>&1) > "$TMP/diff"; then ok "$f: $c"; else bad "$f: $c" "$(cat "$TMP/diff")"; fi
+    done
+  done
+fi
 # tools/pas2pps.pps (the converter written in the brace syntax) reproduces every .pps twin of run/*.pas
 if out=$($PPC -o "$TMP/pas2pps" ../tools/pas2pps.pps 2>&1); then
   for f in run/*.pas; do

@@ -176,11 +176,18 @@ typedef struct {
     RoutineDecl *rt;
 } Decl;
 
+typedef struct {
+    Ident name;  /* the routine */
+    char *cname; /* 'name 'c_name'' (NULL: the routine's name) */
+} ExportDecl;
+
 struct Block {
     VEC(Decl *) decls;
     StmtVec body;
     IdentVec uses; /* program/module: 'import ppc_std;' */
     Block *impl;   /* module: the implementation section (interface: decls of this block) */
+    int is_library;              /* 'library Name;' instead of 'program Name;' */
+    VEC(ExportDecl) exports;     /* library: 'exports A, B name 'b';' */
 };
 
 /* ------------------------------------------------------------ expressions */
@@ -451,6 +458,8 @@ typedef struct {
     Struct *tobject;
     char *name;
     Pos end_pos;
+    int is_library;                                    /* a shared library (.so), not an executable */
+    VEC(struct { Routine *rt; char *cname; }) exports; /* its exported routines with their C names */
 } Program;
 
 /* builtins */
@@ -502,5 +511,6 @@ int is_owning_temp(Expr *e);
 
 /* codegen.c */
 void codegen(Program *p, FILE *out);
+void codegen_header(Program *p, FILE *out); /* a library: the C header of its exports */
 
 #endif

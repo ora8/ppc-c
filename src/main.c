@@ -86,7 +86,8 @@ static void usage(void) {
     fprintf(stderr,
             "ppc - Perfect Pascal Compiler (case-sensitive, C backend, borrow checker)\n"
             "usage: ppc [options] file.pas\n"
-            "  -o <file>          output executable (default: file name without .pas)\n"
+            "  -o <file>          output executable (default: file name without .pas); for a library the .so\n"
+            "                     (default: lib<Name>.so next to the file, with the C header <Name>.h)\n"
             "  -S                 only emit C code (<out>.c), do not compile\n"
             "  -k                 keep the generated C file next to the executable\n"
             "  --no-borrow-check  disable the borrow checker\n"
@@ -160,6 +161,7 @@ int main(int argc, char **argv) {
         if (dot && (!slash || dot > slash)) base = xstrndup(input, (size_t)(dot - input));
         else base = xstrdup(input);
     }
+    const char *out_given = output;
     if (!output) output = base;
 
     g_filename = "<prelude>";
@@ -203,6 +205,22 @@ int main(int argc, char **argv) {
     }
 
     if (check_only) return 0;
+    char *hfile = NULL;
+    if (prog->is_library) { /* library Name;  ->  libName.so and Name.h (next to the file, or next to -o) */
+        const char *slash = strrchr(input, '/');
+        char *dir = slash ? xstrndup(input, (size_t)(slash - input + 1)) : xstrdup("");
+        if (!out_given) output = sfmt("%slib%s.so", dir, pname);
+        const char *os = strrchr(output, '/');
+        char *odir = os ? xstrndup(output, (size_t)(os - output + 1)) : xstrdup("");
+        hfile = sfmt("%s%s.h", odir, pname);
+        FILE *h = fopen(hfile, "w");
+        if (!h) {
+            fprintf(stderr, "ppc: cannot write '%s'\n", hfile);
+            return 2;
+        }
+        codegen_header(prog, h);
+        fclose(h);
+    }
     char *cfile = (emit_only || keep) ? sfmt("%s.c", output) : sfmt("/tmp/ppc_%d_%s.c", (int)getpid(), "out");
     FILE *f = fopen(cfile, "w");
     if (!f) {
@@ -216,10 +234,22 @@ int main(int argc, char **argv) {
 
     pid_t pid = fork();
     if (pid == 0) {
-        if (debug)
-            execlp(cc, cc, "-std=gnu11", "-O0", "-g", "-w", "-fwrapv", "-fno-strict-aliasing", "-o", output, cfile, "-lm", (char *)NULL);
-        else
-            execlp(cc, cc, "-std=gnu11", opt, "-w", "-fwrapv", "-fno-strict-aliasing", "-o", output, cfile, "-lm", (char *)NULL);
+        const char *av[20];
+        int n = 0;
+        av[n++] = cc;
+        av[n++] = "-std=gnu11";
+        if (debug) av[n++] = "-O0", av[n++] = "-g";
+        else av[n++] = opt;
+        av[n++] = "-w";
+        av[n++] = "-fwrapv";
+        av[n++] = "-fno-strict-aliasing";
+        if (prog->is_library) av[n++] = "-shared", av[n++] = "-fPIC", av[n++] = "-fvisibility=hidden"; /* only the exports are visible */
+        av[n++] = "-o";
+        av[n++] = output;
+        av[n++] = cfile;
+        av[n++] = "-lm";
+        av[n] = NULL;
+        execvp(cc, (char *const *)av);
         fprintf(stderr, "ppc: cannot run C compiler '%s'\n", cc);
         _exit(127);
     }

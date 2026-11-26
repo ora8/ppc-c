@@ -906,6 +906,22 @@ static int one_decl; /* 'while val i := 0; ...': exactly one declaration */
 static int parse_decl1(Block *blk) {
     {
         if (one_decl && blk->decls.len) return 0;
+        if (is_ident("exports") && T.items[P + 1].kind == TK_IDENT) { /* exports Add, Area name 'area'; */
+            next();
+            for (;;) {
+                ExportDecl x = {0};
+                x.name = ident();
+                if (is_ident("name") && T.items[P + 1].kind == TK_STR) {
+                    next();
+                    x.cname = xstrndup(CUR.str, (size_t)CUR.slen);
+                    next();
+                }
+                vpush(blk->exports, x);
+                if (!accept_sym(",")) break;
+            }
+            expect_sym(";");
+            return 1;
+        }
         if (!const_routine_ahead() && accept_kw("const")) {
             Decl *d = NEW(Decl);
             d->kind = D_CONST;
@@ -1676,6 +1692,7 @@ Block *parse_program(const char *src, char **name, Pos *end_pos) {
     P = 0;
     *name = xstrdup("main");
     if (is_kw("module")) error_at(pos(), "this file is a module ('module %s;'), not a program: import it from a program", T.items[P + 1].s);
+    int lib = 0;
     if (accept_kw("program")) {
         *name = ident().name;
         if (accept_sym("(")) {
@@ -1683,10 +1700,16 @@ Block *parse_program(const char *src, char **name, Pos *end_pos) {
             expect_sym(")");
         }
         expect_sym(";");
+    } else if (is_ident("library") && T.items[P + 1].kind == TK_IDENT) { /* library Name;  a shared library */
+        next();
+        *name = ident().name;
+        expect_sym(";");
+        lib = 1;
     }
     IdentVec uses = parse_imports();
     Block *b = NEW(Block);
     b->uses = uses;
+    b->is_library = lib;
     parse_decls(b);
     expect_kw("begin");
     b->body = parse_stmt_list("end");

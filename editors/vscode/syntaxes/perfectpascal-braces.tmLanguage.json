@@ -121,7 +121,7 @@
         },
         {
           "name": "storage.type.perfectpascal-braces",
-          "match": "\\b(val|var|vao|const|type|program|module|import|interface|implementation|uses|unit|function|procedure|constructor|destructor|class|record|object|array|set|property|operator|reference|optional|result|packed|label)\\b"
+          "match": "\\b(val|var|vao|const|type|program|library|exports|module|import|interface|implementation|uses|unit|function|procedure|constructor|destructor|class|record|object|array|set|property|operator|reference|optional|result|packed|label)\\b"
         },
         {
           "name": "storage.modifier.perfectpascal-braces",
