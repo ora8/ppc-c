@@ -3,44 +3,44 @@ type
   TShape = class {
     constructor Create; overload;
     constructor Create(AName: String); overload;
-    func Describe: String; overload; virtual;
-    func Describe(Prefix: String): String; overload;
+    function Describe: String; overload; virtual;
+    function Describe(Prefix: String): String; overload;
     Name: String;
   }
   TCircle = class(TShape) {
     R: Real;
-    func Describe: String; override;
-    func Describe(Times: Integer): String; overload;
+    function Describe: String; override;
+    function Describe(Times: Integer): String; overload;
   }
   TVec = record {
     X, Y: Real;
-    proc Add(d: Real); overload;
-    proc Add(v: TVec); overload;
+    procedure Add(d: Real); overload;
+    procedure Add(v: TVec); overload;
   }
-func DupeStr(s: String; n: Integer): String
+function DupeStr(s: String; n: Integer): String;
 { Result := ''; for val i := 1 to n do Result := Result + s; }
-constructor TShape.Create { Name := 'shape'; }
-constructor TShape.Create(AName: String) { Name := AName; }
-func TShape.Describe: String { Result := 'a ' + Name; }
-func TShape.Describe(Prefix: String): String { Result := Prefix + Describe; }
-func TCircle.Describe: String { Result := 'circle ' + Name; }
-func TCircle.Describe(Times: Integer): String { Result := DupeStr(Describe, Times); }
-proc TVec.Add(d: Real) { X := X + d; Y := Y + d; }
-proc TVec.Add(v: TVec) { X := X + v.X; Y := Y + v.Y; }
+constructor TShape.Create; { Name := 'shape'; }
+constructor TShape.Create(AName: String); { Name := AName; }
+function TShape.Describe: String; { Result := 'a ' + Name; }
+function TShape.Describe(Prefix: String): String; { Result := Prefix + Describe; }
+function TCircle.Describe: String; { Result := 'circle ' + Name; }
+function TCircle.Describe(Times: Integer): String; { Result := DupeStr(Describe, Times); }
+procedure TVec.Add(d: Real); { X := X + d; Y := Y + d; }
+procedure TVec.Add(v: TVec); { X := X + v.X; Y := Y + v.Y; }
 
-func Show(i: Integer): String; overload; forward;
-func Show(s: String): String; overload
+function Show(i: Integer): String; overload; forward;
+function Show(s: String): String; overload;
 { Result := 'string ' + s; }
-func Show(r: Real): String; overload
+function Show(r: Real): String; overload;
 { Result := 'real ' + FloatToStr(r); }
-func Show(i: Integer): String
+function Show(i: Integer): String;
 { Result := 'integer ' + IntToStr(i); }
-func Show(a, b: Integer): String; overload
+function Show(a, b: Integer): String; overload;
 { Result := 'two ' + IntToStr(a + b); }
-func Show: String; overload
+function Show: String; overload;
 { Result := 'nothing'; }
-proc Bump(var i: Integer); overload { Inc(i); }
-proc Bump(var s: String); overload { s := s + '+'; }
+procedure Bump(var i: Integer); overload; { Inc(i); }
+procedure Bump(var s: String); overload; { s := s + '+'; }
 
 val
   i := 41;

@@ -7,17 +7,17 @@ type
   TK = class {
     Name: String;
     constructor Create(AName: String const);
-    func Clone: TK; const; auto;
+    function Clone: TK; const; auto;
   }
-constructor TK.Create(AName: String const) { inherited Create; Name := AName; }
+constructor TK.Create(AName: String const); { inherited Create; Name := AName; }
 
-func Repeat_(s: String; n: Integer): String
+function Repeat_(s: String; n: Integer): String;
 {
   Result := '';
   for val i := 1 to n do Result := Result + s;
 }
 
-func Shout(s: String): String
+function Shout(s: String): String;
 {
   s := UpperCase(s);          {* changes only the copy *}
   s[1] := '!';

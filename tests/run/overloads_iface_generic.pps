@@ -1,22 +1,22 @@
 program overloads_iface_generic;
 type
   IPrinter = interface {
-    proc Print(s: String);
+    procedure Print(s: String);
   }
   TPrinter = class(IPrinter) {
-    proc Print(i: Integer); overload;
-    proc Print(s: String); overload;
+    procedure Print(i: Integer); overload;
+    procedure Print(s: String); overload;
   }
   TBox<T> = class {
     V: optional T;
-    proc Put(vao x: T); overload;
-    proc Put(vao x: T; Twice: Boolean); overload;
+    procedure Put(vao x: T); overload;
+    procedure Put(vao x: T; Twice: Boolean); overload;
   }
-proc TPrinter.Print(i: Integer) { WriteLn('int ', i); }
-proc TPrinter.Print(s: String) { WriteLn('str ', s); }
-proc TBox<T>.Put(vao x: T) { V := x; }
-proc TBox<T>.Put(vao x: T; Twice: Boolean) { V := x; if Twice WriteLn('twice'); }
-proc Use(var p: IPrinter) { p.Print('via interface'); }
+procedure TPrinter.Print(i: Integer); { WriteLn('int ', i); }
+procedure TPrinter.Print(s: String); { WriteLn('str ', s); }
+procedure TBox<T>.Put(vao x: T); { V := x; }
+procedure TBox<T>.Put(vao x: T; Twice: Boolean); { V := x; if Twice WriteLn('twice'); }
+procedure Use(var p: IPrinter); { p.Print('via interface'); }
 {
   vao p := TPrinter.Create;
   vao b := TBox<Integer>.Create;

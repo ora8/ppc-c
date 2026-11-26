@@ -6,22 +6,22 @@ type
   private
     FBalance: Integer;
     FLog: String;
-    proc SetBalance(V: Integer);
+    procedure SetBalance(V: Integer);
   public
     property Balance: Integer read FBalance write SetBalance;
     property Log: String read FLog;
-    proc Apply(n: Integer);
+    procedure Apply(n: Integer);
   }
   TRec = class { A, B: Integer; Name: String; }
 
-proc TAccount.SetBalance(V: Integer)
+procedure TAccount.SetBalance(V: Integer);
 {
   FLog := FLog + '[' + IntToStr(V) + ']';
   FBalance := V;
 }
 
-proc TAccount.Apply(n: Integer);
-  proc Step(k: Integer)          {* nested in a method, access to Self *}
+procedure TAccount.Apply(n: Integer);
+  procedure Step(k: Integer);          {* nested in a method, access to Self *}
   {
     Balance := Balance + k;
   }
@@ -30,9 +30,9 @@ val i: Integer := default;
   for i := 1 to n do Step(i);
 }
 
-func IsWeekend(d: TDay): Boolean; forward;
+function IsWeekend(d: TDay): Boolean; forward;
 
-func Describe(d: TDay): String
+function Describe(d: TDay): String;
 {
   case d of {
     Mon..Fri: Result := 'weekday';
@@ -42,12 +42,12 @@ func Describe(d: TDay): String
   if IsWeekend(d) Result := Result + '!';
 }
 
-func IsWeekend(d: TDay): Boolean
+function IsWeekend(d: TDay): Boolean;
 {
   IsWeekend := d >= Sat;
 }
 
-func FirstNeg(a: TArr5 const): Integer;
+function FirstNeg(a: TArr5 const): Integer;
 val i: Integer := default;
 {
   for i := 1 to 5 do
@@ -55,10 +55,10 @@ val i: Integer := default;
   Result := -1;
 }
 
-func Outer(x: Integer): Integer;
+function Outer(x: Integer): Integer;
 val depth: Integer := default;
-  func Mid(y: Integer): Integer;
-    func Inner(z: Integer): Integer
+  function Mid(y: Integer): Integer;
+    function Inner(z: Integer): Integer;
     {
       depth := depth + 1;
       Inner := x + y + z;     {* reaches two levels outwards *}

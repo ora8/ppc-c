@@ -4,8 +4,8 @@ type
   TPerson = record { Name: String; Age: Integer; Tags: array of String; Nick: optional String; }
   TShape = (Circle(Radius: Real), Rect(W, H: Real), Empty);
   TGrid = array[1..2] of TPoint;
-func P(x, y: Integer): TPoint { Result.X := x; Result.Y := y; }
-func Same<T: Equatable>(a, b: T): Boolean { Result := a = b; }
+function P(x, y: Integer): TPoint; { Result.X := x; Result.Y := y; }
+function Same<T: Equatable>(a, b: T): Boolean; { Result := a = b; }
 val
   a: TPoint := (X: 1; Y: 2);
   b: TPoint := (X: 1; Y: 2);

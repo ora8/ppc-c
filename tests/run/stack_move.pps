@@ -7,10 +7,10 @@ type
     constructor Create(AN: Integer);
     destructor Destroy; override;
   }
-constructor TK.Create(AN: Integer) { inherited Create; N := AN; }
-destructor TK.Destroy { WriteLn('  Destroy ', N); inherited Destroy; }
+constructor TK.Create(AN: Integer); { inherited Create; N := AN; }
+destructor TK.Destroy; { WriteLn('  Destroy ', N); inherited Destroy; }
 
-proc P(flag: Boolean);
+procedure P(flag: Boolean);
 val k := TK.Create(1);
 {
   k.Part := TK.Create(2);

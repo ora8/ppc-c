@@ -1,12 +1,12 @@
 program sum_types_generic;
 type
   TMaybe<T> = (Just(Value: T), Nothing);
-func First<T: Copy>(a: array of T): TMaybe<T>
+function First<T: Copy>(a: array of T): TMaybe<T>;
 {
   if Length(a) = 0 Result := TMaybe<T>.Nothing;
   else Result := TMaybe<T>.Just(a[0]);
 }
-func OrElse<T: Copy>(m: TMaybe<T>; d: T): T
+function OrElse<T: Copy>(m: TMaybe<T>; d: T): T;
 {
   case m of {
     Just(v): Result := v;

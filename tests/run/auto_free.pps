@@ -10,21 +10,21 @@ type
   }
   TList = class {
     Head: optional TNode;
-    proc PushFront(W: Integer);
-    proc Show;
+    procedure PushFront(W: Integer);
+    procedure Show;
   }
 
-constructor TNode.Create(W: Integer) { inherited Create; Value := W; }
-destructor TNode.Destroy { WriteLn('  freed: ', Value); inherited Destroy; }
+constructor TNode.Create(W: Integer); { inherited Create; Value := W; }
+destructor TNode.Destroy; { WriteLn('  freed: ', Value); inherited Destroy; }
 
-proc TList.PushFront(W: Integer);
+procedure TList.PushFront(W: Integer);
 vao k := TNode.Create(W);
 {
   k.Next := Take(Head);
   Head := k;                           {* ownership moves into the list: k is not freed *}
 }
 
-proc TList.Show;
+procedure TList.Show;
 var p: optional TNode := none;
 {
   p := Head;
@@ -32,20 +32,20 @@ var p: optional TNode := none;
   WriteLn;
 }
 
-func Build(n: Integer): TList;     {* result: ownership goes to the caller *}
+function Build(n: Integer): TList;     {* result: ownership goes to the caller *}
 vao l := TList.Create;
 {
   for val i := 1 to n do l.PushFront(i);
   Result := l;
 }
 
-proc Fill(var Target: TNode);   {* returned through a var parameter *}
+procedure Fill(var Target: TNode);   {* returned through a var parameter *}
 vao fresh := TNode.Create(77);
 {
   Target := fresh;                          {* the old Target is freed, fresh moves out *}
 }
 
-proc Local;
+procedure Local;
 vao
   a := TNode.Create(1);
   I := 42;                              {* heap value *}

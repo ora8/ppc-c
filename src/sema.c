@@ -1529,9 +1529,7 @@ static const char *type_desc(Type *t) {
 static const char *routine_desc(Routine *r) {
     Buf b = {0};
     if (r->is_classm && r->owner) buf_put(&b, "class ");
-    int br = is_brace_file(g_hover_file); /* hover and completion in a .pps file: its own words */
-    buf_put(&b, r->kind == RK_FUNC ? (br ? "func " : "function ") : r->kind == RK_CTOR ? "constructor " : r->kind == RK_DTOR ? "destructor "
-                : br ? "proc " : "procedure ");
+    buf_put(&b, r->kind == RK_FUNC ? "function " : r->kind == RK_CTOR ? "constructor " : r->kind == RK_DTOR ? "destructor " : "procedure ");
     if (r->owner) buf_printf(&b, "%s.", r->owner->name);
     buf_put(&b, r->name);
     if (r->params.len) {
@@ -1711,12 +1709,9 @@ static _Noreturn void complete_scope(void) {
                                "downto", "repeat", "until", "loop", "case", "of", "is", "some", "none", "ok", "error", "try",
                                "not", "and", "or", "div", "mod", "function", "procedure", "result", "optional", "default",
                                "Break", "Continue", "Exit", "inherited", NULL};
-    int br = is_brace_file(g_hover_file); /* the brace syntax: func and proc; { } are typed, not completed */
-    for (int i = 0; kw[i]; i++) {
-        if (br && (STREQ(kw[i], "begin") || STREQ(kw[i], "end"))) continue;
-        const char *k = !br ? kw[i] : STREQ(kw[i], "function") ? "func" : STREQ(kw[i], "procedure") ? "proc" : kw[i];
-        complete_item("keyword", k, "");
-    }
+    int br = is_brace_file(g_hover_file); /* the brace syntax: { } are typed, not completed */
+    for (int i = 0; kw[i]; i++)
+        if (!br || (!STREQ(kw[i], "begin") && !STREQ(kw[i], "end"))) complete_item("keyword", kw[i], "");
     complete_done();
 }
 /* ---- class fields: class var Count: Integer ---- */

@@ -3,9 +3,9 @@ program CaseGuards;
 type
   TShape = (Circle(Radius: Real), Rect(W, H: Real), Named(Name: String; Sides: Integer), Empty);
   TNode = class { V: Integer; constructor Create(AV: Integer); }
-constructor TNode.Create(AV: Integer) { inherited Create; V := AV; }
+constructor TNode.Create(AV: Integer); { inherited Create; V := AV; }
 
-func Describe(s: TShape): String
+function Describe(s: TShape): String;
 {
   case s of {
     Circle(r) when r > 10: Result := 'big circle';
@@ -18,7 +18,7 @@ func Describe(s: TShape): String
   };
 }
 
-func Grade(x: Integer; bonus: Boolean): String
+function Grade(x: Integer; bonus: Boolean): String;
 {
   case x of {
     90..100 when bonus: Result := 'A+';
@@ -29,13 +29,13 @@ func Grade(x: Integer; bonus: Boolean): String
   };
 }
 
-func Find(k: Integer): optional TNode
+function Find(k: Integer): optional TNode;
 { if k > 0 Result := TNode.Create(k); else Result := none; }
 
-func Divide(a, b: Integer): result Integer
+function Divide(a, b: Integer): result Integer;
 { if b = 0 Result := error('div by zero'); else Result := ok(a div b); }
 
-proc Check(o: optional TNode)
+procedure Check(o: optional TNode);
 {
   case o of {
     some n when n.V > 5: WriteLn('big node ', n.V);
@@ -44,8 +44,8 @@ proc Check(o: optional TNode)
   };
 }
 
-proc Eat(vao k: TNode) { WriteLn('eat ', k.V); }
-proc Moves(s: TShape);
+procedure Eat(vao k: TNode); { WriteLn('eat ', k.V); }
+procedure Moves(s: TShape);
 vao k := TNode.Create(1);
 {
   case s of {                              {* a move in two arms: only one of them runs *}
@@ -55,7 +55,7 @@ vao k := TNode.Create(1);
   };
 }
 
-proc Limit(o: optional Integer; var n: Integer)
+procedure Limit(o: optional Integer; var n: Integer);
 {
   case o of {
     some v when v > n: n := v;

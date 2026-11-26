@@ -2,40 +2,40 @@ program method_values;
 import ppc_std;
 type
   IGreeter = interface {
-    proc Greet(Name: String);
+    procedure Greet(Name: String);
   }
   TPrinter = class(IGreeter) {
     Prefix: String;
     Count: Integer;
-    proc Print(x: Integer); virtual;
-    func Less(a, b: Integer): Boolean; const;
-    proc Greet(Name: String);
-    proc Tick;
+    procedure Print(x: Integer); virtual;
+    function Less(a, b: Integer): Boolean; const;
+    procedure Greet(Name: String);
+    procedure Tick;
   }
   TLoud = class(TPrinter) {
-    proc Print(x: Integer); override;
+    procedure Print(x: Integer); override;
   }
   TAcc = record {
     Sum: Integer;
-    proc Add(x: Integer);
+    procedure Add(x: Integer);
   }
-proc TPrinter.Print(x: Integer) { Inc(Count); WriteLn(Prefix, x); }
-func TPrinter.Less(a, b: Integer): Boolean; const { Result := a > b; }
-proc TPrinter.Greet(Name: String) { WriteLn('hello ', Name); }
-proc TPrinter.Tick { Inc(Count); }
-proc TLoud.Print(x: Integer) { Inc(Count); WriteLn(Prefix, x, '!'); }
-proc TAcc.Add(x: Integer) { Sum := Sum + x; }
+procedure TPrinter.Print(x: Integer); { Inc(Count); WriteLn(Prefix, x); }
+function TPrinter.Less(a, b: Integer): Boolean; const; { Result := a > b; }
+procedure TPrinter.Greet(Name: String); { WriteLn('hello ', Name); }
+procedure TPrinter.Tick; { Inc(Count); }
+procedure TLoud.Print(x: Integer); { Inc(Count); WriteLn(Prefix, x, '!'); }
+procedure TAcc.Add(x: Integer); { Sum := Sum + x; }
 
-proc ForEach(a: array of Integer; Visit: reference to proc(x: Integer))
+procedure ForEach(a: array of Integer; Visit: reference to procedure(x: Integer));
 {
   for val x in a do Visit(x);
 }
-proc Twice(Action: reference to proc)
+procedure Twice(Action: reference to procedure);
 {
   Action;
   Action();
 }
-proc Call(Hello: reference to proc(Name: String)) { Hello('Anna'); }
+procedure Call(Hello: reference to procedure(Name: String)); { Hello('Anna'); }
 
 val
   nums: array of Integer := (3, 1, 2);

@@ -1,0 +1,4 @@
+// EXPECT: ';' expected but '{' found
+program T;
+procedure P { WriteLn(1); }
+{ P; }

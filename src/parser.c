@@ -14,7 +14,7 @@ typedef struct {
     int slen;
     Pos pos;
     int br;           /* from a file in the brace syntax (.pps) */
-    const char *orig; /* the written form when it differs from s ('{' for begin, 'func' for function) */
+    const char *orig; /* the written form when it differs from s ('{' for begin, '}' for end) */
 } Token;
 
 static const char *KEYWORDS[] = {
@@ -30,7 +30,7 @@ static const char *SYMS[] = {":=", "<=", ">=", "<>", "..", "+", "-", "*", "/", "
 
 typedef VEC(Token) TokVec;
 
-/* the brace syntax (files ending in .pps): func, proc, { } instead of function, procedure, begin, end;
+/* the brace syntax (files ending in .pps): { } instead of begin, end;
    comments are {* *}, (* *) and // in both syntaxes */
 int is_brace_file(const char *f) {
     size_t n = f ? strlen(f) : 0;
@@ -39,8 +39,6 @@ int is_brace_file(const char *f) {
 static const char *brace_word(const char *k) {
     if (STREQ(k, "begin")) return "{";
     if (STREQ(k, "end")) return "}";
-    if (STREQ(k, "function")) return "func";
-    if (STREQ(k, "procedure")) return "proc";
     return k;
 }
 
@@ -118,13 +116,8 @@ static TokVec tokenize(const char *src) {
                 }
             if (br) {
                 t.br = 1;
-                if (t.kind == TK_KW && (STREQ(w, "begin") || STREQ(w, "end") || STREQ(w, "function") || STREQ(w, "procedure")))
+                if (t.kind == TK_KW && (STREQ(w, "begin") || STREQ(w, "end")))
                     error_at(pos, "in the brace syntax (.pps) '%s' is written '%s'", w, brace_word(w));
-                if (STREQ(w, "func") || STREQ(w, "proc")) {
-                    t.kind = TK_KW;
-                    t.s = STREQ(w, "func") ? "function" : "procedure";
-                    t.orig = STREQ(w, "func") ? "func" : "proc";
-                }
             }
             vpush(out, t);
             continue;
@@ -388,11 +381,6 @@ static void parse_directives(int *virt, int *abs, int *fwd, int *cnst, int *auto
             *cnst = 1;
             continue;
         }
-        if (CUR.br && is_kw("const") && T.items[P + 1].kind == TK_KW && STREQ(T.items[P + 1].s, "begin")) {
-            next(); /* the brace syntax: func Len: Real; const { ... } */
-            *cnst = 1;
-            break;
-        }
         if (!is_directive()) break;
         const char *d = CUR.s;
         next();
@@ -405,7 +393,6 @@ static void parse_directives(int *virt, int *abs, int *fwd, int *cnst, int *auto
             if (!autog) error_at(pos(), "'auto' belongs to the declaration in the class or record ('function Clone: T; const; auto;')");
             *autog = 1;
         }
-        if (CUR.br && is_kw("begin")) break; /* the brace syntax: '; ' before the body may be left out */
         expect_sym(";");
     }
 }
@@ -643,7 +630,7 @@ static TypeExpr *parse_type(void) {
         t->kind = TE_RESULT;
         t->pos = p;
         if (!is_kw("of") && !(CUR.kind == TK_SYM && (STREQ(CUR.s, ";") || STREQ(CUR.s, ")") || STREQ(CUR.s, ":="))) &&
-            !is_kw("const") && !is_kw("begin")) /* func Save: result { ... } */
+            !is_kw("const") && !is_kw("begin")) /* a lambda: function: result { ... } */
             t->elem = parse_type();
         if (accept_kw("of")) t->errt = parse_type();
         if (is_kw("const") && T.items[P + 1].kind != TK_IDENT) {
@@ -882,7 +869,7 @@ static RoutineDecl *parse_routine(void) {
         d->ret_borrowed = accept_borrowed();
         d->ret = parse_type();
     }
-    if (!(CUR.br && is_kw("begin"))) expect_sym(";"); /* the brace syntax: func F: Integer { ... } */
+    expect_sym(";");
     int virt = 0, abs = 0;
     parse_directives(&virt, &abs, &d->forward, &d->is_const, NULL);
     d->is_overload = last_overload;

@@ -4,7 +4,7 @@ import ppc_std;
 type
   TStack = record { Height: Integer; }          {* hides TStack<T> of ppc_std *}
 
-func IndexOf(x: Integer): String              {* hides IndexOf<T> *}
+function IndexOf(x: Integer): String;              {* hides IndexOf<T> *}
 { Result := 'own IndexOf ' + IntToStr(x); }
 
 val

@@ -3,39 +3,39 @@ type
   TBase = class {
   private
     FSecret: Integer;
-    proc Hidden;
+    procedure Hidden;
   protected
     FShared: Integer;
-    proc Helper;
+    procedure Helper;
   public
     constructor Create;
-    func Secret: Integer; const;
+    function Secret: Integer; const;
     property Shared: Integer read FShared;
   }
   TChild = class(TBase) {
   public
-    proc Work;
+    procedure Work;
   }
   TPoint = record {
   private
     FX: Integer;
   public
-    proc SetX(v: Integer);
-    func X: Integer; const;
+    procedure SetX(v: Integer);
+    function X: Integer; const;
   }
-constructor TBase.Create { FSecret := 42; FShared := 1; Hidden; }
-proc TBase.Hidden { Inc(FSecret); }
-proc TBase.Helper { Inc(FShared); }
-func TBase.Secret: Integer; const { Result := FSecret; }
-proc TChild.Work;
-  proc Inner { Helper; }
+constructor TBase.Create; { FSecret := 42; FShared := 1; Hidden; }
+procedure TBase.Hidden; { Inc(FSecret); }
+procedure TBase.Helper; { Inc(FShared); }
+function TBase.Secret: Integer; const; { Result := FSecret; }
+procedure TChild.Work;
+  procedure Inner; { Helper; }
 {
   Inc(FShared);
   Inner;
   Helper;
 }
-proc TPoint.SetX(v: Integer) { FX := v; }
-func TPoint.X: Integer; const { Result := FX; }
+procedure TPoint.SetX(v: Integer); { FX := v; }
+function TPoint.X: Integer; const; { Result := FX; }
 val p: TPoint := default;
 {
   vao c := TChild.Create;

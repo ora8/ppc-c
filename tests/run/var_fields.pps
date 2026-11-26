@@ -6,18 +6,18 @@ type
     Kids: array of optional TNode;       {* owned *}
     constructor Create(AName: String);
     destructor Destroy; override;
-    proc Add(vao c: TNode);
-    func Path: String; const;
+    procedure Add(vao c: TNode);
+    function Path: String; const;
   }
-constructor TNode.Create(AName: String) { Name := AName; }
-destructor TNode.Destroy { WriteLn('free ', Name); }
-proc TNode.Add(vao c: TNode)
+constructor TNode.Create(AName: String); { Name := AName; }
+destructor TNode.Destroy; { WriteLn('free ', Name); }
+procedure TNode.Add(vao c: TNode);
 {
   c.Parent := Self;                      {* c ends up inside Self *}
   SetLength(Kids, Length(Kids) + 1);
   Kids[High(Kids)] := c;
 }
-func TNode.Path: String; const
+function TNode.Path: String; const;
 {
   Result := Name;
   if Parent is some p Result := p.Path + '/' + Name;

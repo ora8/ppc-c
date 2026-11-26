@@ -5,18 +5,18 @@ type
     Name: String;
     constructor Create(AName: String const);
     destructor Destroy; override;
-    func Clone: TAnimal; const; auto;
+    function Clone: TAnimal; const; auto;
   }
   TZoo = array[1..3] of optional TAnimal;
   TEnclosure = record {                       {* array in a record: Clone is generated *}
     Animals: TZoo;
-    func Clone: TEnclosure; const; auto;
+    function Clone: TEnclosure; const; auto;
   }
 
-constructor TAnimal.Create(AName: String const) { inherited Create; Name := AName; }
-destructor TAnimal.Destroy { WriteLn('  freed ', Name); inherited Destroy; }
+constructor TAnimal.Create(AName: String const); { inherited Create; Name := AName; }
+destructor TAnimal.Destroy; { WriteLn('  freed ', Name); inherited Destroy; }
 
-proc Show(Title: String; z: TZoo)
+procedure Show(Title: String; z: TZoo);
 {
   Write(Title, ': ');
   for val i := 1 to 3 do

@@ -5,10 +5,10 @@ type
     constructor Create(AV: Integer);
     destructor Destroy; override;
   }
-constructor TFoo.Create(AV: Integer) { inherited Create; V := AV; }
-destructor TFoo.Destroy { WriteLn('  Destroy TFoo ', V); inherited Destroy; }
+constructor TFoo.Create(AV: Integer); { inherited Create; V := AV; }
+destructor TFoo.Destroy; { WriteLn('  Destroy TFoo ', V); inherited Destroy; }
 
-proc Demo;
+procedure Demo;
 vao
   I := 5;                     {* owned heap value, type Integer from the initializer *}
 val

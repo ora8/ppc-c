@@ -4,17 +4,17 @@ type
   TFigure = class {
     X: Integer;
     constructor Create(AX: Integer);
-    func Name: String; virtual; const;
+    function Name: String; virtual; const;
   }
   TCircle = class(TFigure) { R: Real; constructor Create(AX: Integer; AR: Real); }
   TSquare = class(TFigure) { S: Integer; constructor Create(AX, AS: Integer); }
   TCube = class(TSquare) { }
-constructor TFigure.Create(AX: Integer) { inherited Create; X := AX; }
-func TFigure.Name: String; const { Result := ClassName; }
-constructor TCircle.Create(AX: Integer; AR: Real) { inherited Create(AX); R := AR; }
-constructor TSquare.Create(AX, AS: Integer) { inherited Create(AX); S := AS; }
+constructor TFigure.Create(AX: Integer); { inherited Create; X := AX; }
+function TFigure.Name: String; const; { Result := ClassName; }
+constructor TCircle.Create(AX: Integer; AR: Real); { inherited Create(AX); R := AR; }
+constructor TSquare.Create(AX, AS: Integer); { inherited Create(AX); S := AS; }
 
-proc Show(f: TFigure)
+procedure Show(f: TFigure);
 {
   case f of {
     TCircle(c) when c.R > 10: WriteLn('big circle ', c.R:0:1);
@@ -25,7 +25,7 @@ proc Show(f: TFigure)
   };
 }
 
-proc Grow(var f: TFigure)
+procedure Grow(var f: TFigure);
 {
   case f of {
     TSquare(var q): q.S := q.S * 2;
@@ -34,7 +34,7 @@ proc Grow(var f: TFigure)
   };
 }
 
-func Area(f: TFigure): Real
+function Area(f: TFigure): Real;
 {
   Result := case f of {
     TCircle(c) when c.R > 10: -1;
@@ -44,12 +44,12 @@ func Area(f: TFigure): Real
   };
 }
 
-func Describe(f: TFigure): String
+function Describe(f: TFigure): String;
 {
   Result := case f of { TCube: 'cube'; TSquare(q): 'square of ' + IntToStr(q.S); TFigure: 'figure' };
 }
 
-func Make(k: Integer): TFigure
+function Make(k: Integer): TFigure;
 {
   if k = 1 Result := TCircle.Create(1, 2.5); else Result := TSquare.Create(2, 3);
 }

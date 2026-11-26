@@ -4,11 +4,11 @@ type
   TAnimal = class {
     Name: String;
     constructor Create(AName: String const);
-    func Clone: TAnimal; const; auto;
-    func Sound: String; virtual;
+    function Clone: TAnimal; const; auto;
+    function Sound: String; virtual;
   }
   TDog = class(TAnimal) {
-    func Sound: String; override;
+    function Sound: String; override;
   }
   TPair<K: Comparable; V> = record {
     Keys: K;
@@ -17,31 +17,31 @@ type
   TZoo<T: TAnimal> = class {
     Animals: array[1..5] of optional T;
     Size: Integer;
-    proc Add(vao t: T);
-    proc ShowAll;
+    procedure Add(vao t: T);
+    procedure ShowAll;
   }
 
-constructor TAnimal.Create(AName: String const) { inherited Create; Name := AName; }
-func TAnimal.Sound: String { Result := '...'; }
-func TDog.Sound: String { Result := 'Wuff'; }
+constructor TAnimal.Create(AName: String const); { inherited Create; Name := AName; }
+function TAnimal.Sound: String; { Result := '...'; }
+function TDog.Sound: String; { Result := 'Wuff'; }
 
-proc TZoo<T>.Add(vao t: T) { Inc(Size); Animals[Size] := t; }
-proc TZoo<T>.ShowAll
+procedure TZoo<T>.Add(vao t: T); { Inc(Size); Animals[Size] := t; }
+procedure TZoo<T>.ShowAll;
 {
   for val i := 1 to Size do
     if Animals[i] is some t WriteLn('  ', t.Name, ': ', t.Sound);   {* methods of TAnimal are allowed *}
 }
 
-func Max<T: Comparable>(a, b: T): T
+function Max<T: Comparable>(a, b: T): T;
 { if a > b Result := a; else Result := b; }
 
-func Equal<T: Equatable>(a, b: T): Boolean
+function Equal<T: Equatable>(a, b: T): Boolean;
 { Result := a = b; }
 
-func CloneOf<T: Clone>(x: T): T
+function CloneOf<T: Clone>(x: T): T;
 { Result := x.Clone; }
 
-func Name<T: class>(x: T): String
+function Name<T: class>(x: T): String;
 { Result := x.ClassName; }
 
 val p: TPair<String, Integer> := (Keys: 'a'; Value: 1);

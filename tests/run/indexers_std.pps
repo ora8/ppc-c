@@ -1,8 +1,8 @@
 program indexers_std;
 import ppc_std;
 type TItem = class { N: Integer; constructor Create(AN: Integer); destructor Destroy; override; }
-constructor TItem.Create(AN: Integer) { N := AN; }
-destructor TItem.Destroy { WriteLn('free ', N); }
+constructor TItem.Create(AN: Integer); { N := AN; }
+destructor TItem.Destroy; { WriteLn('free ', N); }
 {
   vao l := TList<TItem>.Create;
   vao m := TMap<String, Integer>.Create;

@@ -11,14 +11,14 @@ type
     Age: optional Integer;           {* value optional as a record field *}
   }
 
-constructor TNode.Create(W: Integer) { inherited Create; Value := W; }
+constructor TNode.Create(W: Integer); { inherited Create; Value := W; }
 
-func Root(x: Real): optional Real
+function Root(x: Real): optional Real;
 {
   if x < 0 Result := none; else Result := Sqrt(x);
 }
 
-func Parse(s: String const): optional Integer;
+function Parse(s: String const): optional Integer;
 val i, v: Integer := default;
 {
   Result := none;
@@ -31,13 +31,13 @@ val i, v: Integer := default;
   Result := v;                         {* Integer -> some(v) *}
 }
 
-func Big(k: optional TNode): Boolean
+function Big(k: optional TNode): Boolean;
 {
   Result := False;
   if (k is some x) and (x.Value > 10) Result := True;
 }
 
-func Describe(o: optional Integer): String
+function Describe(o: optional Integer): String;
 {
   case o of {
     some v: Result := 'some(' + IntToStr(v) + ')';

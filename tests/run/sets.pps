@@ -4,7 +4,7 @@ type
   TColors = set of TColor;
   TDigits = set of 0..9;
   TLetters = set of Char;
-func Names(s: TColors): String
+function Names(s: TColors): String;
 {
   Result := '';
   for val c in s do Result := Result + Format('%s ', [c]);

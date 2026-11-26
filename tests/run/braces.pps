@@ -1,24 +1,24 @@
 program Braces;
-// the brace syntax (.pps): func, proc and { } instead of function, procedure, begin and end
+// the brace syntax (.pps): { } instead of begin and end
 import braces_shapes, ppc_std;
-(* the brace syntax: func, proc, { } *)
+(* the brace syntax: { } blocks *)
 {* comments: brace-star, paren-star and double slash *}
 type
   TColor = (Red, Green, Blue);
   TItem = (Circle(R: Real), Named(Name: String), Empty);
 
-proc Greet(name: String)
+procedure Greet(name: String);
 {
   WriteLn('Hello, ', name, '!');
 }
 
-func Fib(n: Integer): Integer
+function Fib(n: Integer): Integer;
 {
   if n < 2 Result := n;
   else Result := Fib(n - 1) + Fib(n - 2);
 }
 
-func Describe(it: TItem): String
+function Describe(it: TItem): String;
 {
   Result := case it of {
     Circle(r) when r > 1: 'big circle';
@@ -48,7 +48,7 @@ val c: TColor := Green;
     for val x in list do Write(x, ' ');
     WriteLn;
   }
-  val f := func(x: Integer): Integer { Result := x * x; };
+  val f := function(x: Integer): Integer { Result := x * x; };
   { WriteLn(f(7)); }
   val k: Integer := 0;
   {

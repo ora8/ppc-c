@@ -12,38 +12,38 @@ type
     Balance: Integer;
     constructor Create(AName: String const; ABalance: Integer);
     destructor Destroy; override;
-    class func Open(AName: String const): TAccount;   {* without Self *}
-    proc Deposit(Amount: Integer);
-    func Info: String; const;
+    class function Open(AName: String const): TAccount;   {* without Self *}
+    procedure Deposit(Amount: Integer);
+    function Info: String; const;
   }
   TPoint = record {
     X, Y: Integer;
-    class func Origin: TPoint;
+    class function Origin: TPoint;
   }
 
-constructor TAccount.Create(AName: String const; ABalance: Integer)
+constructor TAccount.Create(AName: String const; ABalance: Integer);
 { inherited Create; Name := AName; Balance := ABalance; }
-destructor TAccount.Destroy { WriteLn('  freed: ', Name); inherited Destroy; }
-class func TAccount.Open(AName: String const): TAccount
+destructor TAccount.Destroy; { WriteLn('  freed: ', Name); inherited Destroy; }
+class function TAccount.Open(AName: String const): TAccount;
 { Result := TAccount.Create(AName, 10); }              {* Startguthaben *}
-proc TAccount.Deposit(Amount: Integer) { Balance := Balance + Amount; }
-func TAccount.Info: String; const { Result := Name + ': ' + IntToStr(Balance); }
-class func TPoint.Origin: TPoint { Result := (X: 0; Y: 0); }
+procedure TAccount.Deposit(Amount: Integer); { Balance := Balance + Amount; }
+function TAccount.Info: String; const; { Result := Name + ': ' + IntToStr(Balance); }
+class function TPoint.Origin: TPoint; { Result := (X: 0; Y: 0); }
 
-proc Show(K: TAccount const)           {* borrow, read-only *}
+procedure Show(K: TAccount const);           {* borrow, read-only *}
 { WriteLn('  ', K.Info); }
 
-proc Duplicate(var N: Integer)        {* var parameter: changes the original *}
+procedure Duplicate(var N: Integer);        {* var parameter: changes the original *}
 { N := N * 2; }
 
-proc Local;
+procedure Local;
 vao
   k := TAccount.Open('local');            {* belongs to Local *}
 {
   Show(k);
 }                                        {* k is freed here *}
 
-proc Fast;
+procedure Fast;
 val
   s := TAccount.Create('stack', 5);           {* stack object: no malloc, no free *}
 {

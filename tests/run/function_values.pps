@@ -1,40 +1,40 @@
 program FunctionValues;
 {* function types, routines as values, lambdas *}
 type
-  TCompare = func(a, b: Integer): Integer;
-  TAction = proc(x: Integer);
+  TCompare = function(a, b: Integer): Integer;
+  TAction = procedure(x: Integer);
 
 val Total: Integer := 0;
 
-func Desc(a, b: Integer): Integer { Result := b - a; }
-proc Add(x: Integer) { Total := Total + x; }
-func Tick: Integer { Result := 7; }
+function Desc(a, b: Integer): Integer; { Result := b - a; }
+procedure Add(x: Integer); { Total := Total + x; }
+function Tick: Integer; { Result := 7; }
 
-proc ForEach(a: array of Integer; act: TAction)
+procedure ForEach(a: array of Integer; act: TAction);
 {
   for val i := 0 to High(a) do act(a[i]);
 }
 
-func Apply(f: func(x: Integer): Integer; v: Integer): Integer
+function Apply(f: function(x: Integer): Integer; v: Integer): Integer;
 { Result := f(v); }
 
-func Pick(up: Boolean): TCompare
+function Pick(up: Boolean): TCompare;
 {
-  if up Result := func(a, b: Integer): Integer { Result := a - b; }
+  if up Result := function(a, b: Integer): Integer { Result := a - b; }
   else Result := Desc;
 }
 
 val
   nums: array of Integer := (3, 1, 2);
   cmp: TCompare := Desc;
-  t: func: Integer := Tick;
+  t: function: Integer := Tick;
 {
   WriteLn(cmp(1, 5), ' ', Pick(True)(1, 5), ' ', t());
   ForEach(nums, Add);
   WriteLn('Total ', Total);
-  ForEach(nums, proc(x: Integer) { Write(x * 10, ' '); });
+  ForEach(nums, procedure(x: Integer) { Write(x * 10, ' '); });
   WriteLn;
-  WriteLn(Apply(func(x: Integer): Integer { Result := x * x; }, 9));
+  WriteLn(Apply(function(x: Integer): Integer { Result := x * x; }, 9));
   cmp := Pick(False);
   WriteLn(cmp(2, 9));
 }

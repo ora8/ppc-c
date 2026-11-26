@@ -8,7 +8,7 @@ type
     class operator Multiply(f: Real; a: TVec): TVec;
     class operator Negative(a: TVec): TVec;
     class operator Equal(a, b: TVec): Boolean;
-    func Text: String; const;
+    function Text: String; const;
   }
   TMoney = record {
     Cents: Int64;
@@ -16,17 +16,17 @@ type
     class operator LessThan(a, b: TMoney): Boolean;
     class operator GreaterThan(a, b: TMoney): Boolean;
   }
-func V(x, y: Real): TVec { Result.X := x; Result.Y := y; }
-class operator TVec.Add(a, b: TVec): TVec { Result := V(a.X + b.X, a.Y + b.Y); }
-class operator TVec.Subtract(a, b: TVec): TVec { Result := V(a.X - b.X, a.Y - b.Y); }
-class operator TVec.Multiply(a: TVec; f: Real): TVec { Result := V(a.X * f, a.Y * f); }
-class operator TVec.Multiply(f: Real; a: TVec): TVec { Result := a * f; }
-class operator TVec.Negative(a: TVec): TVec { Result := V(-a.X, -a.Y); }
-class operator TVec.Equal(a, b: TVec): Boolean { Result := (Abs(a.X - b.X) < 0.001) and (Abs(a.Y - b.Y) < 0.001); }
-func TVec.Text: String; const { Result := '(' + FloatToStr(X) + ', ' + FloatToStr(Y) + ')'; }
-class operator TMoney.Add(a, b: TMoney): TMoney { Result.Cents := a.Cents + b.Cents; }
-class operator TMoney.LessThan(a, b: TMoney): Boolean { Result := a.Cents < b.Cents; }
-class operator TMoney.GreaterThan(a, b: TMoney): Boolean { Result := a.Cents > b.Cents; }
+function V(x, y: Real): TVec; { Result.X := x; Result.Y := y; }
+class operator TVec.Add(a, b: TVec): TVec; { Result := V(a.X + b.X, a.Y + b.Y); }
+class operator TVec.Subtract(a, b: TVec): TVec; { Result := V(a.X - b.X, a.Y - b.Y); }
+class operator TVec.Multiply(a: TVec; f: Real): TVec; { Result := V(a.X * f, a.Y * f); }
+class operator TVec.Multiply(f: Real; a: TVec): TVec; { Result := a * f; }
+class operator TVec.Negative(a: TVec): TVec; { Result := V(-a.X, -a.Y); }
+class operator TVec.Equal(a, b: TVec): Boolean; { Result := (Abs(a.X - b.X) < 0.001) and (Abs(a.Y - b.Y) < 0.001); }
+function TVec.Text: String; const; { Result := '(' + FloatToStr(X) + ', ' + FloatToStr(Y) + ')'; }
+class operator TMoney.Add(a, b: TMoney): TMoney; { Result.Cents := a.Cents + b.Cents; }
+class operator TMoney.LessThan(a, b: TMoney): Boolean; { Result := a.Cents < b.Cents; }
+class operator TMoney.GreaterThan(a, b: TMoney): Boolean; { Result := a.Cents > b.Cents; }
 val
   a := V(1, 2);
   b := V(3, 4);

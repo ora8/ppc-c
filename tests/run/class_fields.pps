@@ -14,11 +14,11 @@ type
   var                                  {* ends the class var section *}
     Id: Integer;
     constructor Create;
-    class func Created: Integer;
-    func Text: String; const;
+    class function Created: Integer;
+    function Text: String; const;
   }
   TSub = class(TCounter) {
-    func Twice: Integer; const;
+    function Twice: Integer; const;
   }
   TBox<T> = class {
     class var Made: Integer;
@@ -28,17 +28,17 @@ type
     class var Verbose: Boolean;
     X: Integer;
   }
-constructor TItem.Create(AN: Integer) { N := AN; }
-destructor TItem.Destroy { WriteLn('free item ', N); }
-constructor TCounter.Create
+constructor TItem.Create(AN: Integer); { N := AN; }
+destructor TItem.Destroy; { WriteLn('free item ', N); }
+constructor TCounter.Create;
 {
   Inc(FCreated);
   Id := FCreated;
 }
-class func TCounter.Created: Integer { Result := FCreated; }
-func TCounter.Text: String; const { Result := Prefix + IntToStr(Id); }
-func TSub.Twice: Integer; const { Result := Created * 2; }
-constructor TBox<T>.Create { Inc(Made); }
+class function TCounter.Created: Integer; { Result := FCreated; }
+function TCounter.Text: String; const; { Result := Prefix + IntToStr(Id); }
+function TSub.Twice: Integer; const; { Result := Created * 2; }
+constructor TBox<T>.Create; { Inc(Made); }
 {
   TCounter.Prefix := 'no ';
   vao a := TCounter.Create;

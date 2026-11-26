@@ -7,8 +7,8 @@ type
     constructor Create(AName: String const);
     destructor Destroy; override;
   }
-constructor TCustomer.Create(AName: String const) { inherited Create; Name := AName; }
-destructor TCustomer.Destroy { WriteLn('  freed ', Name); inherited Destroy; }
+constructor TCustomer.Create(AName: String const); { inherited Create; Name := AName; }
+destructor TCustomer.Destroy; { WriteLn('  freed ', Name); inherited Destroy; }
 
 val
   numbers: array of Integer := (5, 3, 9, 1, 7);

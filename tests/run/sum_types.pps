@@ -7,7 +7,7 @@ type
     Empty
   );
 
-func Area(s: TShape): Real
+function Area(s: TShape): Real;
 {
   case s of {
     Circle(r): Result := 3.14159 * r * r;
@@ -17,7 +17,7 @@ func Area(s: TShape): Real
   };
 }
 
-func Describe(s: TShape): String
+function Describe(s: TShape): String;
 {
   case s of {
     Circle: Result := 'circle';
@@ -27,7 +27,7 @@ func Describe(s: TShape): String
   };
 }
 
-func Make(i: Integer): TShape
+function Make(i: Integer): TShape;
 {
   case i of {
     0: Result := Circle(1.0);

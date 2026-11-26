@@ -6,7 +6,7 @@ type
     constructor Create(AName: String);
   }
   TPoint = record { X, Y: Integer; }
-constructor TItem.Create(AName: String)
+constructor TItem.Create(AName: String);
 {
   Name := AName;
 }

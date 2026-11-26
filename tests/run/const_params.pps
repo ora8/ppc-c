@@ -3,27 +3,27 @@ program ConstParams;
 type
   TVector = record {
     X, Y: Real;
-    proc Scale(F: Real);
-    func Len: Real; const;
+    procedure Scale(F: Real);
+    function Len: Real; const;
   }
   TBig = array[1..1000] of Integer;
-proc TVector.Scale(F: Real) { X := X * F; Y := Y * F; }
-func TVector.Len: Real; const { Result := Sqrt(X * X + Y * Y); }
+procedure TVector.Scale(F: Real); { X := X * F; Y := Y * F; }
+function TVector.Len: Real; const; { Result := Sqrt(X * X + Y * Y); }
 
-func Sum(A: TBig const): Integer     {* no copy of 4000 bytes *}
+function Sum(A: TBig const): Integer;     {* no copy of 4000 bytes *}
 {
   Result := 0;
   for val i := 1 to 1000 do Result := Result + A[i];
 }
 
-proc Show(S: String const; V: TVector const)
+procedure Show(S: String const; V: TVector const);
 {
   WriteLn(S, ': ', V.Len:0:1);                {* functions are allowed *}
 }
 
-func Twice(N: Integer const): Integer { Result := N * 2; }
+function Twice(N: Integer const): Integer; { Result := N * 2; }
 
-proc P(n: Integer);
+procedure P(n: Integer);
 const
   Max = 100;                    {* compile-time constant *}
 val

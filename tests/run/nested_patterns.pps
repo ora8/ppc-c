@@ -12,9 +12,9 @@ type
   );
   TFigure = class { X: Integer; constructor Create(AX: Integer); }
   TCircle = class(TFigure) { }
-constructor TFigure.Create(AX: Integer) { inherited Create; X := AX; }
+constructor TFigure.Create(AX: Integer); { inherited Create; X := AX; }
 
-proc Show(it: TItem)
+procedure Show(it: TItem);
 {
   case it of {
     Single(Circle(r)) when r > 5: WriteLn('single big circle ', r:0:1);
@@ -36,7 +36,7 @@ proc Show(it: TItem)
   };
 }
 
-proc Fix(var it: TItem)
+procedure Fix(var it: TItem);
 {
   case it of {
     Single(Rect(var w, 0)): w := 99;
@@ -44,7 +44,7 @@ proc Fix(var it: TItem)
   };
 }
 
-func Size(it: TItem): Real
+function Size(it: TItem): Real;
 {
   Result := case it of {
     Single(Circle(r)): r;
@@ -58,13 +58,13 @@ func Size(it: TItem): Real
   };
 }
 
-func Find(k: Integer): optional TShape
+function Find(k: Integer): optional TShape;
 { if k > 0 Result := Circle(k * 1.5); else if k = 0 Result := Empty; else Result := none; }
 
-func Divide(a, b: Integer): result Integer
+function Divide(a, b: Integer): result Integer;
 { if b = 0 Result := error('div by zero'); else Result := ok(a div b); }
 
-func Pick(k: Integer): optional TFigure
+function Pick(k: Integer): optional TFigure;
 { if k = 1 Result := TCircle.Create(1); else if k = 2 Result := TFigure.Create(2); else Result := none; }
 
 val it: TItem := Single(Rect(4, 0));

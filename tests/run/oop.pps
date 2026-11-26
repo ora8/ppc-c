@@ -4,84 +4,84 @@ type
   TShape = class {
     X, Y: Integer;
     constructor Create(AX, AY: Integer);
-    func Area: Real; virtual;
-    func Name: String; virtual;
-    proc Describe;
+    function Area: Real; virtual;
+    function Name: String; virtual;
+    procedure Describe;
     destructor Destroy; override;
   }
   TCircle = class(TShape) {
     R: Real;
     constructor Create(AX, AY: Integer; AR: Real);
-    func Area: Real; override;
-    func Name: String; override;
+    function Area: Real; override;
+    function Name: String; override;
   }
   TRect = class(TShape) {
     W, H: Integer;
     constructor Create(AX, AY, AW, AH: Integer);
-    func Area: Real; override;
-    func Name: String; override;
+    function Area: Real; override;
+    function Name: String; override;
   }
 
   TAnimal = class {
   private
     FName: String;
     FLegs: Integer;
-    proc SetLegs(V: Integer);
+    procedure SetLegs(V: Integer);
   public
     constructor Create(AName: String const);
     destructor Destroy; override;
-    func Sound: String; virtual; abstract;
-    proc Speak;
+    function Sound: String; virtual; abstract;
+    procedure Speak;
     property Name: String read FName;
     property Legs: Integer read FLegs write SetLegs;
   }
   TDog = class(TAnimal) {
-    func Sound: String; override;
+    function Sound: String; override;
   }
   TCat = class(TAnimal) {
     Lives: Integer;
     constructor Create(AName: String const);
-    func Sound: String; override;
+    function Sound: String; override;
   }
 
-constructor TShape.Create(AX, AY: Integer)
+constructor TShape.Create(AX, AY: Integer);
 { inherited Create; X := AX; Y := AY; }
-func TShape.Area: Real { Result := 0; }
-func TShape.Name: String { Result := 'Shape'; }
-proc TShape.Describe
+function TShape.Area: Real; { Result := 0; }
+function TShape.Name: String; { Result := 'Shape'; }
+procedure TShape.Describe;
 {
   WriteLn(Name, ' at (', X, ',', Y, ') Area=', Area:0:2);
 }
-destructor TShape.Destroy { WriteLn('  Destroy ', Name); inherited Destroy; }
+destructor TShape.Destroy; { WriteLn('  Destroy ', Name); inherited Destroy; }
 
-constructor TCircle.Create(AX, AY: Integer; AR: Real)
+constructor TCircle.Create(AX, AY: Integer; AR: Real);
 { inherited Create(AX, AY); R := AR; }
-func TCircle.Area: Real { Result := Pi * R * R; }
-func TCircle.Name: String { Result := 'Circle'; }
+function TCircle.Area: Real; { Result := Pi * R * R; }
+function TCircle.Name: String; { Result := 'Circle'; }
 
-constructor TRect.Create(AX, AY, AW, AH: Integer)
+constructor TRect.Create(AX, AY, AW, AH: Integer);
 { inherited Create(AX, AY); W := AW; H := AH; }
-func TRect.Area: Real { Result := W * H; }
-func TRect.Name: String { Result := 'Rectangle(' + inherited Name + ')'; }
+function TRect.Area: Real; { Result := W * H; }
+function TRect.Name: String; { Result := 'Rectangle(' + inherited Name + ')'; }
 
-constructor TAnimal.Create(AName: String const)
+constructor TAnimal.Create(AName: String const);
 { inherited Create; FName := AName; FLegs := 4; }
-destructor TAnimal.Destroy
+destructor TAnimal.Destroy;
 { WriteLn('  ', FName, ' is freed'); inherited Destroy; }
-proc TAnimal.SetLegs(V: Integer) { if V >= 0 FLegs := V; }
-proc TAnimal.Speak { WriteLn(FName, ' (', ClassName, ', ', Legs, ' legs) says ', Sound); }
-func TDog.Sound: String { Result := 'Wuff'; }
-constructor TCat.Create(AName: String const)
+procedure TAnimal.SetLegs(V: Integer); { if V >= 0 FLegs := V; }
+procedure TAnimal.Speak; { WriteLn(FName, ' (', ClassName, ', ', Legs, ' legs) says ', Sound); }
+function TDog.Sound: String; { Result := 'Wuff'; }
+constructor TCat.Create(AName: String const);
 { inherited Create(AName); Lives := 7; }
-func TCat.Sound: String { Result := 'Miau'; }
+function TCat.Sound: String; { Result := 'Miau'; }
 
-proc ShowShape(S: TShape)       {* only borrows the object *}
+procedure ShowShape(S: TShape);       {* only borrows the object *}
 { S.Describe; }
 
-proc Shift(S: TShape; DX: Integer)
+procedure Shift(S: TShape; DX: Integer);
 { S.X := S.X + DX; }
 
-proc LocalFigures;
+procedure LocalFigures;
 vao
   r := TRect.Create(0, 0, 3, 4);                          {* owns r: freed at the end of the procedure *}
 {

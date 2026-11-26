@@ -4,16 +4,16 @@ program HeapValues;
 type
   TVector = record {
     X, Y: Real;
-    proc Scale(F: Real);
+    procedure Scale(F: Real);
   }
   TField = array[1..5] of Integer;
 
-proc TVector.Scale(F: Real) { X := X * F; Y := Y * F; }
+procedure TVector.Scale(F: Real); { X := X * F; Y := Y * F; }
 
-proc Duplicate(var N: Integer) { N := N * 2; }
-func SquareOf(N: Integer): Integer { Result := N * N; }
+procedure Duplicate(var N: Integer); { N := N * 2; }
+function SquareOf(N: Integer): Integer; { Result := N * N; }
 
-proc Local;
+procedure Local;
 vao
   Counter: Integer := 100;                   {* heap value in a procedure *}
 {
@@ -21,7 +21,7 @@ vao
   WriteLn('local: ', Counter);
 }                                         {* Counter is freed here *}
 
-proc Early;
+procedure Early;
 vao
   Buffer: TField := default;
 {

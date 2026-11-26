@@ -9,35 +9,35 @@ type
     First: A;
     Second: B;
   }
-constructor TCustomer.Create(AName: String const) { inherited Create; Name := AName; }
+constructor TCustomer.Create(AName: String const); { inherited Create; Name := AName; }
 
-func Max<T: Comparable>(a, b: T): T
+function Max<T: Comparable>(a, b: T): T;
 {
   if a > b Result := a; else Result := b;
 }
 
-proc Swap<T>(var a, b: T);
+procedure Swap<T>(var a, b: T);
 val h: T := a;
 {
   a := b;
   b := h;
 }
 
-func MakePair<A: Copy; B: Copy>(x: A; y: B): TPair<A, B>;
+function MakePair<A: Copy; B: Copy>(x: A; y: B): TPair<A, B>;
 {
   Result.First := x;
   Result.Second := y;
 }
 
-func First<A: Copy; B>(p: TPair<A, B>): A;
+function First<A: Copy; B>(p: TPair<A, B>): A;
 { Result := p.First; }
 
-func Factorial<T: Numeric>(n: T): T          {* recursive *}
+function Factorial<T: Numeric>(n: T): T;          {* recursive *}
 {
   if n <= 1 Result := 1; else Result := n * Factorial(n - 1);
 }
 
-func Name<T: TCustomer>(k: T): String
+function Name<T: TCustomer>(k: T): String;
 { Result := k.Name; }
 
 val

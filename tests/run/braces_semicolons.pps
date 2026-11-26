@@ -1,26 +1,26 @@
 program BracesSemicolons;
-// the brace syntax: the ";" before the body "{" of a routine can be left out (also after its last directive)
+// the brace syntax: the ";" after a "}" can be left out (after a routine body, a block, between case arms)
 type
   TShape = class {
     S: Real;
     constructor Create(AS: Real);
-    func Area: Real; virtual; const;
-    proc Grow; virtual;
+    function Area: Real; virtual; const;
+    procedure Grow; virtual;
   }
   TSquare = class(TShape) {
-    func Area: Real; override; const;
+    function Area: Real; override; const;
   }
-constructor TShape.Create(AS: Real) { inherited Create; S := AS; }
-func TShape.Area: Real; const { Result := 0; }
-proc TShape.Grow { S := S * 2; }
-func TSquare.Area: Real; override; const { Result := S * S; }
-func Twice(x: Integer): Integer { Result := 2 * x; }
-proc Hello(name: String);
+constructor TShape.Create(AS: Real); { inherited Create; S := AS; }
+function TShape.Area: Real; const; { Result := 0; }
+procedure TShape.Grow; { S := S * 2; }
+function TSquare.Area: Real; override; const; { Result := S * S; }
+function Twice(x: Integer): Integer; { Result := 2 * x; }
+procedure Hello(name: String);
 val greeting := 'Hello, ';
 {
   WriteLn(greeting, name);
 }
-func Old(x: Integer): Integer; { Result := x + 1; }   // the ';' is still allowed
+function Old(x: Integer): Integer; { Result := x + 1; };   // a ';' after the '}' is allowed
 vao q: TShape := TSquare.Create(3);
 {
   Hello('you');

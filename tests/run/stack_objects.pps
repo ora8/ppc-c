@@ -5,23 +5,23 @@ type
     X: Integer;
     constructor Create(AX: Integer);
     destructor Destroy; override;
-    proc Show; virtual;
+    procedure Show; virtual;
   }
   TCircle = class(TFigure) {
     R: Real;
     Name: optional TFigure;
     constructor Create(AX: Integer; AR: Real);
-    proc Show; override;
+    procedure Show; override;
   }
-constructor TFigure.Create(AX: Integer) { inherited Create; X := AX; }
-destructor TFigure.Destroy { WriteLn('  Destroy ', ClassName, ' ', X); inherited Destroy; }
-proc TFigure.Show { WriteLn('Figure ', X); }
-constructor TCircle.Create(AX: Integer; AR: Real) { inherited Create(AX); R := AR; }
-proc TCircle.Show { WriteLn('Circle ', X, ' r=', R:0:1); }
+constructor TFigure.Create(AX: Integer); { inherited Create; X := AX; }
+destructor TFigure.Destroy; { WriteLn('  Destroy ', ClassName, ' ', X); inherited Destroy; }
+procedure TFigure.Show; { WriteLn('Figure ', X); }
+constructor TCircle.Create(AX: Integer; AR: Real); { inherited Create(AX); R := AR; }
+procedure TCircle.Show; { WriteLn('Circle ', X, ' r=', R:0:1); }
 
-proc Draw(F: TFigure) { F.Show; }
+procedure Draw(F: TFigure); { F.Show; }
 
-proc Local;
+procedure Local;
 val k := TCircle.Create(1, 2.5);
 {
   Draw(k);

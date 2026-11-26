@@ -12,21 +12,21 @@ type
     P: TPair;
     A: array[1..2] of optional TK;
   }
-constructor TK.Create(AN: Integer) { inherited Create; N := AN; }
-destructor TK.Destroy { WriteLn('  freed ', N); inherited Destroy; }
+constructor TK.Create(AN: Integer); { inherited Create; N := AN; }
+destructor TK.Destroy; { WriteLn('  freed ', N); inherited Destroy; }
 
-func Make(n: Integer): TPair
+function Make(n: Integer): TPair;
 {
   Result.Name := 'p' + IntToStr(n);
   Result.L := TK.Create(n);
 }
 
-proc Show(p: TPair)              {* borrow, no copy *}
+procedure Show(p: TPair);              {* borrow, no copy *}
 {
   if p.L is some k WriteLn('  ', p.Name, ': ', k.N);
 }
 
-proc Local;
+procedure Local;
 val
   a: array[1..2] of optional TK := default;
   q: TPair := default;

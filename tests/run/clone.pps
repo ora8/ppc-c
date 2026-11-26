@@ -5,7 +5,7 @@ type
     City: String;
     constructor Create(ACity: String const);
     destructor Destroy; override;
-    func Clone: TAddress; const; auto;
+    function Clone: TAddress; const; auto;
   }
   TPerson = class {
     Name: String;
@@ -14,7 +14,7 @@ type
     Children: array[1..2] of optional TPerson;
     constructor Create(AName: String const);
     destructor Destroy; override;
-    func Clone: TPerson; const; virtual; auto;
+    function Clone: TPerson; const; virtual; auto;
   }
   TEmployee = class(TPerson) {
     Nr: Integer;
@@ -23,17 +23,17 @@ type
   TPair = record {
     A, B: optional TAddress;
     Info: String;
-    func Clone: TPair; const; auto;
+    function Clone: TPair; const; auto;
   }
 
-constructor TAddress.Create(ACity: String const) { inherited Create; City := ACity; }
-destructor TAddress.Destroy { WriteLn('  freed Address ', City); inherited Destroy; }
-constructor TPerson.Create(AName: String const) { inherited Create; Name := AName; }
-destructor TPerson.Destroy { WriteLn('  freed ', Name); inherited Destroy; }
+constructor TAddress.Create(ACity: String const); { inherited Create; City := ACity; }
+destructor TAddress.Destroy; { WriteLn('  freed Address ', City); inherited Destroy; }
+constructor TPerson.Create(AName: String const); { inherited Create; Name := AName; }
+destructor TPerson.Destroy; { WriteLn('  freed ', Name); inherited Destroy; }
 
 vao boss := TPerson.Create('Boss');
 
-proc Local;
+procedure Local;
 vao
   anna := TPerson.Create('Anna');
 {
@@ -51,7 +51,7 @@ vao
   WriteLn('-- end of Local');
 }
 
-proc Poly;
+procedure Poly;
 vao
   m := TEmployee.Create('Max');
 {
@@ -67,7 +67,7 @@ vao
   };
 }
 
-proc RecordClone;
+procedure RecordClone;
 val
   p: TPair := default;
   q: TPair := default;

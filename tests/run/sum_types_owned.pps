@@ -7,9 +7,9 @@ type
   }
   TMaybe<T> = (Just(Value: T), Nothing);
   TTree = (Leaf, Node(Item: optional TItem; Label: String));
-constructor TItem.Create(AN: Integer) { N := AN; }
-destructor TItem.Destroy { WriteLn('free ', N); }
-func Half(n: Integer): TMaybe<Integer>
+constructor TItem.Create(AN: Integer); { N := AN; }
+destructor TItem.Destroy; { WriteLn('free ', N); }
+function Half(n: Integer): TMaybe<Integer>;
 {
   if Odd(n) Result := TMaybe<Integer>.Nothing; else Result := TMaybe<Integer>.Just(n div 2);
 }

@@ -9,28 +9,28 @@ type
   TList = class {
     Head: optional TItem;
     Count: Integer;
-    proc Push(vao Item: TItem);   {* takes over the ownership *}
-    func Find(V: Integer): var optional TItem;
-    func PopFront: optional TItem;    {* gives the ownership to the caller *}
+    procedure Push(vao Item: TItem);   {* takes over the ownership *}
+    function Find(V: Integer): var optional TItem;
+    function PopFront: optional TItem;    {* gives the ownership to the caller *}
     destructor Destroy; override;
   }
 
-constructor TItem.Create(V: Integer)
+constructor TItem.Create(V: Integer);
 { inherited Create; Value := V; }
 
-destructor TItem.Destroy
+destructor TItem.Destroy;
 {
   inherited Destroy;             {* Next (and with it the whole chain) is freed automatically *}
 }
 
-proc TList.Push(vao Item: TItem)
+procedure TList.Push(vao Item: TItem);
 {
   Item.Next := Take(Head);       {* Head -> none, ownership moves to Item.Next *}
   Head := Item;                  {* move of the parameter into the field *}
   Inc(Count);
 }
 
-func TList.Find(V: Integer): var optional TItem;
+function TList.Find(V: Integer): var optional TItem;
 var cur: optional TItem := none;
 {
   Result := none;
@@ -41,7 +41,7 @@ var cur: optional TItem := none;
   };
 }
 
-func TList.PopFront: optional TItem
+function TList.PopFront: optional TItem;
 {
   Result := Take(Head);
   if Result is some r {
@@ -50,12 +50,12 @@ func TList.PopFront: optional TItem
   };
 }
 
-destructor TList.Destroy
+destructor TList.Destroy;
 {
   inherited Destroy;
 }
 
-proc PrintList(L: TList);   {* value parameter = borrow *}
+procedure PrintList(L: TList);   {* value parameter = borrow *}
 var it: optional TItem := none;
 {
   it := L.Head;
@@ -67,12 +67,12 @@ type
   TVec = class {
     X, Y: Real;
     constructor Create(AX, AY: Real);
-    func Len: Real;
+    function Len: Real;
   }
-constructor TVec.Create(AX, AY: Real) { inherited Create; X := AX; Y := AY; }
-func TVec.Len: Real { Result := Sqrt(X * X + Y * Y); }
+constructor TVec.Create(AX, AY: Real); { inherited Create; X := AX; Y := AY; }
+function TVec.Len: Real; { Result := Sqrt(X * X + Y * Y); }
 
-proc Scale(V: TVec; F: Real)   {* a borrow is enough to change the fields *}
+procedure Scale(V: TVec; F: Real);   {* a borrow is enough to change the fields *}
 { V.X := V.X * F; V.Y := V.Y * F; }
 
 vao

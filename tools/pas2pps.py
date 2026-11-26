@@ -7,10 +7,10 @@
 
 The conversion works on tokens; comments, strings and the layout stay as they are:
 
-* function -> func, procedure -> proc, begin -> {, end -> }
+* begin -> {, end -> } (function and procedure stay)
 * record, class(...), = interface(...) and case ... of get an opening {
 * the program's final 'end.' becomes '}', a module's final 'end.' is dropped
-* the ';' after a routine header (or its last directive) is dropped when the body follows
+* the ';' after the '}' of a routine body or a type is dropped
 * 'then' is dropped when a statement starts after it, an 'else' of an 'if' gets a ';' before it
   (if n < 2 Result := n; else Result := 0;)
 """
@@ -21,8 +21,6 @@ KEYWORDS = set("""and array as begin case class const constructor destructor div
 goto if implementation in inherited interface is label mod nil none some optional not object of or packed
 procedure program property record repeat set shl shr then to type unit until uses var while with xor try
 loop val vao default result ok error module import""".split())
-DIRECTIVES = {"virtual", "override", "abstract", "forward", "overload", "auto", "reintroduce", "static", "inline"}
-ROUTINE = {"function", "procedure", "constructor", "destructor", "operator"}
 STMT_KW = {"begin", "if", "while", "for", "case", "repeat", "loop", "try", "inherited", "val", "var", "vao", "const"}
 
 
@@ -111,31 +109,6 @@ def convert(src):
             k += 1
         return k
 
-    def header_semicolon(k):
-        # the header ends at the first ';' (or a lambda's 'begin') at paren depth 0; then directives
-        j, d = k + 1, 0
-        while j < len(t):
-            if sym(j, "("):
-                d += 1
-            elif sym(j, ")"):
-                d -= 1
-            elif d == 0 and (sym(j, ";") or kw(j, "begin")):
-                break
-            j += 1
-        if j >= len(t) or kw(j, "begin"):
-            return  # a lambda: 'function(x: Integer): Integer begin ... end'
-        last = j
-        j += 1
-        while j < len(t):
-            if (t[j].kind == "id" and t[j].text in DIRECTIVES) or kw(j, "const"):
-                if sym(j + 1, ";"):
-                    last = j + 1
-                    j += 2
-                    continue
-            break
-        if kw(j, "begin"):
-            rep[last] = ""
-
     is_module = len(t) > 0 and kw(0, "module")
     pending_case = []  # paren depth of open 'case' selectors
     opens = []  # what each open '{' belongs to: body (of a routine), block, type, case
@@ -157,17 +130,10 @@ def convert(src):
             close_ifs(level() + 1)
         elif sym(k, ";"):
             close_ifs(level())
-        if tok.kind == "id" and tok.text == "operator" and kw(k - 1, "class"):
-            header_semicolon(k)  # class operator Add(a, b: TVec): TVec;
-            continue
         if tok.kind != "kw":
             continue
         w = tok.text
-        if w == "function":
-            rep[k] = "func"
-        elif w == "procedure":
-            rep[k] = "proc"
-        elif w == "begin":
+        if w == "begin":
             rep[k] = "{"
             opens.append("block" if any(o in ("block", "body", "case") for o in opens) else "body")
         elif w == "end":
@@ -222,8 +188,6 @@ def convert(src):
             pending_case.pop()
             after[k] = " {"
             opens.append("case")
-        if w in ROUTINE and not (k > 0 and (t[k - 1].text in (":", "=", "(", ",", ":=", "of", "to") and t[k - 1].kind in ("sym", "kw"))):
-            header_semicolon(k)  # a routine declaration (not a procedural type 'x: function: Integer')
     out, pos = [], 0
     for k, tok in enumerate(t):
         out.append(src[pos:tok.start])
@@ -236,8 +200,6 @@ def convert(src):
             continue
         if r is None:
             out.append(tok.text)
-        elif r == "" and tok.text == ";" and not src[tok.end:tok.end + 1].isspace() and src[tok.end:tok.end + 1] not in ("", "\n"):
-            out.append(" ")  # 'x;begin' -> 'x {'
         else:
             out.append(r)
         if k in after:

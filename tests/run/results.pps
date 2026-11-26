@@ -10,20 +10,20 @@ type
     destructor Destroy; override;
   }
 
-destructor TCounter.Destroy { WriteLn('  freed: Counter ', N); inherited Destroy; }
+destructor TCounter.Destroy; { WriteLn('  freed: Counter ', N); inherited Destroy; }
 
-func Divide(a, b: Integer): result Integer          {* error: String *}
+function Divide(a, b: Integer): result Integer;          {* error: String *}
 {
   if b = 0 Result := error('division by 0');
   else Result := a div b;                               {* Value = ok(...) *}
 }
 
-func Check(n: Integer): result of TError         {* no value, only success or error *}
+function Check(n: Integer): result of TError;         {* no value, only success or error *}
 {
   if n > 100 Result := error(TooBig); else Result := ok;
 }
 
-func Compute(a, b, c: Integer): result Integer;
+function Compute(a, b, c: Integer): result Integer;
 vao z := TCounter.Create;                               {* is freed on an error too *}
 {
   val q := try Divide(a, b);                             {* error -> return at once *}
@@ -34,14 +34,14 @@ vao z := TCounter.Create;                               {* is freed on an error 
   };
 }
 
-func Chain(n: Integer): result of TError
+function Chain(n: Integer): result of TError;
 {
   try Check(n);                                        {* statement: only the error counts *}
   try Check(n * 2);
   WriteLn('  Chain ok for ', n);
 }
 
-func MakePoint(ok_: Boolean): result TPoint
+function MakePoint(ok_: Boolean): result TPoint;
 {
   if ok_ Result := (X: 1; Y: 2); else Result := error('no MakePoint');
 }

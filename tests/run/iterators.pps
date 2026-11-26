@@ -4,55 +4,55 @@ type
   TBagEnum = record {
     Bag: var optional TBag;
     I: Integer;
-    func MoveNext: Boolean;
-    func Current: Integer; const;
+    function MoveNext: Boolean;
+    function Current: Integer; const;
   }
   TBag = class {
     Items: array of Integer;
-    proc Add(x: Integer);
-    func GetEnumerator: TBagEnum;
+    procedure Add(x: Integer);
+    function GetEnumerator: TBagEnum;
   }
   TRangeEnum = record {
     Cur, Hi, Step: Integer;
-    func MoveNext: Boolean;
+    function MoveNext: Boolean;
     property Current: Integer read Cur;
   }
   TRange = record {
     Lo, Hi, Step: Integer;
-    func GetEnumerator: TRangeEnum; const;
+    function GetEnumerator: TRangeEnum; const;
   }
   TWordEnum = class {
     Text: String;
     Pos, Start: Integer;
     W: String;
-    func MoveNext: Boolean;
-    func Current: String; const;
+    function MoveNext: Boolean;
+    function Current: String; const;
   }
   TWords = record {
     Text: String;
-    func GetEnumerator: TWordEnum; const;
+    function GetEnumerator: TWordEnum; const;
   }
-func TBagEnum.MoveNext: Boolean
+function TBagEnum.MoveNext: Boolean;
 {
   Inc(I);
   Result := False;
   if Bag is some b Result := I < Length(b.Items);
 }
-func TBagEnum.Current: Integer; const
+function TBagEnum.Current: Integer; const;
 {
   Result := 0;
   if Bag is some b Result := b.Items[I];
 }
-proc TBag.Add(x: Integer) { SetLength(Items, Length(Items) + 1); Items[High(Items)] := x; }
-func TBag.GetEnumerator: TBagEnum
+procedure TBag.Add(x: Integer); { SetLength(Items, Length(Items) + 1); Items[High(Items)] := x; }
+function TBag.GetEnumerator: TBagEnum;
 {
   Result.I := -1;
   Result.Bag := Self;
 }
-func TRangeEnum.MoveNext: Boolean { Cur := Cur + Step; Result := Cur <= Hi; }
-func TRange.GetEnumerator: TRangeEnum; const { Result.Cur := Lo - Step; Result.Hi := Hi; Result.Step := Step; }
-func Range(lo, hi, step: Integer): TRange { Result.Lo := lo; Result.Hi := hi; Result.Step := step; }
-func TWordEnum.MoveNext: Boolean
+function TRangeEnum.MoveNext: Boolean; { Cur := Cur + Step; Result := Cur <= Hi; }
+function TRange.GetEnumerator: TRangeEnum; const; { Result.Cur := Lo - Step; Result.Hi := Hi; Result.Step := Step; }
+function Range(lo, hi, step: Integer): TRange; { Result.Lo := lo; Result.Hi := hi; Result.Step := step; }
+function TWordEnum.MoveNext: Boolean;
 {
   while (Pos <= Length(Text)) and (Text[Pos] = ' ') do Inc(Pos);
   Start := Pos;
@@ -60,8 +60,8 @@ func TWordEnum.MoveNext: Boolean
   W := Copy(Text, Start, Pos - Start);
   Result := Pos > Start;
 }
-func TWordEnum.Current: String; const { Result := W; }
-func TWords.GetEnumerator: TWordEnum; const
+function TWordEnum.Current: String; const; { Result := W; }
+function TWords.GetEnumerator: TWordEnum; const;
 {
   Result := TWordEnum.Create;
   Result.Text := Text;

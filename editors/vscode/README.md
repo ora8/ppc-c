@@ -17,8 +17,8 @@ The `ppc` compiler must be installed (`make` in the repository root; put `ppc` o
 ```bash
 cd editors/vscode
 npm install
-npm run package                                   # makes perfect-pascal-0.1.1.vsix
-code --install-extension perfect-pascal-0.1.1.vsix
+npm run package                                   # makes perfect-pascal-0.1.2.vsix
+code --install-extension perfect-pascal-0.1.2.vsix
 ```
 
 ## Settings
@@ -30,5 +30,5 @@ code --install-extension perfect-pascal-0.1.1.vsix
 | `ppc.trace.server` | `messages` / `verbose`: log the LSP traffic (Output: Perfect Pascal) |
 
 Files ending in `.pas` are Perfect Pascal files, files ending in `.pps` use the brace syntax
-(`func`, `proc`, `{ }`; comments `{* *}`, `(* *)` and `//`) with their own highlighting. If another Pascal extension claims them, choose
+(`{ }` blocks, `if` without `then`; comments `{* *}`, `(* *)` and `//`) with their own highlighting. If another Pascal extension claims them, choose
 *Perfect Pascal* with *Change Language Mode*.

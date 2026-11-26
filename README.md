@@ -92,7 +92,7 @@ language-servers = ["ppc"]
 
 VS Code: the extension in [editors/vscode](editors/vscode/README.md) (syntax highlighting,
 the language server, *Run File*): `cd editors/vscode && npm install && npm run package`, then
-`code --install-extension perfect-pascal-0.1.1.vsix`.
+`code --install-extension perfect-pascal-0.1.2.vsix`.
 
 Emacs (eglot): `(add-to-list 'eglot-server-programs '(pascal-mode "ppc" "--lsp"))`.
 
@@ -183,9 +183,10 @@ same comments work in both syntaxes. Comments do not nest.
 
 ## The brace syntax: `.pps` files
 
-Files ending in **`.pps`** (*Perfect Pascal Source*) use a second syntax of the same language: `func` and `proc` instead of
-`function` and `procedure`, and `{ }` instead of `begin` … `end`. Everything else is unchanged, both
-syntaxes are compiled by the same `ppc`, and a program in one syntax can import modules in the other.
+Files ending in **`.pps`** (*Perfect Pascal Source*) use a second syntax of the same language:
+`{ }` instead of `begin` … `end`, and a shorter `if`. Everything else is unchanged (`function`,
+`procedure`, declarations, types), both syntaxes are compiled by the same `ppc`, and a program in
+one syntax can import modules in the other.
 
 ```pascal
 program Hello;
@@ -196,17 +197,17 @@ type
   TPoint = record { X, Y: Integer; }
   TShape = class {
     Name: String;
-    func Area: Real; virtual; const;
+    function Area: Real; virtual; const;
   }
 
-func TShape.Area: Real; const { Result := 0; }
+function TShape.Area: Real; const; { Result := 0; }
 
-proc Greet(name: String)
+procedure Greet(name: String);
 {
   WriteLn('Hello, ', name, '!');
 }
 
-func Fib(n: Integer): Integer
+function Fib(n: Integer): Integer;
 {
   if n < 2 Result := n; else Result := Fib(n - 1) + Fib(n - 2);
 }
@@ -218,15 +219,15 @@ val c: TColor := Green;
     Red: WriteLn('red');
     Green, Blue: { WriteLn('green'); WriteLn('or blue'); }
   }
-  val f := func(x: Integer): Integer { Result := x * x; };
+  val f := function(x: Integer): Integer { Result := x * x; };
   { WriteLn(f(7)); }
 }
 ```
 
 | Pascal syntax (`.pas`) | brace syntax (`.pps`) |
 |---|---|
-| `function F: Integer;` / `procedure P;` | `func F: Integer;` / `proc P;` (before the body `{`: `func F: Integer { … }`) |
 | `begin … end` | `{ … }` |
+| `procedure P; begin … end;` | `procedure P; { … }` |
 | `record … end`, `class(TBase) … end`, `interface … end` | `record { … }`, `class(TBase) { … }`, `interface { … }` |
 | `case x of … end` | `case x of { … }` |
 | `if c then A else B` | `if c A; else B;` (`then` and `if c then A else B` are allowed too) |
@@ -238,24 +239,19 @@ val c: TColor := Green;
   `if n < 2 Result := n; else Result := Fib(n - 1) + Fib(n - 2);`, `if x > 0 { … } else { … }`,
   `if o is some v WriteLn(v);`. `then` is still allowed, and needed when the statement does not
   start with a name, a keyword or `{`.
+* A routine header ends with `;` as in Pascal (`function Twice(x: Integer): Integer; { … }`): the
+  header is a complete declaration, the same as in a class or in a module's interface.
 * A `;` after a `}` can be left out (`{ … } WriteLn(1)`, after a routine's body, between `case` arms
   `1: { … }  2: { … }`).
-* The `;` at the end of a routine header – or after its last directive – can be left out when the
-  body `{` follows directly: `func Twice(x: Integer): Integer { … }`,
-  `func TSquare.Area: Real; override; const { … }`. It is still needed before local declarations
-  (`proc P; val x := 1; { … }`) and in declarations without a body (in a class, in the interface
-  section of a module, `forward`).
-* `begin`, `end`, `function` and `procedure` are errors in a `.pps` file (`in the brace syntax
-  (.pps) 'begin' is written '{'`); `func` and `proc` are ordinary names in a `.pas` file.
+* `begin` and `end` are errors in a `.pps` file (`in the brace syntax (.pps) 'begin' is written '{'`).
 * `import M` first looks for the file in the importing file's syntax (`M.pps` from a `.pps` file,
   `M.pas` from a `.pas` file), then for the other one.
-* `tools/pas2pps.py file.pas` converts a file to the brace syntax (`file.pps`, comments and layout
-  stay; `then` is dropped where a statement follows, an `if`'s `else` gets a `;` before it); every test program in `tests/run` exists in both syntaxes, generated with it.
-  `tools/pas2pps.pps` is the same converter written in the brace syntax itself
-  (`ppc -o pas2pps tools/pas2pps.pps`, then `./pas2pps file.pas`); the test suite checks that both
-  give the same files.
-* Messages, hover and completion use the words of the file's syntax; the VS Code extension
-  highlights `.pps` files as *Perfect Pascal (braces)*.
+* `tools/pas2pps.py file.pas` converts a file to the brace syntax (`file.pps`; comments and layout
+  stay, `then` is dropped where a statement follows, an `if`'s `else` gets a `;` before it); every
+  test program in `tests/run` exists in both syntaxes, generated with it. `tools/pas2pps.pps` is
+  the same converter written in the brace syntax itself (`ppc -o pas2pps tools/pas2pps.pps`, then
+  `./pas2pps file.pas`); the test suite checks that both give the same files.
+* The VS Code extension highlights `.pps` files as *Perfect Pascal (braces)*.
 
 ## Classes
 

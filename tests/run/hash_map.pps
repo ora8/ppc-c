@@ -3,9 +3,9 @@ import ppc_std;
 type
   TItem = class { N: Integer; constructor Create(AN: Integer); destructor Destroy; override; }
   TPoint = record { X, Y: Integer; }
-constructor TItem.Create(AN: Integer) { N := AN; }
-destructor TItem.Destroy { if N < 3 WriteLn('free ', N); }
-func Pt(x, y: Integer): TPoint { Result.X := x; Result.Y := y; }
+constructor TItem.Create(AN: Integer); { N := AN; }
+destructor TItem.Destroy; { if N < 3 WriteLn('free ', N); }
+function Pt(x, y: Integer): TPoint; { Result.X := x; Result.Y := y; }
 val total := 0;
 {
   vao ages := THashMap<String, Integer>.Create;

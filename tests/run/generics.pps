@@ -4,15 +4,15 @@ type
   TPair<A, B> = record {
     First: A;
     Second: B;
-    func Text: String; const;
+    function Text: String; const;
   }
 
   TList<T> = class {
     Items: array[1..10] of optional T;
     Size: Integer;
-    proc Add(vao x: T);
-    func Get(i: Integer): var optional T;
-    func Len: Integer; const;
+    procedure Add(vao x: T);
+    function Get(i: Integer): var optional T;
+    function Len: Integer; const;
   }
 
   TNode<T> = class {                     {* recursive *}
@@ -27,28 +27,28 @@ type
   }
 
   TCustomerList = class(TList<TCustomer>) {
-    func Find(N: String const): var optional TCustomer;
+    function Find(N: String const): var optional TCustomer;
   }
 
-constructor TCustomer.Create(AName: String const) { inherited Create; Name := AName; }
-destructor TCustomer.Destroy { WriteLn('  freed ', Name); inherited Destroy; }
+constructor TCustomer.Create(AName: String const); { inherited Create; Name := AName; }
+destructor TCustomer.Destroy; { WriteLn('  freed ', Name); inherited Destroy; }
 
-func TPair<A, B>.Text: String; const
+function TPair<A, B>.Text: String; const;
 { Result := 'MakePair'; }
 
-proc TList<T>.Add(vao x: T)
+procedure TList<T>.Add(vao x: T);
 {
   Inc(Size);
   Items[Size] := x;
 }
 
-func TList<T>.Get(i: Integer): var optional T
+function TList<T>.Get(i: Integer): var optional T;
 { Result := Items[i]; }
 
-func TList<T>.Len: Integer; const
+function TList<T>.Len: Integer; const;
 { Result := Size; }
 
-func TCustomerList.Find(N: String const): var optional TCustomer
+function TCustomerList.Find(N: String const): var optional TCustomer;
 {
   Result := none;
   for val i := 1 to Size do

@@ -2,10 +2,10 @@ program CaseExpressions2;
 {* case expressions: nested, with guards, moves in arms, in a lambda *}
 type TShape = (Circle(Radius: Real), Named(Name: String), Empty);
   TK = class { V: Integer; constructor Create(AV: Integer); }
-constructor TK.Create(AV: Integer) { inherited Create; V := AV; }
-func Eat(vao k: TK): Integer { Result := k.V; }
-func Up(x: String): String { Result := UpperCase(x) + '!'; }
-func Label(s: TShape): String
+constructor TK.Create(AV: Integer); { inherited Create; V := AV; }
+function Eat(vao k: TK): Integer; { Result := k.V; }
+function Up(x: String): String; { Result := UpperCase(x) + '!'; }
+function Label(s: TShape): String;
 {
   Result := case s of {
     Named(n) when Length(n) > 3: Up(n) + Up(case Length(n) of { 4: 'four' else 'long' });
@@ -14,15 +14,15 @@ func Label(s: TShape): String
     Empty: ''
   };
 }
-proc P(s: TShape);
+procedure P(s: TShape);
 vao k := TK.Create(5);
 {
   WriteLn(case s of { Circle(r) when r > 1: Eat(k); Circle: Eat(k) + 1 else 0 });
 }
-func Apply(f: reference to func(x: Integer): String; x: Integer): String { Result := f(x); }
-proc L(limit: Integer)
+function Apply(f: reference to function(x: Integer): String; x: Integer): String; { Result := f(x); }
+procedure L(limit: Integer);
 {
-  WriteLn(Apply(func(x: Integer): String { Result := case x of { 0: 'zero' else (case x > limit of { True: 'big' else 'small' }) }; }, 7));
+  WriteLn(Apply(function(x: Integer): String { Result := case x of { 0: 'zero' else (case x > limit of { True: 'big' else 'small' }) }; }, 7));
 }
 {
   for val i := 1 to 3 do WriteLn(Label(Named('abcd')), ' ', Label(Named('ab')), ' ', Label(Named('abcdefg')), ' [', Label(Empty), ']');

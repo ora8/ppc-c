@@ -10,10 +10,10 @@ type
     Name: String;
     Item: optional TItem;
   }
-constructor TItem.Create(AN: Integer) { N := AN; }
-destructor TItem.Destroy { WriteLn('free item ', N); }
+constructor TItem.Create(AN: Integer); { N := AN; }
+destructor TItem.Destroy; { WriteLn('free item ', N); }
 
-func MakeOrder(Name: String; n: Integer): TOrder
+function MakeOrder(Name: String; n: Integer): TOrder;
 {
   Result.Name := Name;
   Result.Item := TItem.Create(n);

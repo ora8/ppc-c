@@ -10,35 +10,35 @@ const
 type
   TPoint = record {
     X, Y: Real;
-    func Distance(b: TPoint): Real; const;
+    function Distance(b: TPoint): Real; const;
   }
   TFigure = class {
     Name: String;
     constructor Create(AName: String const);
-    func Area: Real; virtual;
+    function Area: Real; virtual;
   }
   TCircle = class(TFigure) {
     R: Real;
     constructor Create(AR: Real);
-    func Area: Real; override;
+    function Area: Real; override;
   }
 
-func TotalArea(l: TList<TFigure>): Real;
+function TotalArea(l: TList<TFigure>): Real;
 
 implementation
 
-func Square(x: Real): Real                    {* private: not visible to importers *}
+function Square(x: Real): Real;                    {* private: not visible to importers *}
 { Result := x * x; }
 
-func TPoint.Distance(b: TPoint): Real; const
+function TPoint.Distance(b: TPoint): Real; const;
 { Result := Sqrt(Square(X - b.X) + Square(Y - b.Y)); }
 
-constructor TFigure.Create(AName: String const) { inherited Create; Name := AName; }
-func TFigure.Area: Real { Result := 0; }
-constructor TCircle.Create(AR: Real) { inherited Create('Circle'); R := AR; }
-func TCircle.Area: Real { Result := Pi2 / 2 * R * R; }
+constructor TFigure.Create(AName: String const); { inherited Create; Name := AName; }
+function TFigure.Area: Real; { Result := 0; }
+constructor TCircle.Create(AR: Real); { inherited Create('Circle'); R := AR; }
+function TCircle.Area: Real; { Result := Pi2 / 2 * R * R; }
 
-func TotalArea(l: TList<TFigure>): Real
+function TotalArea(l: TList<TFigure>): Real;
 {
   Result := 0;
   for val i := 0 to l.Count - 1 do

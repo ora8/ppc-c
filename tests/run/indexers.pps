@@ -4,26 +4,26 @@ type
     Cells: array of Integer;
     W: Integer;
     constructor Create(AW, AH: Integer);
-    func GetCell(x, y: Integer): Integer; const;
-    proc SetCell(x, y: Integer; v: Integer);
+    function GetCell(x, y: Integer): Integer; const;
+    procedure SetCell(x, y: Integer; v: Integer);
     property Cell[x, y: Integer]: Integer read GetCell write SetCell; default;
-    func Sum: Integer; const;
+    function Sum: Integer; const;
   }
   TNames = record {
     List: array of String;
-    func Get(i: Integer): String; const;
+    function Get(i: Integer): String; const;
     property Name[i: Integer]: String read Get;
   }
-constructor TGrid.Create(AW, AH: Integer) { W := AW; SetLength(Cells, AW * AH); }
-func TGrid.GetCell(x, y: Integer): Integer; const { Result := Cells[y * W + x]; }
-proc TGrid.SetCell(x, y: Integer; v: Integer) { Cells[y * W + x] := v; }
-func TGrid.Sum: Integer; const
+constructor TGrid.Create(AW, AH: Integer); { W := AW; SetLength(Cells, AW * AH); }
+function TGrid.GetCell(x, y: Integer): Integer; const; { Result := Cells[y * W + x]; }
+procedure TGrid.SetCell(x, y: Integer; v: Integer); { Cells[y * W + x] := v; }
+function TGrid.Sum: Integer; const;
 {
   Result := 0;
   for val y := 0 to 1 do
     for val x := 0 to W - 1 do Result := Result + Cell[x, y];
 }
-func TNames.Get(i: Integer): String; const { Result := List[i]; }
+function TNames.Get(i: Integer): String; const; { Result := List[i]; }
 val n: TNames := (List: ('anna', 'bert'));
 {
   vao g := TGrid.Create(3, 2);

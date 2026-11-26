@@ -5,37 +5,37 @@ type
     N: Integer;
     constructor Create(AN: Integer);
     destructor Destroy; override;
-    func Clone: TK; const; auto;
+    function Clone: TK; const; auto;
   }
   TPoint = record { X, Y: Integer; }
   TStack<T> = class {
     Items: array of optional T;
-    proc Push(vao x: T);
-    func Pop: optional T;
-    func Size: Integer; const;
+    procedure Push(vao x: T);
+    function Pop: optional T;
+    function Size: Integer; const;
   }
-constructor TK.Create(AN: Integer) { inherited Create; N := AN; }
-destructor TK.Destroy { WriteLn('  freed ', N); inherited Destroy; }
+constructor TK.Create(AN: Integer); { inherited Create; N := AN; }
+destructor TK.Destroy; { WriteLn('  freed ', N); inherited Destroy; }
 
-proc TStack<T>.Push(vao x: T)
+procedure TStack<T>.Push(vao x: T);
 {
   SetLength(Items, Length(Items) + 1);
   Items[High(Items)] := x;
 }
-func TStack<T>.Pop: optional T
+function TStack<T>.Pop: optional T;
 {
   Result := Take(Items[High(Items)]);
   SetLength(Items, Length(Items) - 1);
 }
-func TStack<T>.Size: Integer; const { Result := Length(Items); }
+function TStack<T>.Size: Integer; const; { Result := Length(Items); }
 
-func Sum(a: array of Integer): Integer   {* borrow, no copy *}
+function Sum(a: array of Integer): Integer;   {* borrow, no copy *}
 {
   Result := 0;
   for val i := 0 to High(a) do Result := Result + a[i];
 }
 
-proc Fill(var a: array of Integer; n: Integer)
+procedure Fill(var a: array of Integer; n: Integer);
 {
   SetLength(a, n);
   for val i := 0 to n - 1 do a[i] := i * i;

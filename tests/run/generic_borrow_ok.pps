@@ -8,17 +8,17 @@ type
   TPair<T> = record {
     A, B: optional T;
   }
-constructor TItem.Create(AN: Integer) { N := AN; }
+constructor TItem.Create(AN: Integer); { N := AN; }
 
-proc Use<T>(vao x: T) { }
+procedure Use<T>(vao x: T); { }
 
-func Both<T>(vao x, y: T): TPair<T>
+function Both<T>(vao x, y: T): TPair<T>;
 {
   Result.A := x;
   Result.B := y;
 }
 
-proc SwapFirst<T>(var a: array of optional T);
+procedure SwapFirst<T>(var a: array of optional T);
 val h: optional T := none;
 {
   if Length(a) < 2 Exit;
@@ -27,7 +27,7 @@ val h: optional T := none;
   a[1] := h;
 }
 
-func Twice<T: Copy>(x: T): TPair<T>
+function Twice<T: Copy>(x: T): TPair<T>;
 {
   Result.A := x;
   Result.B := x;

@@ -4,21 +4,21 @@ import ppc_std;
 type
   TPerson = record { Name: String; Age: Integer; }
   TButton = class {
-    OnClick: optional proc(n: Integer);
+    OnClick: optional procedure(n: Integer);
   }
 val
   people: array of TPerson := ((Name: 'Mia'; Age: 30), (Name: 'Bert'; Age: 25), (Name: 'Anna'; Age: 35));
   nums: array of Integer := (5, 8, 1, 9, 4);
 vao b := TButton.Create;
 {
-  SortBy(people, func(x, y: TPerson): Boolean { Result := x.Age < y.Age; });
+  SortBy(people, function(x, y: TPerson): Boolean { Result := x.Age < y.Age; });
   for val i := 0 to High(people) do Write(people[i].Name, ' ');
   WriteLn;
-  val big := Filter(nums, func(x: Integer): Boolean { Result := x > 4; });
+  val big := Filter(nums, function(x: Integer): Boolean { Result := x > 4; });
   {
     for val i := 0 to High(big) do Write(big[i], ' ');
     WriteLn;
   };
-  b.OnClick := proc(n: Integer) { WriteLn('clicked ', n); };
+  b.OnClick := procedure(n: Integer) { WriteLn('clicked ', n); };
   if b.OnClick is some h h(3);
 }

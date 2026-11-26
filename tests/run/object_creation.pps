@@ -7,11 +7,11 @@ type
     constructor Empty;
     destructor Destroy; override;
   }
-constructor TFoo.Create(AV: Integer) { inherited Create; V := AV; }
-constructor TFoo.Empty { inherited Create; V := -1; }
-destructor TFoo.Destroy { WriteLn('  Destroy ', V); inherited Destroy; }
+constructor TFoo.Create(AV: Integer); { inherited Create; V := AV; }
+constructor TFoo.Empty; { inherited Create; V := -1; }
+destructor TFoo.Destroy; { WriteLn('  Destroy ', V); inherited Destroy; }
 
-proc P(n: Integer);
+procedure P(n: Integer);
 vao
   s := TFoo.Create(n);          {* owns the object *}
   t := TFoo.Empty;               {* another constructor, without parentheses *}

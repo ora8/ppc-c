@@ -5,12 +5,12 @@ type
     Value: Integer;
     Left, Right: optional TNode;
     constructor Create(W: Integer);
-    proc Increment;
-    func Info: String; const;
+    procedure Increment;
+    function Info: String; const;
   }
-constructor TNode.Create(W: Integer) { inherited Create; Value := W; }
-proc TNode.Increment { Inc(Value); }
-func TNode.Info: String; const { Result := IntToStr(Value); }
+constructor TNode.Create(W: Integer); { inherited Create; Value := W; }
+procedure TNode.Increment; { Inc(Value); }
+function TNode.Info: String; const; { Result := IntToStr(Value); }
 
 vao
   a := TNode.Create(1);

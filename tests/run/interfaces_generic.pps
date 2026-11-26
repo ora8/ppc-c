@@ -1,17 +1,17 @@
 program interfaces_generic;
 type
   ILess<T> = interface {
-    func Less(a, b: T): Boolean; const;
+    function Less(a, b: T): Boolean; const;
   }
   TByLength = class(ILess<String>) {
-    func Less(a, b: String): Boolean; const;
+    function Less(a, b: String): Boolean; const;
   }
   TDown = class(ILess<Integer>) {
-    func Less(a, b: Integer): Boolean; const;
+    function Less(a, b: Integer): Boolean; const;
   }
-func TByLength.Less(a, b: String): Boolean; const { Result := Length(a) < Length(b); }
-func TDown.Less(a, b: Integer): Boolean; const { Result := a > b; }
-proc SortWith<T: Copy>(var a: array of T; c: ILess<T> const)
+function TByLength.Less(a, b: String): Boolean; const; { Result := Length(a) < Length(b); }
+function TDown.Less(a, b: Integer): Boolean; const; { Result := a > b; }
+procedure SortWith<T: Copy>(var a: array of T; c: ILess<T> const);
 {
   for val i := 1 to High(a) do
     val j := i;

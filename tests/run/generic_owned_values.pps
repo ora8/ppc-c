@@ -11,33 +11,33 @@ type
     Name: String;
     Item: optional TItem;
   }
-constructor TItem.Create(AN: Integer) { N := AN; }
-destructor TItem.Destroy { WriteLn('free item ', N); }
+constructor TItem.Create(AN: Integer); { N := AN; }
+destructor TItem.Destroy; { WriteLn('free item ', N); }
 
-func MakeOrder(Name: String; n: Integer): TOrder
+function MakeOrder(Name: String; n: Integer): TOrder;
 {
   Result.Name := Name;
   Result.Item := TItem.Create(n);
 }
 
-proc Show(o: TOrder)
+procedure Show(o: TOrder);
 {
   Write(o.Name);
   if o.Item is some it Write('#', it.N);
   WriteLn;
 }
 
-proc Consume<T>(vao x: T)
+procedure Consume<T>(vao x: T);
 {
   WriteLn('consumed');
 }
 
-func Wrap<T>(vao x: T): optional T
+function Wrap<T>(vao x: T): optional T;
 {
   Result := x;
 }
 
-proc Keep(vao o: TOrder)
+procedure Keep(vao o: TOrder);
 {
   Show(o);
 }

@@ -1,6 +1,6 @@
 // EXPECT: ';' expected but 'val' found
 program T;
-proc P
+procedure P
 val x := 1;
 { WriteLn(x); }
 { P; }

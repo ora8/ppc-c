@@ -6,14 +6,14 @@ type
     Part: optional TK;
     constructor Create(AN: Integer);
     destructor Destroy; override;
-    func Clone: TK; const; auto;
+    function Clone: TK; const; auto;
   }
   TL = class(TK) { }
-constructor TK.Create(AN: Integer) { inherited Create; N := AN; }
-destructor TK.Destroy { WriteLn('  Destroy ', N); inherited Destroy; }
-func Make(n: Integer): TK { Result := TK.Create(n); }
+constructor TK.Create(AN: Integer); { inherited Create; N := AN; }
+destructor TK.Destroy; { WriteLn('  Destroy ', N); inherited Destroy; }
+function Make(n: Integer): TK; { Result := TK.Create(n); }
 
-proc ShowAll;
+procedure ShowAll;
 vao h := TK.Create(1);
 val s := TK.Create(2);
 {

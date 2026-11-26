@@ -3,40 +3,40 @@ program RecordMethods;
 type
   TVector = record {
     X, Y: Real;
-    proc Put(AX, AY: Real);
-    proc Scale(F: Real);                 {* changes the record itself *}
-    func Len: Real;
-    func Plus(B: TVector const): TVector;    {* returns a new value *}
-    func AsText: String;
+    procedure Put(AX, AY: Real);
+    procedure Scale(F: Real);                 {* changes the record itself *}
+    function Len: Real;
+    function Plus(B: TVector const): TVector;    {* returns a new value *}
+    function AsText: String;
     property Width: Real read X write X;
   }
 
   TRectangle = record {
     Corner, Magnitude: TVector;                       {* Records in Records *}
-    func Area: Real;
-    func Contains(P: TVector const): Boolean;
+    function Area: Real;
+    function Contains(P: TVector const): Boolean;
   }
 
-proc TVector.Put(AX, AY: Real) { X := AX; Y := AY; }
-proc TVector.Scale(F: Real) { X := X * F; Y := Y * F; }
-func TVector.Len: Real { Result := Sqrt(Sqr(X) + Sqr(Y)); }
-func TVector.Plus(B: TVector const): TVector
+procedure TVector.Put(AX, AY: Real); { X := AX; Y := AY; }
+procedure TVector.Scale(F: Real); { X := X * F; Y := Y * F; }
+function TVector.Len: Real; { Result := Sqrt(Sqr(X) + Sqr(Y)); }
+function TVector.Plus(B: TVector const): TVector;
 { Result.Put(X + B.X, Y + B.Y); }
-func TVector.AsText: String;
+function TVector.AsText: String;
 val sx, sy: String := default;
 {
   Str(X:0:1, sx); Str(Y:0:1, sy);
   Result := '(' + sx + ', ' + sy + ')';
 }
 
-func TRectangle.Area: Real { Result := Magnitude.X * Magnitude.Y; }
-func TRectangle.Contains(P: TVector const): Boolean
+function TRectangle.Area: Real; { Result := Magnitude.X * Magnitude.Y; }
+function TRectangle.Contains(P: TVector const): Boolean;
 {
   Result := (P.X >= Corner.X) and (P.X <= Corner.X + Magnitude.X) and
             (P.Y >= Corner.Y) and (P.Y <= Corner.Y + Magnitude.Y);
 }
 
-func vec(AX, AY: Real): TVector          {* "constructor" as a function *}
+function vec(AX, AY: Real): TVector;          {* "constructor" as a function *}
 { Result.Put(AX, AY); }
 
 val

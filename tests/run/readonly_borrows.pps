@@ -6,29 +6,29 @@ type
     Age: Integer;
     Friend: optional TPerson;               {* owns the Friend *}
     constructor Create(AName: String const; AAge: Integer);
-    proc Birthday;                   {* changes the object *}
-    func Info: String; const;           {* only reads *}
-    func BestFriend: var optional TPerson const; const;
+    procedure Birthday;                   {* changes the object *}
+    function Info: String; const;           {* only reads *}
+    function BestFriend: var optional TPerson const; const;
   }
 
-constructor TPerson.Create(AName: String const; AAge: Integer)
+constructor TPerson.Create(AName: String const; AAge: Integer);
 { inherited Create; Name := AName; Age := AAge; }
-proc TPerson.Birthday { Inc(Age); }
-func TPerson.Info: String; const { Result := Name + ' (' + IntToStr(Age) + ')'; }
-func TPerson.BestFriend: var optional TPerson const; const
+procedure TPerson.Birthday; { Inc(Age); }
+function TPerson.Info: String; const; { Result := Name + ' (' + IntToStr(Age) + ')'; }
+function TPerson.BestFriend: var optional TPerson const; const;
 { Result := Friend; }                {* Friend is only readable here *}
 
-proc Show(P: TPerson const)          {* const parameter: the object is read-only *}
+procedure Show(P: TPerson const);          {* const parameter: the object is read-only *}
 {
   Write(P.Info);
   if P.BestFriend is some f Write(', Friend: ', f.Info);
   WriteLn;
 }
 
-proc Celebrate(P: TPerson)               {* normal borrow: may change it *}
+procedure Celebrate(P: TPerson);               {* normal borrow: may change it *}
 { P.Birthday; }
 
-func Older(A, B: TPerson const): var TPerson const
+function Older(A, B: TPerson const): var TPerson const;
 {
   if A.Age >= B.Age Result := A; else Result := B;
 }

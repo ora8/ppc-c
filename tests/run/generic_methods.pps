@@ -7,40 +7,40 @@ type
   TPrinter = class {
     Prefix: String;
     Count: Integer;
-    func Show<T>(x: T): String;
-    func Pick<T: Comparable>(a, b: T): T; const;
-    proc Each<T>(a: array of T; Visit: reference to proc(x: T));
-    func Twice<T: Numeric>(x: T): T;
-    class func Make<T: class>(n: Integer): TPrinter;
+    function Show<T>(x: T): String;
+    function Pick<T: Comparable>(a, b: T): T; const;
+    procedure Each<T>(a: array of T; Visit: reference to procedure(x: T));
+    function Twice<T: Numeric>(x: T): T;
+    class function Make<T: class>(n: Integer): TPrinter;
   private
-    func Wrap<T>(x: T): String;
+    function Wrap<T>(x: T): String;
   }
   TBox = record {
     V: Integer;
-    func Scaled<T: Numeric>(f: T): T; const;
+    function Scaled<T: Numeric>(f: T): T; const;
   }
-constructor TItem.Create(AN: Integer) { N := AN; }
-func TPrinter.Wrap<T>(x: T): String { Result := '[' + Prefix + ']'; }
-func TPrinter.Show<T>(x: T): String
+constructor TItem.Create(AN: Integer); { N := AN; }
+function TPrinter.Wrap<T>(x: T): String; { Result := '[' + Prefix + ']'; }
+function TPrinter.Show<T>(x: T): String;
 {
   Inc(Count);
   Result := Wrap<T>(x) + ' #' + IntToStr(Count);
 }
-func TPrinter.Pick<T>(a, b: T): T; const
+function TPrinter.Pick<T>(a, b: T): T; const;
 {
   if a < b Result := b; else Result := a;
 }
-proc TPrinter.Each<T>(a: array of T; Visit: reference to proc(x: T))
+procedure TPrinter.Each<T>(a: array of T; Visit: reference to procedure(x: T));
 {
   for val x in a do Visit(x);
 }
-func TPrinter.Twice<T>(x: T): T { Result := x + x; }
-class func TPrinter.Make<T>(n: Integer): TPrinter
+function TPrinter.Twice<T>(x: T): T; { Result := x + x; }
+class function TPrinter.Make<T>(n: Integer): TPrinter;
 {
   Result := TPrinter.Create;
   Result.Prefix := 'made' + IntToStr(n);
 }
-func TBox.Scaled<T>(f: T): T; const { Result := f * 2; }
+function TBox.Scaled<T>(f: T): T; const; { Result := f * 2; }
 
 val
   nums: array of Integer := (3, 1, 2);
@@ -52,7 +52,7 @@ val
     p.Prefix := 'p';
     WriteLn(p.Show(5), ' ', p.Show('x'), ' ', p.Show<Real>(2.5));
     WriteLn(p.Pick(3, 9), ' ', p.Pick('b', 'a'), ' ', p.Twice(21), ' ', p.Twice(1.25):0:2);
-    p.Each(nums, proc(x: Integer) { Write(x, ' '); });
+    p.Each(nums, procedure(x: Integer) { Write(x, ' '); });
     WriteLn;
     WriteLn(q.Prefix, ' ', b.Scaled(3), ' ', b.Scaled(1.5):0:1);
   };

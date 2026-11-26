@@ -1,20 +1,20 @@
 program BracesIf;
 // the brace syntax: 'if' without 'then', and ';' before 'else' (the else belongs to the nearest if)
 type TShape = (Circle(R: Real), Empty);
-func Fib(n: Integer): Integer
+function Fib(n: Integer): Integer;
 {
   if n < 2 Result := n; else Result := Fib(n - 1) + Fib(n - 2);
 }
-func Sign(x: Integer): Integer
+function Sign(x: Integer): Integer;
 {
   if x > 0 Result := 1;
   else if x < 0 Result := -1;
   else Result := 0;
 }
-func Save(k: Integer): result { if k > 0 Result := ok; else Result := error('negative'); }
-func Half(k: Integer): result Integer { if k mod 2 = 0 Result := ok(k div 2); else Result := error('odd'); }
-func MakeShape(k: Integer): result TShape { if k > 0 Result := ok(Circle(k)); else Result := error('no shape'); }
-func Find(k: Integer): optional Integer { if k > 0 Result := k * 10; else Result := none; }
+function Save(k: Integer): result; { if k > 0 Result := ok; else Result := error('negative'); }
+function Half(k: Integer): result Integer; { if k mod 2 = 0 Result := ok(k div 2); else Result := error('odd'); }
+function MakeShape(k: Integer): result TShape; { if k > 0 Result := ok(Circle(k)); else Result := error('no shape'); }
+function Find(k: Integer): optional Integer; { if k > 0 Result := k * 10; else Result := none; }
 val s: TShape := Circle(2.0);
 val o: optional Integer := Find(3);
 {

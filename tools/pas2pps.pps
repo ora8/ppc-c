@@ -7,11 +7,10 @@ program Pas2Pps;
      ./pas2pps -o out.pps file.pas
 
    The conversion works on tokens; comments, strings and the layout stay as they are:
-   - function -> func, procedure -> proc, begin -> {, end -> }
+   - begin -> {, end -> } (function and procedure stay)
    - record, class(...), = interface(...) and case ... of get an opening {
    - the program's final 'end.' becomes '}', a module's final 'end.' is dropped
-   - the ';' after a routine header (or its last directive) is dropped when the body follows,
-     and the ';' after the '}' of a routine body or a type
+   - the ';' after the '}' of a routine body or a type is dropped
    - 'then' is dropped when a statement starts after it, an 'else' of an 'if' gets a ';' before it
      (if n < 2 Result := n; else Result := 0;) *}
 import ppc_std;
@@ -35,7 +34,7 @@ val After: array of String := default;     // text inserted after a token
 
 // ---- words
 
-func IsKeyword(w: String): Boolean
+function IsKeyword(w: String): Boolean;
 {
   Result := case w of {
     'and', 'array', 'as', 'begin', 'case', 'class', 'const', 'constructor', 'destructor', 'div', 'do',
@@ -48,15 +47,7 @@ func IsKeyword(w: String): Boolean
   };
 }
 
-func IsDirective(w: String): Boolean
-{
-  Result := case w of {
-    'virtual', 'override', 'abstract', 'forward', 'overload', 'auto', 'reintroduce', 'static', 'inline': True;
-  else False
-  };
-}
-
-func IsStmtKw(w: String): Boolean   // keywords that start a statement
+function IsStmtKw(w: String): Boolean;   // keywords that start a statement
 {
   Result := case w of {
     'begin', 'if', 'while', 'for', 'case', 'repeat', 'loop', 'try', 'inherited', 'val', 'var', 'vao', 'const': True;
@@ -64,39 +55,34 @@ func IsStmtKw(w: String): Boolean   // keywords that start a statement
   };
 }
 
-func IsRoutine(w: String): Boolean
-{
-  Result := case w of { 'function', 'procedure', 'constructor', 'destructor', 'operator': True; else False };
-}
-
 // ---- the tokens
 
-func At(i: Integer): Char
+function At(i: Integer): Char;
 {
   if (i >= 1) and (i <= N) then Result := Src[i] else Result := #0;
 }
 
-func StartsAt(s: String; i: Integer): Boolean { Result := Copy(Src, i, Length(s)) = s; }
+function StartsAt(s: String; i: Integer): Boolean; { Result := Copy(Src, i, Length(s)) = s; }
 
-func IsHex(c: Char): Boolean { Result := IsDigit(c) or (c in ['a'..'f', 'A'..'F']); }
+function IsHex(c: Char): Boolean; { Result := IsDigit(c) or (c in ['a'..'f', 'A'..'F']); }
 
-func IsIdChar(c: Char): Boolean { Result := IsLetter(c) or IsDigit(c) or (c = '_'); }
+function IsIdChar(c: Char): Boolean; { Result := IsLetter(c) or IsDigit(c) or (c = '_'); }
 
 // the index after the next 'close' from 'from' on (after the end of the text if there is none)
-func SkipTo(close: String; from: Integer): Integer;
+function SkipTo(close: String; from: Integer): Integer;
 val j: Integer := PosFrom(close, Src, from);
 {
   if j = 0 then Result := N + 1 else Result := j + Length(close);
 }
 
-proc AddTok(k: TKind; a, b: Integer)
+procedure AddTok(k: TKind; a, b: Integer);
 {
   if Count = Length(Toks) then SetLength(Toks, 2 * Count + 64);
   Toks[Count] := (Kind: k; Text: Copy(Src, a, b - a); Start: a; Stop: b);
   Inc(Count);
 }
 
-func SkipString(i: Integer): Integer;   // 'it''s' and #10 joined: 'a'#10'b'
+function SkipString(i: Integer): Integer;   // 'it''s' and #10 joined: 'a'#10'b'
 val j: Integer := i;
 {
   while (At(j) = '''') or (At(j) = '#') do
@@ -129,7 +115,7 @@ val j: Integer := i;
   Result := j;
 }
 
-func SkipNumber(i: Integer): Integer;
+function SkipNumber(i: Integer): Integer;
 val j: Integer := i;
 {
   if At(j) = '$' then {
@@ -155,7 +141,7 @@ val j: Integer := i;
   Result := j;
 }
 
-proc Tokenize;
+procedure Tokenize;
 val i: Integer := 1;
 val j: Integer := 0;
 {
@@ -194,19 +180,19 @@ val j: Integer := 0;
 
 // ---- the conversion
 
-func Kw(k: Integer; w: String): Boolean
+function Kw(k: Integer; w: String): Boolean;
 {
   Result := (k >= 0) and (k < Count) and (Toks[k].Kind = tkKw) and (Toks[k].Text = w);
 }
 
-func Sym(k: Integer; s: String): Boolean
+function Sym(k: Integer; s: String): Boolean;
 {
   Result := (k >= 0) and (k < Count) and (Toks[k].Kind = tkSym) and (Toks[k].Text = s);
 }
 
-proc Replace(k: Integer; s: String) { Rep[k] := s; HasRep[k] := True; }
+procedure Replace(k: Integer; s: String); { Rep[k] := s; HasRep[k] := True; }
 
-func SkipParens(k: Integer): Integer;   // k at '(': the index after the matching ')'
+function SkipParens(k: Integer): Integer;   // k at '(': the index after the matching ')'
 val d: Integer := 0;
 {
   Result := k;
@@ -220,35 +206,7 @@ val d: Integer := 0;
   }
 }
 
-// a routine header ends at the first ';' (or a lambda's 'begin') at paren depth 0; then come
-// directives; when the body follows, the last ';' is dropped
-proc HeaderSemicolon(k: Integer);
-val j: Integer := k + 1;
-val d: Integer := 0;
-val last: Integer := 0;
-{
-  while j < Count do {
-    if Sym(j, '(') then Inc(d)
-    else if Sym(j, ')') then Dec(d)
-    else if (d = 0) and (Sym(j, ';') or Kw(j, 'begin')) then Break;
-    Inc(j);
-  }
-  if (j >= Count) or Kw(j, 'begin') then Exit;   // a lambda: 'function(x: Integer): Integer begin ... end'
-  last := j;
-  Inc(j);
-  while j < Count do {
-    if ((Toks[j].Kind = tkId) and IsDirective(Toks[j].Text)) or Kw(j, 'const') then
-      if Sym(j + 1, ';') then {
-        last := j + 1;
-        j := j + 2;
-        Continue;
-      }
-    Break;
-  }
-  if Kw(j, 'begin') then Replace(last, '');
-}
-
-func OpenBlock(var opens: array of TOpen; n: Integer): Boolean   // inside a block, a body or a case?
+function OpenBlock(var opens: array of TOpen; n: Integer): Boolean;   // inside a block, a body or a case?
 {
   Result := False;
   for val i := 0 to n - 1 do
@@ -256,12 +214,12 @@ func OpenBlock(var opens: array of TOpen; n: Integer): Boolean   // inside a blo
 }
 
 // after a class or '= interface': the '{' comes after the parents
-proc OpenAfterParents(k: Integer)
+procedure OpenAfterParents(k: Integer);
 {
   if Sym(k + 1, '(') then After[SkipParens(k + 1) - 1] := ' {' else After[k] := ' {';
 }
 
-func TrimBlanks(s: String): String;   // without spaces and tabs at the end
+function TrimBlanks(s: String): String;   // without spaces and tabs at the end
 val n: Integer := Length(s);
 {
   while (n > 0) and (s[n] in [' ', #9]) do Dec(n);
@@ -269,7 +227,7 @@ val n: Integer := Length(s);
 }
 
 // spaces and tabs at the end of a line are dropped
-func StripLineEnds(s: String): String;
+function StripLineEnds(s: String): String;
 val parts: array of String := Split(s, #10);
 {
   for val i := 0 to High(parts) do
@@ -278,7 +236,7 @@ val parts: array of String := Split(s, #10);
   Result := Join(parts, #10);
 }
 
-func Convert: String;
+function Convert: String;
 val isModule: Boolean := False;
 val opens: array of TOpen := default;
 val nOpen: Integer := 0;
@@ -308,14 +266,10 @@ val pos: Integer := 1;
       while (nIf > 0) and (ifs[nIf - 1] >= depth + nOpen + 1) do Dec(nIf);
     } else if Sym(k, ';') then
       while (nIf > 0) and (ifs[nIf - 1] >= depth + nOpen) do Dec(nIf);
-    if (Toks[k].Kind = tkId) and (Toks[k].Text = 'operator') and Kw(k - 1, 'class') then
-      HeaderSemicolon(k)   // class operator Add(a, b: TVec): TVec;
-    else if Toks[k].Kind = tkKw then {
+    if Toks[k].Kind = tkKw then {
       val w := Toks[k].Text;
       {
         case w of {
-          'function': Replace(k, 'func');
-          'procedure': Replace(k, 'proc');
           'begin': {
             Replace(k, '{');
             if OpenBlock(opens, nOpen) then opens[nOpen] := opBlock else opens[nOpen] := opBody;
@@ -379,10 +333,6 @@ val pos: Integer := 1;
             }
         else
         }
-        // a routine declaration (not a procedural type 'x: function: Integer')
-        if IsRoutine(w) and not ((k > 0) and (Toks[k - 1].Kind in [tkSym, tkKw]) and
-            (case Toks[k - 1].Text of { ':', '=', '(', ',', ':=', 'of', 'to': True; else False })) then
-          HeaderSemicolon(k);
       }
     }
   }
@@ -394,8 +344,6 @@ val pos: Integer := 1;
       parts[3 * k] := TrimBlanks(parts[3 * k]);   // 'c then x' -> 'c x': the blanks before 'then' go too
       parts[3 * k + 1] := '';
     } else if not HasRep[k] then parts[3 * k + 1] := Toks[k].Text
-    else if (Rep[k] = '') and (Toks[k].Text = ';') and (Toks[k].Stop <= N) and not IsSpace(Src[Toks[k].Stop]) then
-      parts[3 * k + 1] := ' '   // 'x;begin' -> 'x {'
     else
       parts[3 * k + 1] := Rep[k];
     parts[3 * k + 2] := After[k];
@@ -409,7 +357,7 @@ val pos: Integer := 1;
 
 // ---- the program
 
-proc ConvertFile(f, dst: String)
+procedure ConvertFile(f, dst: String);
 {
   case ReadFile(f) of {
     ok text: {
@@ -423,7 +371,7 @@ proc ConvertFile(f, dst: String)
   }
 }
 
-func Target(f: String): String
+function Target(f: String): String;
 {
   if EndsWith(f, '.pas') then Result := Copy(f, 1, Length(f) - 4) + '.pps' else Result := f + '.pps';
 }

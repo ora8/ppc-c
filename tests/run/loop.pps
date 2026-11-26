@@ -6,10 +6,10 @@ type
     constructor Create(AN: Integer);
     destructor Destroy; override;
   }
-constructor TK.Create(AN: Integer) { inherited Create; N := AN; }
-destructor TK.Destroy { WriteLn('  freed ', N); inherited Destroy; }
+constructor TK.Create(AN: Integer); { inherited Create; N := AN; }
+destructor TK.Destroy; { WriteLn('  freed ', N); inherited Destroy; }
 
-func FirstSquareAbove(g: Integer): Integer;
+function FirstSquareAbove(g: Integer): Integer;
 val i := 1;
 {
   loop
@@ -19,12 +19,12 @@ val i := 1;
     };
 }
 
-func Check(n: Integer): result Integer
+function Check(n: Integer): result Integer;
 {
   if n > 3 Result := error('too big at ' + IntToStr(n)); else Result := n;
 }
 
-func Sum: result Integer;
+function Sum: result Integer;
 val n := 0;
 {
   Result := 0;

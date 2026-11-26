@@ -5,19 +5,19 @@ type
     Lines: Integer;
     constructor Create(AName: String);
     destructor Destroy; override;
-    proc Write(s: String);
+    procedure Write(s: String);
   }
-constructor TFile.Create(AName: String) { Name := AName; }
-destructor TFile.Destroy { WriteLn('close ', Name, ' (', Lines, ' lines)'); }
-proc TFile.Write(s: String) { Inc(Lines); }
+constructor TFile.Create(AName: String); { Name := AName; }
+destructor TFile.Destroy; { WriteLn('close ', Name, ' (', Lines, ' lines)'); }
+procedure TFile.Write(s: String); { Inc(Lines); }
 
-func Open(Name: String): result TFile
+function Open(Name: String): result TFile;
 {
   if Name = '' Result := error('no name');
   else Result := ok(TFile.Create(Name));
 }
 
-func OpenLog(Name: String): result TFile
+function OpenLog(Name: String): result TFile;
 {
   vao f := try Open(Name + '.log');
   {
@@ -26,7 +26,7 @@ func OpenLog(Name: String): result TFile
   };
 }
 
-func Count(Names: array of String): result Integer
+function Count(Names: array of String): result Integer;
 {
   Result := ok(0);
   for val n in Names do
