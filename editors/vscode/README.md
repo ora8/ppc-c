@@ -7,6 +7,9 @@ Support for [Perfect Pascal](../../README.md) (`ppc`) in Visual Studio Code:
 * through the language server `ppc --lsp`: errors and warnings while you type (also borrow and
   nil errors), hover, go to definition (F12), find all references (Shift+F12), rename (F2) and
   completion (after `.` and for names);
+* **Ctrl+Shift+Down / Ctrl+Shift+Up** (*Perfect Pascal: Toggle Declaration/Implementation*, as in Delphi):
+  from a routine or method declared in a class or a module's interface to its implementation and
+  back (also from anywhere on the header line);
 * commands **Perfect Pascal: Run File** (also the ▷ button above the editor), **Check File** and
   **Restart Language Server**.
 
@@ -18,8 +21,8 @@ The `ppc` compiler must be installed (`make` in the repository root; put `ppc` o
 ```bash
 cd editors/vscode
 npm install
-npm run package                                   # makes perfect-pascal-0.1.5.vsix
-code --install-extension perfect-pascal-0.1.5.vsix
+npm run package                                   # makes perfect-pascal-0.1.6.vsix
+code --install-extension perfect-pascal-0.1.6.vsix
 ```
 
 ## Settings

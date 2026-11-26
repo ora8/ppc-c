@@ -82,6 +82,7 @@ static int hover_at(Pos p, const char *name);
 static Var *pending_hover_var;         /* a declaration under the cursor: described when complete */
 static MethodDecl *pending_hover_method;
 static void hover_set(const char *text);
+static void impl_note(Pos decl, Pos impl, const char *name);
 static void def_set(Pos p);
 static const char *type_desc(Type *t);
 static void hover_member(Struct *st, const char *name);
@@ -1518,6 +1519,28 @@ static Expr *classref_member(Expr *cref, const char *name, ExprVec *args, Pos p)
 int g_hover_line, g_hover_col;
 const char *g_hover_file;
 char *g_hover_text;
+/* --implementation LINE:COL: the implementation of the routine or method declared there */
+int g_impl_mode;
+typedef struct {
+    Pos decl, impl;
+    int len;
+} ImplNote;
+static VEC(ImplNote) impl_notes;
+static void impl_note(Pos decl, Pos impl, const char *name) {
+    if (!g_impl_mode || decl.line <= 0 || (decl.line == impl.line && decl.col == impl.col && STREQ(POS_FILE(decl), POS_FILE(impl)))) return;
+    ImplNote n = {decl, impl, (int)strlen(name)};
+    vpush(impl_notes, n);
+}
+const char *implementation_text(void) {
+    for (int i = 0; i < impl_notes.len; i++) {
+        ImplNote *n = &impl_notes.items[i];
+        if (n->decl.line == g_hover_line && g_hover_col >= n->decl.col && g_hover_col < n->decl.col + n->len && g_hover_file &&
+            STREQ(POS_FILE(n->decl), g_hover_file))
+            return sfmt("%s:%d:%d", POS_FILE(n->impl), n->impl.line, n->impl.col);
+    }
+    return NULL;
+}
+
 /* --references LINE:COL: every name is noted with the declaration it refers to (def_set) */
 int g_ref_mode;
 typedef struct {
@@ -6335,6 +6358,7 @@ static void routine_decl(RoutineDecl *d) {
             for (int i = 0; i < rt->params.len; i++) rt->params.items[i].name = tmp.params.items[i].name;
         }
         if (hover_at(d->name.pos, d->name.name)) hover_set(routine_desc(rt)), def_set(rt->pos); /* the declaration in the class */
+        impl_note(rt->pos, d->name.pos, d->name.name);
         routine_body(rt, d);
         return;
     }
@@ -6448,6 +6472,7 @@ static void routine_decl(RoutineDecl *d) {
         return;
     }
     if (hover_at(d->name.pos, d->name.name)) hover_set(routine_desc(rt)), def_set(rt->pos);
+    impl_note(rt->pos, d->name.pos, d->name.name); /* a routine declared in a module's interface or 'forward' */
     if (d->forward) {
         rt->forward = 1;
         return;

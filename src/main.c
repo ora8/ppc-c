@@ -183,6 +183,11 @@ static char *read_stdin(void) {
 
 int lsp_main(const char *self, const char *module_paths);
 
+static void print_implementation(void) { /* --implementation: file:line:col (also after errors) */
+    const char *r = implementation_text();
+    if (r) fprintf(stdout, "%s\n", r);
+    fflush(stdout);
+}
 static void print_references(void) { /* --references: file:line:col:len per place (also after errors) */
     const char *r = references_text();
     if (r) fputs(r, stdout);
@@ -218,6 +223,12 @@ int main(int argc, char **argv) {
         else if (STREQ(a, "--check")) check_only = 1;
         else if (STREQ(a, "--stdin")) from_stdin = 1;
         else if (STREQ(a, "--complete")) g_complete = 1, check_only = 1; /* the marker __ppc_complete__ is in the text */
+        else if (STREQ(a, "--implementation") && i + 1 < argc) { /* the implementation of the routine declared at LINE:COL */
+            g_impl_mode = 1;
+            if (sscanf(argv[++i], "%d:%d", &g_hover_line, &g_hover_col) != 2) usage();
+            check_only = 1;
+            atexit(print_implementation);
+        }
         else if (STREQ(a, "--references") && i + 1 < argc) { /* every place of the name at LINE:COL */
             g_ref_mode = 1;
             if (sscanf(argv[++i], "%d:%d", &g_hover_line, &g_hover_col) != 2) usage();

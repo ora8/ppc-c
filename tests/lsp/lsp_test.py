@@ -36,7 +36,8 @@ send({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {'rootUri': N
 r = recv()
 caps = r['result']['capabilities']
 check(r.get('id') == 1 and caps['textDocumentSync']['change'] == 1 and caps['hoverProvider'] and caps['definitionProvider'], 'initialize: full text sync, hover, definition')
-check(caps.get('referencesProvider') and caps.get('renameProvider', {}).get('prepareProvider'), 'initialize: references, rename with prepareRename')
+check(caps.get('referencesProvider') and caps.get('renameProvider', {}).get('prepareProvider') and caps.get('implementationProvider'),
+      'initialize: references, rename with prepareRename, implementation')
 send({'jsonrpc': '2.0', 'method': 'initialized', 'params': {}})
 
 bad = "program T;\nval x: Integer := 1;\nbegin\n  x := 'ü' + 'a';\n  WriteLn(y);\nend.\n"
@@ -103,6 +104,18 @@ check(recv()['params']['diagnostics'] == [], 'program using a module has no erro
 loc = definition(useuri, 3, 11)
 check(loc and loc['uri'].endswith('/lspmod2.pas') and loc['range']['start'] == {'line': 2, 'character': 9},
       'definition in an imported module')
+
+def implementation(u, line, ch):
+    send({'jsonrpc': '2.0', 'id': 14, 'method': 'textDocument/implementation',
+          'params': {'textDocument': {'uri': u}, 'position': {'line': line, 'character': ch}}})
+    return recv().get('result')
+loc = implementation(uri, 1, 43)
+check(loc and loc['uri'] == uri and loc['range']['start'] == {'line': 2, 'character': 14}, 'implementation of a method declared in its class')
+modpath2 = os.path.join(here, 'lspmod2.pas')
+loc = implementation('file://' + modpath2, 2, 10)
+check(loc and loc['uri'].endswith('/lspmod2.pas') and loc['range']['start'] == {'line': 4, 'character': 9},
+      'implementation of a routine of a module interface (an unopened file)')
+check(implementation(uri, 2, 14) is None, 'no implementation at an implementation itself')
 
 def request(method, u, line, ch, **extra):
     params = {'textDocument': {'uri': u}, 'position': {'line': line, 'character': ch}}

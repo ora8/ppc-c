@@ -98,12 +98,47 @@ async function checkFile() {
   t.sendText(`${quote(ppcPath())} --check ${mp} ${quote(doc.fileName)} && echo 'no errors'`);
 }
 
+// ---- Toggle Declaration/Implementation (Ctrl+Shift+Up/Down, as in Delphi) ----
+const LANGS = ['perfectpascal', 'perfectpascal-braces'];
+function firstLocation(r) {
+  const l = Array.isArray(r) ? r[0] : r;
+  if (!l) return undefined;
+  return l.targetUri ? { uri: l.targetUri, range: l.targetSelectionRange || l.targetRange } : { uri: l.uri, range: l.range };
+}
+// on a routine header ('function TBox.Area(...)') the position of the routine's name, else the cursor
+function namePosition(doc, pos) {
+  const text = doc.lineAt(pos.line).text;
+  const m = /^(\s*(?:class\s+)?(?:function|procedure|constructor|destructor|operator)\s+)([A-Za-z_][\w.<>, ]*)/.exec(text);
+  if (!m || (pos.character >= m[1].length && pos.character < m[1].length + m[2].length && /\w/.test(text[pos.character] || ''))) return pos;
+  const qualified = m[2].replace(/<[^>]*>/g, (g) => ' '.repeat(g.length)).trimEnd();
+  const last = qualified.lastIndexOf('.') + 1;
+  return new vscode.Position(pos.line, m[1].length + last);
+}
+async function toggleImplementation() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || !LANGS.includes(editor.document.languageId)) return;
+  const uri = editor.document.uri;
+  const pos = namePosition(editor.document, editor.selection.active);
+  const here = (l) => l && l.uri.toString() === uri.toString() && l.range.start.line === pos.line;
+  let target = firstLocation(await vscode.commands.executeCommand('vscode.executeImplementationProvider', uri, pos));
+  if (!target || here(target)) /* at an implementation: back to the declaration */
+    target = firstLocation(await vscode.commands.executeCommand('vscode.executeDefinitionProvider', uri, pos));
+  if (!target || here(target)) {
+    vscode.window.setStatusBarMessage('Perfect Pascal: no declaration or implementation of a routine here', 3000);
+    return;
+  }
+  const ed = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(target.uri));
+  ed.selection = new vscode.Selection(target.range.start, target.range.start);
+  ed.revealRange(target.range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+}
+
 async function activate(context) {
   output = vscode.window.createOutputChannel('Perfect Pascal');
   context.subscriptions.push(
     output,
     vscode.commands.registerCommand('ppc.runFile', runFile),
     vscode.commands.registerCommand('ppc.checkFile', checkFile),
+    vscode.commands.registerCommand('ppc.toggleImplementation', toggleImplementation),
     vscode.commands.registerCommand('ppc.restartServer', async () => {
       if (client) await client.stop();
       await startClient();

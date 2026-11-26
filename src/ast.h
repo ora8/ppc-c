@@ -498,6 +498,8 @@ extern const char *g_hover_file;
 extern char *g_hover_text;
 extern int g_complete;   /* --complete: list what can stand at the marker __ppc_complete__ */
 extern int g_def_mode;
+extern int g_impl_mode; /* --implementation: where the routine declared at the place is implemented */
+const char *implementation_text(void);
 extern int g_ref_mode;  /* --references: every use of the name at the place */
 const char *references_text(void);  /* --definition: print where the name at the place is declared */
 extern Pos g_def_pos;

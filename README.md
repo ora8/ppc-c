@@ -175,6 +175,11 @@ methods (from a call or from the implementation to the declaration in the class)
 constants, enumeration values, also in imported modules (not into the built-in standard
 library). On the command line: `ppc --definition LINE:COL file.pas` prints `file:line:col`.
 
+**Go to implementation:** from a routine or method declared in a class or in a module's interface
+to its implementation (the opposite of *go to definition*); in VS Code both together are
+**Ctrl+Shift+Down / Ctrl+Shift+Up** (*Toggle Declaration/Implementation*, as in Delphi). On the
+command line: `ppc --implementation LINE:COL file.pas` prints `file:line:col`.
+
 **Find references and rename:** all places of a name – its declaration, the implementation of a
 method, every use (also `Count` inside a method without `Self.`), in the file and in the modules
 it imports. Rename changes them all at once (in every file); it refuses keywords, invalid names and

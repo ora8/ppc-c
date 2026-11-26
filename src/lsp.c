@@ -206,7 +206,16 @@ static char *uri_to_path(const char *uri) {
 static Doc *doc_of(const char *uri) {
     for (int i = 0; i < docs.len; i++)
         if (STREQ(docs.items[i].uri, uri)) return &docs.items[i];
-    Doc d = {xstrdup(uri), uri_to_path(uri), xstrdup("")};
+    Doc d = {xstrdup(uri), uri_to_path(uri), NULL};
+    FILE *f = fopen(d.path, "rb"); /* a file the editor has not opened (a request for it): its text on disk */
+    Buf ft = {0};
+    if (f) {
+        char tmp[65536];
+        size_t k;
+        while ((k = fread(tmp, 1, sizeof tmp, f)) > 0) buf_putn(&ft, tmp, k);
+        fclose(f);
+    }
+    d.text = xstrdup(buf_str(&ft));
     vpush(docs, d);
     return &docs.items[docs.len - 1];
 }
@@ -524,7 +533,7 @@ int lsp_main(const char *self, const char *module_paths) {
             Buf b = {0};
             buf_put(&b, "{\"jsonrpc\":\"2.0\",\"id\":");
             jid(&b, id);
-            buf_put(&b, ",\"result\":{\"capabilities\":{\"textDocumentSync\":{\"openClose\":true,\"change\":1,\"save\":{\"includeText\":false}},\"hoverProvider\":true,\"definitionProvider\":true,\"referencesProvider\":true,\"renameProvider\":{\"prepareProvider\":true},\"completionProvider\":{\"triggerCharacters\":[\".\"]}},"
+            buf_put(&b, ",\"result\":{\"capabilities\":{\"textDocumentSync\":{\"openClose\":true,\"change\":1,\"save\":{\"includeText\":false}},\"hoverProvider\":true,\"definitionProvider\":true,\"implementationProvider\":true,\"referencesProvider\":true,\"renameProvider\":{\"prepareProvider\":true},\"completionProvider\":{\"triggerCharacters\":[\".\"]}},"
                         "\"serverInfo\":{\"name\":\"ppc\",\"version\":\"1\"}}}");
             send_msg(buf_str(&b));
         } else if (STREQ(method, "shutdown")) {
@@ -559,7 +568,8 @@ int lsp_main(const char *self, const char *module_paths) {
             if (uri && ln && ch) complete(&b, doc_of(uri), (int)ln->num + 1, (int)ch->num);
             buf_put(&b, "]}}");
             send_msg(buf_str(&b));
-        } else if (STREQ(method, "textDocument/definition")) {
+        } else if (STREQ(method, "textDocument/definition") || STREQ(method, "textDocument/implementation")) {
+            int impl = STREQ(method, "textDocument/implementation"); /* from a declaration to the implementation */
             const char *uri = jstr(jget(jget(params, "textDocument"), "uri"));
             Json *pos = jget(params, "position");
             Json *ln = jget(pos, "line"), *ch = jget(pos, "character");
@@ -570,7 +580,7 @@ int lsp_main(const char *self, const char *module_paths) {
             if (uri && ln && ch) {
                 Doc *d = doc_of(uri);
                 int line = (int)ln->num + 1;
-                query_opt = "--definition";
+                query_opt = impl ? "--implementation" : "--definition";
                 out = run_ppc(d, sfmt("%d:%d", line, byte_col(d->text, line, (int)ch->num)));
                 query_opt = "--hover";
             }
