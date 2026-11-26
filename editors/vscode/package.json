@@ -1,21 +1,42 @@
 {
   "name": "perfect-pascal",
   "displayName": "Perfect Pascal",
-  "description": "Perfect Pascal (ppc): syntax highlighting, errors while typing, hover, go to definition and completion",
+  "description": "Perfect Pascal (ppc): syntax highlighting, errors while typing, hover, go to definition and completion (.pas, and .ppb in the brace syntax)",
   "version": "0.1.0",
   "publisher": "ppc",
   "license": "MIT",
-  "engines": { "vscode": "^1.82.0" },
-  "categories": ["Programming Languages", "Linters"],
+  "engines": {
+    "vscode": "^1.82.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
   "main": "./extension.js",
   "activationEvents": [],
   "contributes": {
     "languages": [
       {
         "id": "perfectpascal",
-        "aliases": ["Perfect Pascal", "ppc"],
-        "extensions": [".pas"],
+        "aliases": [
+          "Perfect Pascal",
+          "ppc"
+        ],
+        "extensions": [
+          ".pas"
+        ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "perfectpascal-braces",
+        "aliases": [
+          "Perfect Pascal (braces)",
+          "ppb"
+        ],
+        "extensions": [
+          ".ppb"
+        ],
+        "configuration": "./language-configuration-braces.json"
       }
     ],
     "grammars": [
@@ -23,16 +44,33 @@
         "language": "perfectpascal",
         "scopeName": "source.perfectpascal",
         "path": "./syntaxes/perfectpascal.tmLanguage.json"
+      },
+      {
+        "language": "perfectpascal-braces",
+        "scopeName": "source.perfectpascal-braces",
+        "path": "./syntaxes/perfectpascal-braces.tmLanguage.json"
       }
     ],
     "commands": [
-      { "command": "ppc.runFile", "title": "Perfect Pascal: Run File" },
-      { "command": "ppc.checkFile", "title": "Perfect Pascal: Check File" },
-      { "command": "ppc.restartServer", "title": "Perfect Pascal: Restart Language Server" }
+      {
+        "command": "ppc.runFile",
+        "title": "Perfect Pascal: Run File"
+      },
+      {
+        "command": "ppc.checkFile",
+        "title": "Perfect Pascal: Check File"
+      },
+      {
+        "command": "ppc.restartServer",
+        "title": "Perfect Pascal: Restart Language Server"
+      }
     ],
     "menus": {
       "editor/title/run": [
-        { "command": "ppc.runFile", "when": "editorLangId == perfectpascal" }
+        {
+          "command": "ppc.runFile",
+          "when": "editorLangId == perfectpascal || editorLangId == perfectpascal-braces"
+        }
       ]
     },
     "configuration": {
@@ -50,7 +88,11 @@
         },
         "ppc.trace.server": {
           "type": "string",
-          "enum": ["off", "messages", "verbose"],
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
           "default": "off",
           "description": "Log the messages between VS Code and the language server (Output: Perfect Pascal)."
         }
@@ -64,6 +106,6 @@
     "@vscode/vsce": "^3.2.1"
   },
   "scripts": {
-    "package": "vsce package --allow-missing-repository --skip-license"
+    "package": "vsce package --allow-missing-repository --skip-license --baseContentUrl https://github.com/ora8/ppc-c/blob/master/editors/vscode"
   }
 }

@@ -1,0 +1,146 @@
+{
+  "name": "Perfect Pascal (braces)",
+  "scopeName": "source.perfectpascal-braces",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#declarations"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#punctuation"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": []
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.perfectpascal-braces",
+          "begin": "'",
+          "end": "'(?!')",
+          "patterns": [
+            {
+              "name": "constant.character.escape.perfectpascal-braces",
+              "match": "''"
+            }
+          ]
+        },
+        {
+          "name": "constant.character.code.perfectpascal-braces",
+          "match": "#(\\$[0-9A-Fa-f]+|[0-9]+)"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.perfectpascal-braces",
+          "match": "\\$[0-9A-Fa-f]+\\b"
+        },
+        {
+          "name": "constant.numeric.float.perfectpascal-braces",
+          "match": "\\b[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.perfectpascal-braces",
+          "match": "\\b[0-9]+\\b"
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(func|proc|constructor|destructor|operator)\\s+(?:([A-Za-z_][A-Za-z0-9_]*)(?:<[^>]*>)?\\.)?([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.perfectpascal-braces"
+            },
+            "2": {
+              "name": "entity.name.type.perfectpascal-braces"
+            },
+            "3": {
+              "name": "entity.name.function.perfectpascal-braces"
+            }
+          }
+        },
+        {
+          "match": "^\\s*([A-Za-z_][A-Za-z0-9_]*)(?:<[^>]*>)?\\s*=\\s*(class|record|interface)\\b",
+          "captures": {
+            "1": {
+              "name": "entity.name.type.perfectpascal-braces"
+            },
+            "2": {
+              "name": "keyword.declaration.perfectpascal-braces"
+            }
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.perfectpascal-braces",
+          "match": "\\b(if|then|else|case|of|while|do|for|to|downto|in|repeat|until|loop|when|try|with|goto|Break|Continue|Exit)\\b"
+        },
+        {
+          "name": "storage.type.perfectpascal-braces",
+          "match": "\\b(val|var|vao|const|type|program|module|import|interface|implementation|uses|unit|func|proc|constructor|destructor|class|record|object|array|set|property|operator|reference|optional|result|packed|label)\\b"
+        },
+        {
+          "name": "storage.modifier.perfectpascal-braces",
+          "match": "\\b(private|protected|public|published|strict|virtual|override|abstract|overload|reintroduce|static|inline|forward|auto|default|read|write|external)\\b"
+        },
+        {
+          "name": "keyword.operator.word.perfectpascal-braces",
+          "match": "\\b(and|or|xor|not|div|mod|shl|shr|is|as|some|ok|error|inherited)\\b"
+        }
+      ]
+    },
+    "types": {
+      "name": "support.type.perfectpascal-braces",
+      "match": "\\b(Integer|LongInt|ShortInt|SmallInt|Byte|Word|Cardinal|LongWord|Int64|Boolean|Char|Real|Double|Single|Extended|String|TObject)\\b"
+    },
+    "constants": {
+      "name": "constant.language.perfectpascal-braces",
+      "match": "\\b(True|False|none|nil|Self|Result)\\b"
+    },
+    "operators": {
+      "name": "keyword.operator.perfectpascal-braces",
+      "match": ":=|<>|<=|>=|\\.\\.|[+\\-*/=<>^@]"
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.section.block.begin.perfectpascal-braces",
+          "match": "\\{"
+        },
+        {
+          "name": "punctuation.section.block.end.perfectpascal-braces",
+          "match": "\\}"
+        }
+      ]
+    }
+  }
+}

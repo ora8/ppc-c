@@ -1,0 +1,22 @@
+module braces_shapes;
+// a module in the brace syntax: it ends with the file
+interface
+type
+  TShape = class {
+    Name: String;
+    constructor Create(AName: String);
+    func Area: Real; virtual; const;
+  }
+  TSquare = class(TShape) {
+    S: Real;
+    constructor Create(AS: Real);
+    func Area: Real; override; const;
+  }
+  TPoint = record { X, Y: Integer; }
+func Twice(x: Integer): Integer;
+implementation
+constructor TShape.Create(AName: String); { inherited Create; Name := AName; }
+func TShape.Area: Real; const; { Result := 0; }
+constructor TSquare.Create(AS: Real); { inherited Create('square'); S := AS; }
+func TSquare.Area: Real; const; { Result := S * S; }
+func Twice(x: Integer): Integer; { Result := 2 * x; }

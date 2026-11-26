@@ -1,0 +1,58 @@
+program Braces;
+// the brace syntax (.ppb): func, proc and { } instead of function, procedure, begin and end
+import braces_shapes, ppc_std;
+(* the brace syntax: func, proc, { } *)
+type
+  TColor = (Red, Green, Blue);
+  TItem = (Circle(R: Real), Named(Name: String), Empty);
+
+proc Greet(name: String);
+{
+  WriteLn('Hello, ', name, '!');
+}
+
+func Fib(n: Integer): Integer;
+{
+  if n < 2 then Result := n
+  else Result := Fib(n - 1) + Fib(n - 2);
+}
+
+func Describe(it: TItem): String;
+{
+  Result := case it of {
+    Circle(r) when r > 1: 'big circle';
+    Circle: 'circle';
+    Named(n): 'named ' + n;
+    Empty: 'empty';
+  };
+}
+
+vao sq: TShape := TSquare.Create(3);
+val p: TPoint := (X: 1; Y: 2);
+val c: TColor := Green;
+{
+  Greet('braces');
+  for val i := 0 to 9 do Write(Fib(i), ' ');
+  WriteLn;
+  WriteLn(sq.Name, ' ', sq.Area:0:1, ' ', Twice(p.X + p.Y));
+  case c of {
+    Red: WriteLn('red');
+    Green, Blue: { WriteLn('green'); WriteLn('or blue'); }
+  }
+  WriteLn(Describe(Circle(2.0)), ', ', Describe(Named('x')), ', ', Describe(Empty));
+  val list := TList<Integer>.Create;
+  {
+    list.Add(3); list.Add(1); list.Add(2);
+
+    for val x in list do Write(x, ' ');
+    WriteLn;
+  }
+  val f := func(x: Integer): Integer { Result := x * x; };
+  { WriteLn(f(7)); }
+  val k: Integer := 0;
+  {
+    while k < 3 do { k := k + 1; Write(k); }
+    WriteLn;
+    repeat k := k - 1 until k = 0;
+  }
+}

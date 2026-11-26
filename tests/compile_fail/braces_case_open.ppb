@@ -1,0 +1,6 @@
+// EXPECT: '{' expected but number 1 found
+program T;
+val i: Integer := 1;
+{
+  case i of 1: WriteLn('one'); }
+}

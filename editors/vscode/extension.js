@@ -14,7 +14,10 @@ function ppcPath() {
 async function startClient() {
   const serverOptions = { command: ppcPath(), args: ['--lsp'], transport: TransportKind.stdio };
   const clientOptions = {
-    documentSelector: [{ scheme: 'file', language: 'perfectpascal' }],
+    documentSelector: [
+      { scheme: 'file', language: 'perfectpascal' },
+      { scheme: 'file', language: 'perfectpascal-braces' }
+    ],
     outputChannel: output,
   };
   client = new LanguageClient('ppc', 'Perfect Pascal', serverOptions, clientOptions);
@@ -28,8 +31,8 @@ async function startClient() {
 
 function currentFile() {
   const editor = vscode.window.activeTextEditor;
-  if (!editor || editor.document.languageId !== 'perfectpascal') {
-    vscode.window.showWarningMessage('Perfect Pascal: open a .pas file first.');
+  if (!editor || !['perfectpascal', 'perfectpascal-braces'].includes(editor.document.languageId)) {
+    vscode.window.showWarningMessage('Perfect Pascal: open a .pas or .ppb file first.');
     return undefined;
   }
   return editor.document;
@@ -49,7 +52,7 @@ async function runFile() {
   if (!doc) return;
   await doc.save();
   const file = doc.fileName;
-  const exe = path.join(path.dirname(file), path.basename(file, '.pas'));
+  const exe = path.join(path.dirname(file), path.basename(file, path.extname(file)));
   const extra = vscode.workspace.getConfiguration('ppc').get('runArguments') || '';
   const t = terminal();
   t.show();

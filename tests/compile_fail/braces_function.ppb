@@ -1,0 +1,4 @@
+// EXPECT: in the brace syntax (.ppb) 'function' is written 'func'
+program T;
+function F: Integer; { Result := 1; }
+{ WriteLn(F); }

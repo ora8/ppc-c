@@ -169,6 +169,65 @@ prog.pas: 3 syntax error(s), compilation aborted
   `public`, `property … read … write …`, `optional`, `some`, `none`, `default`, `result`, `ok`,
   `error`, `try`, `auto`.
 
+## The brace syntax: `.ppb` files
+
+Files ending in **`.ppb`** use a second syntax of the same language: `func` and `proc` instead of
+`function` and `procedure`, and `{ }` instead of `begin` … `end`. Everything else is unchanged, both
+syntaxes are compiled by the same `ppc`, and a program in one syntax can import modules in the other.
+
+```pascal
+program Hello;
+import ppc_std;
+// comments are // and (* ... *): { } are blocks
+type
+  TColor = (Red, Green, Blue);
+  TPoint = record { X, Y: Integer; }
+  TShape = class {
+    Name: String;
+    func Area: Real; virtual; const;
+  }
+
+func TShape.Area: Real; const; { Result := 0; }
+
+proc Greet(name: String);
+{
+  WriteLn('Hello, ', name, '!');
+}
+
+func Fib(n: Integer): Integer;
+{
+  if n < 2 then Result := n else Result := Fib(n - 1) + Fib(n - 2);
+}
+
+val c: TColor := Green;
+{
+  Greet('braces');
+  case c of {
+    Red: WriteLn('red');
+    Green, Blue: { WriteLn('green'); WriteLn('or blue'); }
+  }
+  val f := func(x: Integer): Integer { Result := x * x; };
+  { WriteLn(f(7)); }
+}
+```
+
+| Pascal syntax (`.pas`) | brace syntax (`.ppb`) |
+|---|---|
+| `function F: Integer;` / `procedure P;` | `func F: Integer;` / `proc P;` |
+| `begin … end` | `{ … }` |
+| `record … end`, `class(TBase) … end`, `interface … end` | `record { … }`, `class(TBase) { … }`, `interface { … }` |
+| `case x of … end` | `case x of { … }` |
+| `begin … end.` (the program) | `{ … }` (a final `.` is allowed) |
+| `module M; … implementation … end.` | `module M; … implementation …` (ends with the file) |
+| comments `{ }`, `(* *)`, `//` | comments `(* *)`, `//` |
+
+* A `;` after a `}` can be left out (`proc P; { … }` and `{ … } WriteLn(1)`).
+* `begin`, `end`, `function` and `procedure` are errors in a `.ppb` file (`in the brace syntax
+  (.ppb) 'begin' is written '{'`); `func` and `proc` are ordinary names in a `.pas` file.
+* `import M` looks for `M.pas`, then `M.ppb`.
+* Messages, hover and completion use the words of the file's syntax; the VS Code extension
+  highlights `.ppb` files as *Perfect Pascal (braces)*.
+
 ## Classes
 
 Reference types, implicitly derived from `TObject`:

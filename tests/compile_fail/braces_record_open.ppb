@@ -1,0 +1,4 @@
+// EXPECT: '{' expected but identifier 'X' found
+program T;
+type TPoint = record X, Y: Integer; }
+{ }

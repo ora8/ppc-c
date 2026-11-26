@@ -36,7 +36,12 @@ static void load_module(Ident *name) {
     } else {
         file = sfmt("%s/%s.pas", mod_dir, name->name);
         FILE *f = fopen(file, "rb");
-        if (!f) error_at(name->pos, "module '%s' not found (looked for %s)", name->name, file);
+        if (!f) { /* the brace syntax */
+            char *alt = sfmt("%s/%s.ppb", mod_dir, name->name);
+            f = fopen(alt, "rb");
+            if (!f) error_at(name->pos, "module '%s' not found (looked for %s and %s)", name->name, file, alt);
+            file = alt;
+        }
         fclose(f);
         src = read_file(file);
     }

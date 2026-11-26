@@ -13,6 +13,8 @@ typedef struct {
     char *str;
     int slen;
     Pos pos;
+    int br;           /* from a file in the brace syntax (.ppb) */
+    const char *orig; /* the written form when it differs from s ('{' for begin, 'func' for function) */
 } Token;
 
 static const char *KEYWORDS[] = {
@@ -28,8 +30,23 @@ static const char *SYMS[] = {":=", "<=", ">=", "<>", "..", "+", "-", "*", "/", "
 
 typedef VEC(Token) TokVec;
 
+/* the brace syntax (files ending in .ppb): func, proc, { } instead of function, procedure, begin, end;
+   comments are // and (* *) */
+int is_brace_file(const char *f) {
+    size_t n = f ? strlen(f) : 0;
+    return n > 4 && strcmp(f + n - 4, ".ppb") == 0;
+}
+static const char *brace_word(const char *k) {
+    if (STREQ(k, "begin")) return "{";
+    if (STREQ(k, "end")) return "}";
+    if (STREQ(k, "function")) return "func";
+    if (STREQ(k, "procedure")) return "proc";
+    return k;
+}
+
 static TokVec tokenize(const char *src) {
     TokVec out = {0};
+    int br = is_brace_file(g_filename);
     const char *b = src;
     size_t i = 0, n = strlen(src);
     int line = 1, col = 1;
@@ -49,6 +66,17 @@ static TokVec tokenize(const char *src) {
             continue;
         }
         Pos pos = {line, col, g_filename};
+        if (br && (c == '{' || c == '}')) {
+            Token t = {0};
+            t.pos = pos;
+            t.kind = TK_KW;
+            t.s = c == '{' ? "begin" : "end";
+            t.orig = c == '{' ? "{" : "}";
+            t.br = 1;
+            ADV();
+            vpush(out, t);
+            continue;
+        }
         if (c == '{') {
             while (i < n && b[i] != '}') ADV();
             if (i >= n) error_at(pos, "unterminated comment");
@@ -83,6 +111,16 @@ static TokVec tokenize(const char *src) {
                     t.kind = TK_KW;
                     t.s = KEYWORDS[k];
                 }
+            if (br) {
+                t.br = 1;
+                if (t.kind == TK_KW && (STREQ(w, "begin") || STREQ(w, "end") || STREQ(w, "function") || STREQ(w, "procedure")))
+                    error_at(pos, "in the brace syntax (.ppb) '%s' is written '%s'", w, brace_word(w));
+                if (STREQ(w, "func") || STREQ(w, "proc")) {
+                    t.kind = TK_KW;
+                    t.s = STREQ(w, "func") ? "function" : "procedure";
+                    t.orig = STREQ(w, "func") ? "func" : "proc";
+                }
+            }
             vpush(out, t);
             continue;
         }
@@ -199,6 +237,8 @@ static TokVec tokenize(const char *src) {
     e.kind = TK_EOF;
     e.pos = (Pos){line, col, g_filename};
     vpush(out, e);
+    if (br)
+        for (int k = 0; k < out.len; k++) out.items[k].br = 1;
     return out;
 #undef ADV
 }
@@ -224,7 +264,7 @@ static int peek_is_ident(int k) {
 static const char *describe(void) {
     switch (CUR.kind) {
     case TK_IDENT: return sfmt("identifier '%s'", CUR.s);
-    case TK_KW: return sfmt("'%s'", CUR.s);
+    case TK_KW: return sfmt("'%s'", CUR.orig ? CUR.orig : CUR.s);
     case TK_INT: return sfmt("number %lld", CUR.ival);
     case TK_REAL: return "real number";
     case TK_STR: return "string literal";
@@ -247,9 +287,16 @@ static int accept_sym(const char *s) {
     return 0;
 }
 static void expect_kw(const char *k) {
-    if (!accept_kw(k)) error_at(pos(), "'%s' expected but %s found", k, describe());
+    if (!accept_kw(k)) error_at(pos(), "'%s' expected but %s found", CUR.br ? brace_word(k) : k, describe());
 }
+/* the brace syntax: record { ... }, class(TBase) { ... }, interface { ... }, case x of { ... } */
+static void expect_open(void) {
+    if (CUR.br) expect_kw("begin");
+}
+/* the brace syntax: a ';' after a '}' may be left out */
+static int after_brace(void) { return P > 0 && T.items[P - 1].br && T.items[P - 1].orig && STREQ(T.items[P - 1].orig, "}"); }
 static void expect_sym(const char *s) {
+    if (STREQ(s, ";") && !is_sym(";") && after_brace()) return;
     if (!accept_sym(s)) error_at(pos(), "'%s' expected but %s found", s, describe());
 }
 static Ident ident(void) {
@@ -467,6 +514,7 @@ static StructDecl *parse_struct(int kind) {
         }
         expect_sym(")");
     }
+    expect_open();
     for (;;) {
         if (accept_kw("end")) break;
         if (is_ident("strict") && (peek_is_ident(1))) next(); /* 'strict private': private is always strict */
@@ -922,6 +970,7 @@ static int parse_decl1(Block *blk) {
 }
 
 static int nest_open(void) {
+    if (CUR.br) return is_kw("begin") || is_kw("repeat"); /* the brace syntax: every 'end' has its '{' */
     return is_kw("begin") || is_kw("case") || is_kw("record") || is_kw("repeat") || is_kw("class") || is_kw("try");
 }
 
@@ -1002,6 +1051,11 @@ static StmtVec parse_stmt_list(const char *term) {
         if (is_kw(term)) {
             g_recover = prev;
             break;
+        }
+        if (CUR.kind == TK_EOF) error_at(pos(), "'%s' expected but end of file found", CUR.br ? brace_word(term) : term);
+        if (after_brace()) { /* { ... } Next: no ';' needed after '}' */
+            g_recover = prev;
+            continue;
         }
         error_at(pos(), "';' expected but %s found", describe());
     }
@@ -1333,6 +1387,7 @@ static Stmt *parse_case(Pos p, int expr) {
     Stmt *s = new_stmt(S_CASE, p);
     s->a = parse_expr();
     expect_kw("of");
+    expect_open();
     for (;;) {
         if (accept_kw("else")) {
             if (expr) {
@@ -1566,6 +1621,11 @@ Block *parse_module(const char *src, Ident *name) {
     next();
     b->impl = NEW(Block);
     parse_decls(b->impl); /* definitions and private declarations */
+    if (CUR.br) { /* the brace syntax: a module ends with its file */
+        if (is_kw("begin") || is_kw("end")) error_at(pos(), "a module has no main block: in the brace syntax it simply ends with the file");
+        if (CUR.kind != TK_EOF) error_at(pos(), "unexpected %s in the implementation section", describe());
+        return b;
+    }
     if (is_kw("begin")) error_at(pos(), "a module has no main block ('begin ... end'): it ends with 'end.'");
     expect_kw("end");
     expect_sym(".");
@@ -1596,7 +1656,9 @@ Block *parse_program(const char *src, char **name, Pos *end_pos) {
     b->body = parse_stmt_list("end");
     *end_pos = pos();
     expect_kw("end");
-    expect_sym(".");
+    if (CUR.br) accept_sym("."); /* the brace syntax: '}' ends the program ('}.' is fine too) */
+    else expect_sym(".");
+    if (CUR.br && CUR.kind != TK_EOF) error_at(pos(), "unexpected %s after the end of the program", describe());
     return b;
 }
 
