@@ -229,10 +229,15 @@ val c: TColor := Green;
 | `begin … end` | `{ … }` |
 | `record … end`, `class(TBase) … end`, `interface … end` | `record { … }`, `class(TBase) { … }`, `interface { … }` |
 | `case x of … end` | `case x of { … }` |
+| `if c then A else B` | `if c A; else B;` (`then` and `if c then A else B` are allowed too) |
 | `begin … end.` (the program) | `{ … }` (a final `.` is allowed) |
 | `module M; … implementation … end.` | `module M; … implementation …` (ends with the file) |
 | comments `{* *}`, `(* *)`, `//` | the same comments; `{ }` without `*` is a block |
 
+* `then` can be left out, and a `;` may stand before `else` (the `else` belongs to the nearest `if`):
+  `if n < 2 Result := n; else Result := Fib(n - 1) + Fib(n - 2);`, `if x > 0 { … } else { … }`,
+  `if o is some v WriteLn(v);`. `then` is still allowed, and needed when the statement does not
+  start with a name, a keyword or `{`.
 * A `;` after a `}` can be left out (`{ … } WriteLn(1)`, after a routine's body, between `case` arms
   `1: { … }  2: { … }`).
 * The `;` at the end of a routine header – or after its last directive – can be left out when the

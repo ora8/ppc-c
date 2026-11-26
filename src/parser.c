@@ -340,6 +340,8 @@ static Expr *parse_simple(void);
 static Expr *parse_postfix(void);
 static Stmt *parse_stmt(void);
 static Stmt *parse_case(Pos p, int expr);
+static int ok_is_statement(void);
+static int call_is_statement(void);
 static Expr *parse_somepat(void);
 static int in_pat;
 static TypeExpr *parse_type(void);
@@ -641,7 +643,7 @@ static TypeExpr *parse_type(void) {
         t->kind = TE_RESULT;
         t->pos = p;
         if (!is_kw("of") && !(CUR.kind == TK_SYM && (STREQ(CUR.s, ";") || STREQ(CUR.s, ")") || STREQ(CUR.s, ":="))) &&
-            !is_kw("const"))
+            !is_kw("const") && !is_kw("begin")) /* func Save: result { ... } */
             t->elem = parse_type();
         if (accept_kw("of")) t->errt = parse_type();
         if (is_kw("const") && T.items[P + 1].kind != TK_IDENT) {
@@ -1073,6 +1075,36 @@ static StmtVec parse_stmt_list(const char *term) {
     return *v;
 }
 
+/* the brace syntax, 'if r is ok X ...' without 'then': X is the start of the statement, not a name,
+   when a call, an assignment or a member follows it (if r is ok WriteLn('done')) */
+static int ok_is_statement(void) {
+    Token *n = &T.items[P + 1];
+    return n->kind == TK_SYM && (STREQ(n->s, "(") || STREQ(n->s, ":=") || STREQ(n->s, ".") || STREQ(n->s, "[") ||
+                                 STREQ(n->s, "^") || STREQ(n->s, ";"));
+}
+
+/* the brace syntax: is 'X(...)' here a call statement (followed by ';', 'else' or '}') and not a
+   nested pattern ('if r is ok Rect(w, h) WriteLn(w)')? */
+static int call_is_statement(void) {
+    int k = P + 1, d = 0;
+    for (; k < T.len; k++) {
+        if (T.items[k].kind == TK_SYM && STREQ(T.items[k].s, "(")) d++;
+        else if (T.items[k].kind == TK_SYM && STREQ(T.items[k].s, ")") && --d == 0) break;
+    }
+    Token *n = k + 1 < T.len ? &T.items[k + 1] : NULL;
+    return !n || n->kind == TK_EOF || (n->kind == TK_SYM && STREQ(n->s, ";")) ||
+           (n->kind == TK_KW && (STREQ(n->s, "else") || STREQ(n->s, "end")));
+}
+
+/* can a statement start here (after an 'if' condition without 'then')? */
+static int stmt_start(void) {
+    if (CUR.kind == TK_IDENT) return 1;
+    static const char *kws[] = {"begin", "if", "while", "for", "case", "repeat", "loop", "try", "inherited", "val", "var", "vao", "const", NULL};
+    for (int i = 0; kws[i]; i++)
+        if (is_kw(kws[i])) return 1;
+    return 0;
+}
+
 static Stmt *parse_stmt(void) {
     Pos p = pos();
     if (is_sym(";") || is_kw("end") || is_kw("until") || is_kw("else")) return new_stmt(S_EMPTY, p);
@@ -1095,8 +1127,11 @@ static Stmt *parse_stmt(void) {
     if (accept_kw("if")) {
         Stmt *s = new_stmt(S_IF, p);
         s->a = parse_expr();
-        expect_kw("then");
+        /* the brace syntax: 'then' may be left out (if n < 2 Result := n; else Result := 0;) */
+        if (!(CUR.br && !is_kw("then") && stmt_start())) expect_kw("then");
         s->s1 = parse_stmt();
+        if (CUR.br && is_sym(";") && T.items[P + 1].kind == TK_KW && STREQ(T.items[P + 1].s, "else"))
+            next(); /* the brace syntax: 'X; else Y' (the else belongs to the nearest if) */
         if (accept_kw("else")) s->s2 = parse_stmt();
         return s;
     }
@@ -1224,7 +1259,8 @@ static Expr *parse_expr(void) {
         e->op = is_kw("some") ? 0 : is_kw("ok") ? 1 : 2;
         next();
         e->a = l;
-        if (CUR.kind == TK_IDENT && T.items[P + 1].kind == TK_SYM && STREQ(T.items[P + 1].s, "(")) { /* x is some Circle(r) */
+        if (CUR.kind == TK_IDENT && T.items[P + 1].kind == TK_SYM && STREQ(T.items[P + 1].s, "(") &&
+            !(CUR.br && call_is_statement())) { /* x is some Circle(r) */
             in_pat++;
             e->c = parse_expr();
             in_pat--;
@@ -1232,7 +1268,7 @@ static Expr *parse_expr(void) {
             in_pat++;
             e->c = is_kw("none") ? (next(), new_expr(E_NIL, pos())) : (CUR.kind == TK_INT || CUR.kind == TK_STR) ? parse_expr() : parse_somepat();
             in_pat--;
-        } else if (e->op != 1 || CUR.kind == TK_IDENT) {
+        } else if (e->op != 1 || (CUR.kind == TK_IDENT && !(CUR.br && ok_is_statement()))) {
             e->id = ident();
             e->has_id = 1;
         }

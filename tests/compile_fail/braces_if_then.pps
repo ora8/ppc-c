@@ -1,0 +1,6 @@
+// EXPECT: 'then' expected but ':=' found
+program T;
+val n: Integer := 1;
+{
+  if n < 2 (n) := 3;
+}

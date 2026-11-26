@@ -1,0 +1,43 @@
+program BracesIf;
+// the brace syntax: 'if' without 'then', and ';' before 'else' (the else belongs to the nearest if)
+type TShape = (Circle(R: Real), Empty);
+func Fib(n: Integer): Integer
+{
+  if n < 2 Result := n; else Result := Fib(n - 1) + Fib(n - 2);
+}
+func Sign(x: Integer): Integer
+{
+  if x > 0 Result := 1;
+  else if x < 0 Result := -1;
+  else Result := 0;
+}
+func Save(k: Integer): result { if k > 0 Result := ok; else Result := error('negative'); }
+func Half(k: Integer): result Integer { if k mod 2 = 0 Result := ok(k div 2); else Result := error('odd'); }
+func MakeShape(k: Integer): result TShape { if k > 0 Result := ok(Circle(k)); else Result := error('no shape'); }
+func Find(k: Integer): optional Integer { if k > 0 Result := k * 10; else Result := none; }
+val s: TShape := Circle(2.0);
+val o: optional Integer := Find(3);
+{
+  WriteLn(Fib(10), ' ', Sign(-5), ' ', Sign(0), ' ', Sign(7));
+  if Fib(5) = 5 { WriteLn('block without then'); WriteLn('second line'); }
+  else WriteLn('no');
+  if s is Circle(r) WriteLn('circle ', r:0:1); else WriteLn('other');
+  if o is some v WriteLn('found ', v); else WriteLn('none');
+  if (Sign(1) = 1) and (Fib(1) = 1) then WriteLn('then still works'); else WriteLn('-');
+  if Fib(3) = 2 then WriteLn('classic') else WriteLn('-');
+  for val i := 1 to 3 do
+    case i of {
+      1: if Odd(i) WriteLn('one is odd');
+      2: if Odd(i) WriteLn('two is odd'); else WriteLn('two is even');
+    else WriteLn('three')
+    }
+  if Save(1) is ok WriteLn('saved'); else WriteLn('not saved');
+  if Save(-1) is ok WriteLn('saved'); else WriteLn('not saved');
+  if Half(8) is ok h WriteLn('half ', h); else WriteLn('odd');
+  if (Half(6) is ok h) and (h = 3) WriteLn('half of 6 is 3');
+  if Half(4) is ok 2 WriteLn('half of 4 is 2');
+  if Find(3) is some 30 WriteLn('found exactly 30');
+  if MakeShape(2) is ok Circle(r) WriteLn('made a circle ', r:0:1); else WriteLn('no circle');
+  if MakeShape(0) is error e WriteLn(e);
+  if True if False WriteLn('inner'); else WriteLn('else of the inner if');
+}
