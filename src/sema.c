@@ -166,6 +166,13 @@ static void sum_case(Stmt *s, int from_if);
 static Expr *mk_ident(const char *name, Pos p);
 static Expr *mk_bin(int op, Expr *a, Expr *b, Pos p);
 static void guard_case(Stmt *s);
+static Expr *case_expr(Expr *e);
+static Expr *cond_bind(Expr *e);
+static int has_call(Expr *e);
+static Expr *clone_expr(Expr *e);
+static int has_casex(Expr *e);
+static int scope_has_frame(void);
+static void subst_binds(Expr *e, Ident *nm, char **fld, int n, Expr *base);
 #define l_pos(arm) ((arm)->body->pos)
 static void stmt(Stmt *s);
 static Type *proc_type(Routine *sig);
@@ -3223,6 +3230,7 @@ static Expr *ex(Expr *e) {
     case E_TRY: return try_expr(e);
     case E_ROUTREF: case E_METHREF: return e;
     case E_LAMBDA: return lambda_expr(e);
+    case E_CASEX: return e->cs ? case_expr(e) : e;
     default: return e; /* already resolved */
     }
 }
@@ -3559,16 +3567,220 @@ static void guard_case(Stmt *s) {
     stmt(s);
 }
 
+/* a case expression: a chain of conditional expressions on the selector
+     case s of Circle(r) when r > 1: 2 * r; Circle(r): r; Empty: 0.0 end
+   ==>  s.#tag = 0 and (s.Radius > 1) ? 2 * s.Radius : s.#tag = 0 ? s.Radius : s.#tag = 1 ? 0.0 : default
+   A selector that is a place is read again where it is needed; a computed one is stored in a hidden
+   variable first (a copy that only looks at the value: it must not own objects). */
+static Expr *case_expr(Expr *e) {
+    Stmt *s = e->cs;
+    Pos p = e->pos;
+    Expr *probe = value(clone_expr(s->a));
+    Type *t = probe->type;
+    int sum = t->kind == T_RECORD && t->st->is_sum, opt = is_optional(t), res = t->kind == T_RES;
+    if (!sum && !opt && !res && !is_ordinal(t) && t->kind != T_STR)
+        error_at(s->a->pos, "ordinal, string, optional, result or enumeration-with-data selector expected");
+    int place = is_lvalue(probe) && !has_call(probe) && !has_casex(s->a);
+    Expr *base;
+    Var *hv = NULL;
+    push_scope();
+    if (place)
+        base = s->a;
+    else {
+        if (has_owned(t) || is_owning_type(t) || (t->kind == T_OPT && is_ref_type(t->base)))
+            error_at(s->a->pos, "this value owns objects: store it in a variable before the case expression ('val x := ...')");
+        char *hn = sfmt("__case%d_%d", p.line, p.col);
+        hv = new_var(hn, t, cur ? VK_LOCAL : VK_GLOBAL, p);
+        hv->cname = sfmt("C%d_sel", hv->id);
+        hv->is_global = !cur;
+        hv->level = level;
+        hv->in_frame = scope_has_frame();
+        hv->no_drop = 1; /* a view of the value: its strings belong to the statement's temporaries */
+        if (cur) vpush(cur->locals, hv);
+        else vpush(prog->globals, hv);
+        add_sym(SY_VAR, hn, p)->var = hv;
+        base = mk_ident(hn, p);
+    }
+    int nv = sum ? t->st->variants.len : 2;
+    int *seen = (int *)xcalloc(nv ? nv : 1, sizeof(int));
+    int n = s->arms.len;
+    Expr **conds = (Expr **)xcalloc(n + 1, sizeof(Expr *)), **vals = (Expr **)xcalloc(n + 1, sizeof(Expr *));
+    for (int i = 0; i < n; i++) {
+        CaseArm *arm = &s->arms.items[i];
+        Expr *c = NULL;
+        Ident *nm = NULL;
+        char **fld = NULL;
+        int nb = 0;
+        for (int k = 0; k < arm->lo.len; k++) {
+            Expr *l = arm->lo.items[k], *ti;
+            if (sum) {
+                Struct *st = t->st;
+                if (arm->hi.items[k]) error_at(l->pos, "variants cannot be ranges");
+                Ident id;
+                ExprVec *binds = NULL;
+                if (l->kind == E_CALL && l->a->kind == E_IDENT) id = l->a->id, binds = &l->args;
+                else if (l->kind == E_IDENT) id = l->id;
+                else error_at(l->pos, "a variant of \"%s\" expected (%s)", st->name, variant_list(st));
+                int vi = find_variant(st, id);
+                if (seen[vi])
+                    error_at(l->pos, arm->guard ? "this arm is never reached: variant \"%s\" is already handled by an arm without 'when'"
+                                                : "variant \"%s\" is handled twice", id.name);
+                if (!arm->guard) seen[vi] = 1;
+                VariantInfo *v = &st->variants.items[vi];
+                if (binds) {
+                    if (arm->lo.len > 1) error_at(l->pos, "an arm with names can only have one variant");
+                    if (binds->len != v->n)
+                        error_at(l->pos, "\"%s\" has %d field%s: %s", v->name, v->n, v->n == 1 ? "" : "s", variant_sig(st, vi));
+                    nm = (Ident *)xcalloc(binds->len + 1, sizeof(Ident));
+                    fld = (char **)xcalloc(binds->len + 1, sizeof(char *));
+                    for (int b = 0; b < binds->len; b++) {
+                        Expr *x = binds->items[b];
+                        if (x->kind != E_IDENT || x->targs.len) error_at(x->pos, "a name expected in the pattern (or '_')");
+                        if (x->pat_var) error_at(x->pos, "'var' names are not possible in a case expression: it only reads the value");
+                        if (STREQ(x->id.name, "_")) continue;
+                        nm[nb] = x->id;
+                        fld[nb++] = st->fields.items[v->first + b]->name;
+                    }
+                }
+                ti = tag_is(clone_expr(base), vi, l->pos);
+            } else if (opt || res) {
+                int slot;
+                if (arm->lo.len != 1 || arm->hi.items[0])
+                    error_at(arm->body->pos, opt ? "optional case arms are 'some x:' or 'none:'" : "result case arms are 'ok v:' and 'error e:'");
+                if (opt && l->kind == E_SOMEPAT && l->op == 0) slot = 0;
+                else if (opt && l->kind == E_NIL) slot = 1;
+                else if (res && l->kind == E_SOMEPAT && l->op) slot = l->op - 1;
+                else error_at(l->pos, opt ? "optional case arms are 'some x:' and 'none:'" : "result case arms are 'ok v:' and 'error e:'");
+                if (seen[slot])
+                    error_at(l->pos, "this arm is never reached: '%s' is already handled%s", opt ? (slot ? "none" : "some") : (slot ? "error" : "ok"),
+                             arm->guard ? " by an arm without 'when'" : "");
+                if (!arm->guard) seen[slot] = 1;
+                if (l->kind == E_NIL)
+                    ti = mk_bin(OP_EQ, clone_expr(base), new_expr(E_NIL, l->pos), l->pos);
+                else {
+                    ti = new_expr(E_ISSOME, l->pos);
+                    ti->op = l->op;
+                    ti->a = clone_expr(base);
+                    if (l->has_id) { ti->id = l->id; ti->has_id = 1; }
+                    else if (l->op == 1 && t->base) { ti->id = (Ident){sfmt("__ok%d_%d", l->pos.line, l->pos.col), l->pos}; ti->has_id = 1; }
+                }
+            } else if (arm->hi.items[k])
+                ti = mk_bin(OP_AND, mk_bin(OP_GE, clone_expr(base), l, l->pos), mk_bin(OP_LE, clone_expr(base), arm->hi.items[k], l->pos), l->pos);
+            else
+                ti = mk_bin(OP_EQ, clone_expr(base), l, l->pos);
+            c = c ? mk_bin(OP_OR, c, ti, l->pos) : ti;
+        }
+        if (nb) { /* the names of the pattern read the fields of the selector */
+            subst_binds(arm->guard, nm, fld, nb, base);
+            subst_binds(arm->val, nm, fld, nb, base);
+        }
+        if (arm->guard) {
+            c = mk_bin(OP_AND, c, arm->guard, arm->guard->pos);
+            c->guard = 1;
+        }
+        push_scope(); /* names of 'some x' / 'ok v' / 'error e' are visible in the value */
+        conds[i] = cond_bind(c);
+        vals[i] = value(arm->val);
+        pop_scope();
+    }
+    Expr *ev = NULL;
+    int all = 1;
+    for (int i = 0; i < nv; i++) all &= seen[i];
+    if (s->has_else) {
+        if ((sum || opt || res) && all)
+            error_at(p, sum ? "'else' is unreachable: all variants of \"%s\" are handled" : "'else' is unreachable: every case is handled",
+                     type_name(t));
+        ev = value(s->b);
+    } else if (sum) {
+        if (!all) {
+            Buf b = {0};
+            int miss = 0;
+            for (int i = 0; i < nv; i++)
+                if (!seen[i]) buf_printf(&b, "%s%s", miss++ ? ", " : "", t->st->variants.items[i].name);
+            error_at(p, "case expression does not handle the variant%s %s of \"%s\" (add %s or an 'else')", miss > 1 ? "s" : "",
+                     buf_str(&b), t->st->name, miss > 1 ? "them" : "it");
+        }
+    } else if (opt || res) {
+        if (!all)
+            error_at(p, "case expression does not handle '%s' (add it or an 'else')",
+                     opt ? (seen[0] ? "none" : "some") : (seen[0] ? "error" : "ok"));
+    } else
+        error_at(p, "a case expression on \"%s\" needs an 'else' (its value must always be defined)", type_name(t));
+    if (!n) error_at(p, "a case expression needs at least one arm");
+    /* the type: the first arm with a type of its own; Integer and Real together give Real, Char and String give String */
+    Type *rt = NULL;
+    for (int i = 0; i <= n; i++) {
+        Expr *v = i < n ? vals[i] : ev;
+        if (!v || v->type->kind == T_LIT || v->type->kind == T_NIL) continue;
+        if (!rt) rt = v->type;
+        else if (is_int(rt) && v->type->kind == T_REAL) rt = t_real;
+        else if (rt->kind == T_CHAR && v->type->kind == T_STR) rt = t_str;
+    }
+    if (!rt) error_at(p, "the type of the case expression cannot be determined from its values");
+    if (is_owning_type(rt) || has_owned(rt) || (rt->kind == T_OPT && is_ref_type(rt->base)))
+        error_at(p, "a case expression cannot give objects or values that own them (\"%s\"): use a case statement", type_name(rt));
+    for (int i = 0; i < n; i++) vals[i] = coerce(vals[i], rt, "case value");
+    if (ev) ev = coerce(ev, rt, "case value");
+    if (!ev) { /* every case is handled: the last test never fails */
+        ev = new_expr(E_DEFAULT, p);
+        ev->type = rt;
+    }
+    Expr *chain = ev;
+    for (int i = n - 1; i >= 0; i--) {
+        Expr *q = new_expr(E_COND, vals[i]->pos);
+        q->a = conds[i];
+        q->b = vals[i];
+        q->c = chain;
+        q->type = rt;
+        chain = q;
+    }
+    pop_scope();
+    Expr *r = new_expr(E_CASEX, p);
+    r->var = hv;
+    r->a = hv ? probe : NULL;
+    r->b = chain;
+    r->type = rt;
+    return r;
+}
+
 /* a guard of a case arm: the names of the pattern become the fields of the hidden selector (hn.Field);
    the bodies of lambdas are not entered */
-static void subst_binds(Expr *e, Ident *nm, char **fld, int n, const char *hn) {
+/* does a parsed expression contain a case expression (it may be resolved only once)? */
+static int has_casex(Expr *e) {
+    if (!e) return 0;
+    if (e->kind == E_CASEX) return 1;
+    if (has_casex(e->a) || has_casex(e->b) || has_casex(e->c)) return 1;
+    for (int i = 0; i < e->args.len; i++)
+        if (has_casex(e->args.items[i])) return 1;
+    for (int i = 0; i < e->args2.len; i++)
+        if (has_casex(e->args2.items[i])) return 1;
+    return 0;
+}
+
+/* a copy of a parsed (not yet resolved) expression */
+static Expr *clone_expr(Expr *e) {
+    if (!e) return NULL;
+    Expr *c = new_expr(e->kind, e->pos);
+    *c = *e;
+    c->a = clone_expr(e->a);
+    c->b = clone_expr(e->b);
+    c->c = clone_expr(e->c);
+    c->args = (ExprVec){0};
+    for (int i = 0; i < e->args.len; i++) vpush(c->args, clone_expr(e->args.items[i]));
+    c->args2 = (ExprVec){0};
+    for (int i = 0; i < e->args2.len; i++) vpush(c->args2, clone_expr(e->args2.items[i]));
+    return c;
+}
+
+static void subst_binds(Expr *e, Ident *nm, char **fld, int n, Expr *base) {
     if (!e) return;
     if (e->kind == E_IDENT && !e->targs.len) {
         for (int i = 0; i < n; i++)
             if (STREQ(e->id.name, nm[i].name)) {
                 Pos p = e->pos;
                 Expr *m = new_expr(E_MEMBER, p);
-                m->a = mk_ident(hn, p);
+                m->a = clone_expr(base);
+                m->a->pos = p;
                 m->id = (Ident){fld[i], p};
                 *e = *m;
                 return;
@@ -3576,11 +3788,39 @@ static void subst_binds(Expr *e, Ident *nm, char **fld, int n, const char *hn) {
         return;
     }
     if (e->kind == E_LAMBDA) return;
-    subst_binds(e->a, nm, fld, n, hn);
-    subst_binds(e->b, nm, fld, n, hn);
-    subst_binds(e->c, nm, fld, n, hn);
-    for (int i = 0; i < e->args.len; i++) subst_binds(e->args.items[i], nm, fld, n, hn);
-    for (int i = 0; i < e->args2.len; i++) subst_binds(e->args2.items[i], nm, fld, n, hn);
+    if (e->kind == E_CASEX && e->cs) { /* a nested case expression: its own pattern names hide ours */
+        Stmt *cs = e->cs;
+        subst_binds(cs->a, nm, fld, n, base);
+        subst_binds(cs->b, nm, fld, n, base);
+        for (int i = 0; i < cs->arms.len; i++) {
+            CaseArm *arm = &cs->arms.items[i];
+            Ident *keep = (Ident *)xcalloc(n + 1, sizeof(Ident));
+            char **kf = (char **)xcalloc(n + 1, sizeof(char *));
+            int kn = 0;
+            for (int j = 0; j < n; j++) {
+                int hidden = 0;
+                for (int k = 0; k < arm->lo.len; k++) {
+                    Expr *l = arm->lo.items[k];
+                    if (l->kind == E_SOMEPAT && l->has_id && STREQ(l->id.name, nm[j].name)) hidden = 1;
+                    if (l->kind == E_CALL)
+                        for (int b = 0; b < l->args.len; b++)
+                            if (l->args.items[b]->kind == E_IDENT && STREQ(l->args.items[b]->id.name, nm[j].name)) hidden = 1;
+                }
+                if (!hidden) keep[kn] = nm[j], kf[kn++] = fld[j];
+            }
+            for (int k = 0; k < arm->lo.len; k++)
+                if (arm->lo.items[k]->kind != E_CALL) subst_binds(arm->lo.items[k], nm, fld, n, base);
+            for (int k = 0; k < arm->hi.len; k++) subst_binds(arm->hi.items[k], nm, fld, n, base);
+            subst_binds(arm->guard, keep, kf, kn, base);
+            subst_binds(arm->val, keep, kf, kn, base);
+        }
+        return;
+    }
+    subst_binds(e->a, nm, fld, n, base);
+    subst_binds(e->b, nm, fld, n, base);
+    subst_binds(e->c, nm, fld, n, base);
+    for (int i = 0; i < e->args.len; i++) subst_binds(e->args.items[i], nm, fld, n, base);
+    for (int i = 0; i < e->args2.len; i++) subst_binds(e->args2.items[i], nm, fld, n, base);
 }
 
 /* case s of Circle(r): A; Rect(w, h): B; Empty: C end
@@ -3692,7 +3932,7 @@ static void sum_case(Stmt *s, int from_if) {
                         fld[nb++] = st->fields.items[v->first + b]->name;
                     }
             }
-            subst_binds(arm->guard, nm, fld, nb, hn);
+            subst_binds(arm->guard, nm, fld, nb, mk_ident(hn, p));
             c = mk_bin(OP_AND, c, arm->guard, arm->guard->pos);
             c->guard = 1;
         }
@@ -4078,6 +4318,7 @@ static void cap_expr(Expr *e, CapScan *c) {
     if (e->kind == E_INHERITED) c->self = 1;
     if ((e->kind == E_ISSOME || e->kind == E_SOMEPAT) && e->has_id) vpush(c->decl, e->id.name);
     if (e->kind == E_LAMBDA && e->lam) cap_rdecl((RoutineDecl *)e->lam, c);
+    if (e->kind == E_CASEX && e->cs) cap_stmt(e->cs, c);
     cap_expr(e->a, c);
     cap_expr(e->b, c);
     cap_expr(e->c, c);
@@ -4101,6 +4342,8 @@ static void cap_stmt(Stmt *s, CapScan *c) {
     for (int i = 0; i < s->arms.len; i++) {
         for (int k = 0; k < s->arms.items[i].lo.len; k++) cap_expr(s->arms.items[i].lo.items[k], c);
         for (int k = 0; k < s->arms.items[i].hi.len; k++) cap_expr(s->arms.items[i].hi.items[k], c);
+        cap_expr(s->arms.items[i].guard, c);
+        cap_expr(s->arms.items[i].val, c);
         cap_stmt(s->arms.items[i].body, c);
     }
     for (int i = 0; i < s->else_.len; i++) cap_stmt(s->else_.items[i], c);

@@ -825,6 +825,17 @@ static void use_expr(Expr *e, State *s) {
         return;
     }
     case E_FMT: use_expr(e->a, s); use_expr(e->b, s); use_expr(e->c, s); return;
+    case E_CASEX: use_expr(e->a, s); use_expr(e->b, s); return;
+    case E_COND: { /* a ? b : c: one of the two values runs */
+        use_expr(e->a, s);
+        State t = st_copy(s);
+        refine(e->a, 1, &t);
+        refine(e->a, 0, s);
+        use_expr(e->b, &t);
+        use_expr(e->c, s);
+        st_join(s, &t);
+        return;
+    }
     case E_OK: case E_ERR: use_expr(e->a, s); return;
     case E_METHREF: use_expr(e->a, s); return; /* obj.Show as a value: obj must be valid */
     case E_TRY: { /* a failed result leaves the routine here */
@@ -1907,6 +1918,7 @@ static void ws_expr(Expr *e) {
     default:
         ws_expr(e->a);
         ws_expr(e->b);
+        ws_expr(e->c);
         for (int i = 0; i < e->args.len; i++) ws_expr(e->args.items[i]);
         return;
     }

@@ -206,7 +206,9 @@ typedef enum {
     E_TRY,     /* try r: the value of a successful result, else return its error */
     E_LAMBDA,  /* function(...): T begin ... end  (lam: RoutineDecl, rt after checking) */
     E_ROUTREF, /* a routine used as a value (rt) */
-    E_METHREF  /* obj.Method as a value: the method rt with its object a (a closure) */
+    E_METHREF, /* obj.Method as a value: the method rt with its object a (a closure) */
+    E_CASEX,   /* case expression: parsed: cs; resolved: var = hidden selector (or NULL) := a, then the value b */
+    E_COND     /* a ? b : c (made from a case expression) */
 } ExprKind;
 
 enum { OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_IDIV, OP_MOD, OP_AND, OP_OR, OP_XOR, OP_SHL, OP_SHR,
@@ -231,6 +233,7 @@ struct Expr {
     int pat_var;  /* E_IDENT 'var x' in a pattern: a changeable binding */
     int forin;    /* E_RCALL of GetEnumerator made by 'for ... in' */
     int guard;    /* E_BINARY 'and' made from a case guard: b is the 'when' condition */
+    struct Stmt *cs; /* E_CASEX as parsed: the case (arms with values) */
     Expr *a, *b, *c;
     ExprVec args;
     ExprVec args2; /* set literal: upper bounds (NULL entries for single values) */
@@ -257,6 +260,7 @@ typedef enum {
 typedef struct {
     ExprVec lo, hi; /* hi entries may be NULL */
     Expr *guard;    /* 'when cond' (NULL: none) */
+    Expr *val;      /* case expression: the value of the arm */
     Stmt *body;
 } CaseArm;
 

@@ -1152,6 +1152,10 @@ static char *gx(Expr *e) {
                     gx(e->a), id, res, res, id, has_str(rt->err) && !has_owned(rt) ? sfmt("%s;", agg_copy(rt->err, sfmt("%s.e", res))) : "",
                     rt->base ? sfmt("__t%d.v", id) : "(void)0");
     }
+    case E_COND: return sfmt("(%s ? %s : %s)", gx(e->a), gx(e->b), gx(e->c));
+    case E_CASEX: /* case expression: the selector (when computed) is stored first */
+        if (e->var) return sfmt("({ %s = %s; %s; })", var_ref(e->var), gx(e->a), gx(e->b));
+        return gx(e->b);
     case E_DEFAULT: /* zero value of the target type */
         if (e->type->kind == T_CLASS) return "((void*)0)";
         return sfmt("((%s){0})", ctype(e->type));

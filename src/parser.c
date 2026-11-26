@@ -287,6 +287,7 @@ static void parse_args(ExprVec *args);
 static Expr *parse_simple(void);
 static Expr *parse_postfix(void);
 static Stmt *parse_stmt(void);
+static Stmt *parse_case(Pos p, int expr);
 static TypeExpr *parse_type(void);
 static TypeExpr *parse_type_core(void);
 static TypeExprVec parse_targs(void);
@@ -1094,48 +1095,7 @@ static Stmt *parse_stmt(void) {
         s->s1 = parse_stmt();
         return s;
     }
-    if (accept_kw("case")) {
-        Stmt *s = new_stmt(S_CASE, p);
-        s->a = parse_expr();
-        expect_kw("of");
-        for (;;) {
-            if (accept_kw("else")) {
-                s->else_ = parse_stmt_list("end");
-                s->has_else = 1;
-                break;
-            }
-            if (is_kw("end")) break;
-            CaseArm arm = {0};
-            for (;;) {
-                if (is_kw("some") || is_kw("ok") || is_kw("error")) { /* some x / ok v / error e: unpacking patterns */
-                    Expr *sp = new_expr(E_SOMEPAT, pos());
-                    sp->op = is_kw("some") ? 0 : is_kw("ok") ? 1 : 2;
-                    next();
-                    if (sp->op != 1 || CUR.kind == TK_IDENT) {
-                        sp->id = ident();
-                        sp->has_id = 1;
-                    }
-                    vpush(arm.lo, sp);
-                } else
-                    vpush(arm.lo, parse_expr());
-                vpush(arm.hi, accept_sym("..") ? parse_expr() : NULL);
-                if (!accept_sym(",")) break;
-            }
-            if (CUR.kind == TK_IDENT && STREQ(CUR.s, "when")) { /* a guard: the arm only matches when it is true */
-                next();
-                arm.guard = parse_expr();
-            }
-            expect_sym(":");
-            arm.body = parse_stmt();
-            vpush(s->arms, arm);
-            if (!accept_sym(";")) {
-                if (is_kw("else")) continue;
-                break;
-            }
-        }
-        expect_kw("end");
-        return s;
-    }
+    if (accept_kw("case")) return parse_case(p, 0);
     if (is_kw("with"))
         error_at(p, "the 'with' statement is not supported: name the variable (e.g. 'p.X := 1'), or use a short reference ('var q := a.Inner;')");
     if (accept_kw("try")) { /* try P(x); : stop with the error of a failed result */
@@ -1325,6 +1285,60 @@ static void parse_args(ExprVec *args) {
     expect_sym(")");
 }
 
+/* case x of labels [when cond]: arm; ... [else ...] end
+   as a statement (arm = a statement) or as an expression (arm = a value, kept in CaseArm.val, else in s->b) */
+static Stmt *parse_case(Pos p, int expr) {
+    Stmt *s = new_stmt(S_CASE, p);
+    s->a = parse_expr();
+    expect_kw("of");
+    for (;;) {
+        if (accept_kw("else")) {
+            if (expr) {
+                s->b = parse_expr();
+                accept_sym(";");
+            } else
+                s->else_ = parse_stmt_list("end");
+            s->has_else = 1;
+            break;
+        }
+        if (is_kw("end")) break;
+        CaseArm arm = {0};
+        for (;;) {
+            if (is_kw("some") || is_kw("ok") || is_kw("error")) { /* some x / ok v / error e: unpacking patterns */
+                Expr *sp = new_expr(E_SOMEPAT, pos());
+                sp->op = is_kw("some") ? 0 : is_kw("ok") ? 1 : 2;
+                next();
+                if (sp->op != 1 || CUR.kind == TK_IDENT) {
+                    sp->id = ident();
+                    sp->has_id = 1;
+                }
+                vpush(arm.lo, sp);
+            } else
+                vpush(arm.lo, parse_expr());
+            vpush(arm.hi, accept_sym("..") ? parse_expr() : NULL);
+            if (!accept_sym(",")) break;
+        }
+        if (CUR.kind == TK_IDENT && STREQ(CUR.s, "when")) { /* a guard: the arm only matches when it is true */
+            next();
+            arm.guard = parse_expr();
+        }
+        expect_sym(":");
+        Pos bp = pos();
+        if (expr) {
+            arm.val = parse_expr();
+            arm.body = new_stmt(S_EMPTY, bp); /* its position, for messages */
+        } else
+            arm.body = parse_stmt();
+        vpush(s->arms, arm);
+        if (!accept_sym(";")) {
+            if (is_kw("else")) continue;
+            break;
+        }
+    }
+    expect_kw("end");
+    return s;
+}
+
 static Expr *parse_primary(void) {
     Pos p = pos();
     Expr *e;
@@ -1353,6 +1367,11 @@ static Expr *parse_primary(void) {
     default: break;
     }
     if (accept_kw("none")) return new_expr(E_NIL, p);
+    if (accept_kw("case")) { /* a case expression: case x of A: 1; B: 2 end */
+        Expr *c = new_expr(E_CASEX, p);
+        c->cs = parse_case(p, 1);
+        return c;
+    }
     if (is_kw("nil")) error_at(p, "'nil' does not exist: optional values are empty with 'none'");
     if (accept_kw("default")) return new_expr(E_DEFAULT, p);
     if (is_kw("ok") || is_kw("error")) { /* ok(v), ok, error(e) */

@@ -1783,6 +1783,33 @@ end;
 * `when` is not a reserved word: it is only special after the labels of a `case` arm.
 * The value of the `case` must not change in a guard (`Circle(r) when Reset(s)` is a borrow error).
 
+### `case` as an expression
+
+`case` can also give a **value** (like `match` in Rust). Every arm is a value instead of a
+statement:
+
+```pascal
+Result := case s of
+  Circle(r): 3.14159 * r * r;
+  Rect(w, h): w * h;
+  Empty: 0;
+end;
+
+WriteLn(case Divide(7, 2) of ok v: v * 10; error e: -1 end);
+WriteLn(case o of some v when v > 3: 'big'; some v: 'small'; none: 'none' end);
+val name := case c of Red: 'R' else 'other' end;
+```
+
+* All patterns, guards and labels of a `case` statement work the same way.
+* The value must always be defined: a `case` on an enumeration with data, `optional` or `result`
+  must handle every case or have an `else`; a `case` on ordinals or strings always needs an `else`.
+* All arms give the same type; Integer and Real arms give Real, Char and String arms give String.
+* The value cannot be an object or a value that owns objects (use a `case` statement), and a
+  computed selector that owns objects must be stored in a variable first.
+* Pattern names are read-only (`var n` is not possible), the `case` only reads its value.
+* Only the chosen arm runs: a move in two different arms is fine, after the `case` the moved value
+  counts as possibly moved.
+
 ## Loops over collections: `for val x in …`
 
 `for val x in c do …` runs through the elements of an array (fixed or dynamic), a string (the
@@ -1888,7 +1915,7 @@ once (in every kind of loop); borrows of them are invalid afterwards.
 * Procedures/functions, nested to any depth (access to outer variables through static links),
   `var`, `out`, `vao` and `T const` parameters, `forward`, recursion, `Result`/function name,
   `Exit(value)`
-* Statements: `:=`, `if`, `case` (also with strings and ranges), `while`, `repeat`,
+* Statements: `:=`, `if`, `case` (also with strings and ranges, guards with `when`, and as an expression), `while`, `repeat`,
   `for … to/downto`, `for val/var x in …`, `loop` (endless loop), `Break`, `Continue`, `Exit`
 * Expressions: arithmetic, `div`, `mod`, `shl`, `shr`, `and`/`or`/`xor`/`not` (short-circuit for
   Boolean), comparisons, string concatenation, `in [a, b..c]`, type casts `Integer(x)`,
