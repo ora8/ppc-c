@@ -1,0 +1,69 @@
+{
+  "name": "perfect-pascal",
+  "displayName": "Perfect Pascal",
+  "description": "Perfect Pascal (ppc): syntax highlighting, errors while typing, hover, go to definition and completion",
+  "version": "0.1.0",
+  "publisher": "ppc",
+  "license": "MIT",
+  "engines": { "vscode": "^1.82.0" },
+  "categories": ["Programming Languages", "Linters"],
+  "main": "./extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "languages": [
+      {
+        "id": "perfectpascal",
+        "aliases": ["Perfect Pascal", "ppc"],
+        "extensions": [".pas"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "perfectpascal",
+        "scopeName": "source.perfectpascal",
+        "path": "./syntaxes/perfectpascal.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      { "command": "ppc.runFile", "title": "Perfect Pascal: Run File" },
+      { "command": "ppc.checkFile", "title": "Perfect Pascal: Check File" },
+      { "command": "ppc.restartServer", "title": "Perfect Pascal: Restart Language Server" }
+    ],
+    "menus": {
+      "editor/title/run": [
+        { "command": "ppc.runFile", "when": "editorLangId == perfectpascal" }
+      ]
+    },
+    "configuration": {
+      "title": "Perfect Pascal",
+      "properties": {
+        "ppc.path": {
+          "type": "string",
+          "default": "ppc",
+          "description": "The ppc compiler (a command on the PATH or the full path to the executable)."
+        },
+        "ppc.runArguments": {
+          "type": "string",
+          "default": "",
+          "description": "Extra options for 'Perfect Pascal: Run File', e.g. -O3 or -g."
+        },
+        "ppc.trace.server": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Log the messages between VS Code and the language server (Output: Perfect Pascal)."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.2.1"
+  },
+  "scripts": {
+    "package": "vsce package --allow-missing-repository --skip-license"
+  }
+}

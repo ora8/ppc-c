@@ -90,6 +90,10 @@ name = "pascal"
 language-servers = ["ppc"]
 ```
 
+VS Code: the extension in [editors/vscode](editors/vscode/README.md) (syntax highlighting,
+the language server, *Run File*): `cd editors/vscode && npm install && npm run package`, then
+`code --install-extension perfect-pascal-0.1.0.vsix`.
+
 Emacs (eglot): `(add-to-list 'eglot-server-programs '(pascal-mode "ppc" "--lsp"))`.
 
 Other editors: configure `ppc --lsp` as the language server for `.pas` files. Without an editor:

@@ -1,0 +1,92 @@
+{
+  "name": "Perfect Pascal",
+  "scopeName": "source.perfectpascal",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#declarations" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#constants" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.double-slash.perfectpascal", "match": "//.*$" },
+        { "name": "comment.block.braces.perfectpascal", "begin": "\\{", "end": "\\}" },
+        { "name": "comment.block.paren-star.perfectpascal", "begin": "\\(\\*", "end": "\\*\\)" }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.perfectpascal",
+          "begin": "'",
+          "end": "'(?!')",
+          "patterns": [{ "name": "constant.character.escape.perfectpascal", "match": "''" }]
+        },
+        { "name": "constant.character.code.perfectpascal", "match": "#(\\$[0-9A-Fa-f]+|[0-9]+)" }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.hex.perfectpascal", "match": "\\$[0-9A-Fa-f]+\\b" },
+        { "name": "constant.numeric.float.perfectpascal", "match": "\\b[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)?\\b" },
+        { "name": "constant.numeric.integer.perfectpascal", "match": "\\b[0-9]+\\b" }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(function|procedure|constructor|destructor|operator)\\s+(?:([A-Za-z_][A-Za-z0-9_]*)(?:<[^>]*>)?\\.)?([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.perfectpascal" },
+            "2": { "name": "entity.name.type.perfectpascal" },
+            "3": { "name": "entity.name.function.perfectpascal" }
+          }
+        },
+        {
+          "match": "^\\s*([A-Za-z_][A-Za-z0-9_]*)(?:<[^>]*>)?\\s*=\\s*(class|record|interface)\\b",
+          "captures": {
+            "1": { "name": "entity.name.type.perfectpascal" },
+            "2": { "name": "keyword.declaration.perfectpascal" }
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.perfectpascal",
+          "match": "\\b(begin|end|if|then|else|case|of|while|do|for|to|downto|in|repeat|until|loop|try|with|goto|Break|Continue|Exit)\\b"
+        },
+        {
+          "name": "storage.type.perfectpascal",
+          "match": "\\b(val|var|vao|const|type|program|module|import|interface|implementation|uses|unit|function|procedure|constructor|destructor|class|record|object|array|set|property|operator|reference|optional|result|packed|label)\\b"
+        },
+        {
+          "name": "storage.modifier.perfectpascal",
+          "match": "\\b(private|protected|public|published|strict|virtual|override|abstract|overload|reintroduce|static|inline|forward|auto|default|read|write|external)\\b"
+        },
+        {
+          "name": "keyword.operator.word.perfectpascal",
+          "match": "\\b(and|or|xor|not|div|mod|shl|shr|is|as|some|ok|error|inherited)\\b"
+        }
+      ]
+    },
+    "types": {
+      "name": "support.type.perfectpascal",
+      "match": "\\b(Integer|LongInt|ShortInt|SmallInt|Byte|Word|Cardinal|LongWord|Int64|Boolean|Char|Real|Double|Single|Extended|String|TObject)\\b"
+    },
+    "constants": {
+      "name": "constant.language.perfectpascal",
+      "match": "\\b(True|False|none|nil|Self|Result)\\b"
+    },
+    "operators": {
+      "name": "keyword.operator.perfectpascal",
+      "match": ":=|<>|<=|>=|\\.\\.|[+\\-*/=<>^@]"
+    }
+  }
+}
