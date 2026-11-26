@@ -26,6 +26,14 @@ function sharedObjectArgs() {
   const list = sos.filter((d) => d).map((d) => (path.isAbsolute(d) ? d : path.join(root, d))).join(';');
   return list ? ['--shared-objects=' + list] : [];
 }
+// ppc.staticLibraries: .a files that 'Run File' links
+function staticLibraryArgs() {
+  const libs = vscode.workspace.getConfiguration('ppc').get('staticLibraries') || [];
+  const root = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0]
+    ? vscode.workspace.workspaceFolders[0].uri.fsPath : process.cwd();
+  const list = libs.filter((d) => d).map((d) => (path.isAbsolute(d) ? d : path.join(root, d))).join(';');
+  return list ? ['--static-libraries=' + list] : [];
+}
 function modulePathArgs() {
   const mp = modulePaths();
   return mp ? ['--module-paths', mp] : [];
@@ -76,7 +84,7 @@ async function runFile() {
   const extra = vscode.workspace.getConfiguration('ppc').get('runArguments') || '';
   const t = terminal();
   t.show();
-  const mp = [...modulePathArgs(), ...sharedObjectArgs()].map(quote).join(' ');
+  const mp = [...modulePathArgs(), ...sharedObjectArgs(), ...staticLibraryArgs()].map(quote).join(' ');
   t.sendText(`${quote(ppcPath())} ${extra} ${mp} -o ${quote(exe)} ${quote(file)} && ${quote(exe)}`);
 }
 

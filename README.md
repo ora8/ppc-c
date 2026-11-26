@@ -50,6 +50,8 @@ make test       # test suite (output, borrow/optional/stack/const/result/clone/g
 ./ppc mathlib.pas             # 'library MathLib;': produces ./libMathLib.so and ./MathLib.h
 ./ppc --module-paths lib:shared app.pas         # modules also from lib/ and shared/
 ./ppc --shared-objects=libMathLib.so use.pas     # link shared objects ('external' C functions)
+./ppc --static mathlib.pas                       # a static library: ./libMathLib.a and ./MathLib.h
+./ppc --static-libraries=libMathLib.a use.pas    # link static libraries
 ./ppc -S program.pas          # only produce the C code (program.c)
 ./ppc -k program.pas          # keep the C file as well
 ./ppc --no-borrow-check x.pas # switch off the borrow checker
@@ -1320,7 +1322,7 @@ The same `ppc` makes executables and shared libraries; the first line of the fil
 | The file starts with | `ppc file.pas` makes |
 |---|---|
 | `program Name;` (or nothing) | an executable `file` |
-| `library Name;` | a shared library `libName.so` and its C header `Name.h` |
+| `library Name;` | a shared library `libName.so` and its C header `Name.h` (with `--static`: a static library `libName.a`) |
 | `module Name;` | nothing on its own: it is imported by programs and libraries |
 
 ```pascal
@@ -1387,12 +1389,16 @@ int32_t count_char(const char *s, char c);
   syntaxes (`library` and `exports` work the same in `.pps` files).
 * A run-time error in the library (e.g. a range error) ends the whole program, as in a program.
 * `-o` sets the `.so` (the header is written next to it); `-S` writes the C file and the header.
+* **`ppc --static mathlib.pas`** makes a static library `libMathLib.a` (and `MathLib.h`) instead:
+  `gcc -o client client.c libMathLib.a -lm`. Only the exports are global symbols in it, so a
+  program can use several Perfect Pascal libraries (and have classes of its own) without name
+  clashes. Its main block runs when the program starts, its globals are freed when it ends.
 
-### Using shared objects: `external` and `--shared-objects`
+### Using libraries: `external`, `--shared-objects` and `--static-libraries`
 
-A program (or a module, or another library) declares the C functions of a shared object with
-`external` and is linked with **`--shared-objects`**; the C name is the routine's own name or the
-one after `external`:
+A program (or a module, or another library) declares the C functions of a library with `external`
+and is linked with **`--shared-objects`** (`.so`) or **`--static-libraries`** (`.a`); the C name is the
+routine's own name or the one after `external`:
 
 ```pascal
 program UseMath;
@@ -1413,6 +1419,7 @@ end.
 
 ```bash
 ppc --shared-objects=libMathLib.so usemath.pas       # several: "--shared-objects=a.so;b.so"
+ppc --static-libraries=libMathLib.a usemath.pas      # or linked in: no .so needed at run time
 ./usemath
 ```
 

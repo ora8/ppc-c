@@ -17,8 +17,8 @@ The `ppc` compiler must be installed (`make` in the repository root; put `ppc` o
 ```bash
 cd editors/vscode
 npm install
-npm run package                                   # makes perfect-pascal-0.1.4.vsix
-code --install-extension perfect-pascal-0.1.4.vsix
+npm run package                                   # makes perfect-pascal-0.1.5.vsix
+code --install-extension perfect-pascal-0.1.5.vsix
 ```
 
 ## Settings
@@ -28,6 +28,7 @@ code --install-extension perfect-pascal-0.1.4.vsix
 | `ppc.path` | the compiler: a command on the PATH (default `ppc`) or the full path |
 | `ppc.modulePaths` | directories for `import` (like `ppc --module-paths`); relative ones belong to the workspace folder |
 | `ppc.sharedObjects` | `.so` files that *Run File* links (like `ppc --shared-objects`) |
+| `ppc.staticLibraries` | `.a` files that *Run File* links (like `ppc --static-libraries`) |
 | `ppc.runArguments` | extra options for *Run File*, e.g. `-O3` or `-g` |
 | `ppc.trace.server` | `messages` / `verbose`: log the LSP traffic (Output: Perfect Pascal) |
 

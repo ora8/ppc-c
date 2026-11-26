@@ -35,7 +35,28 @@ static char *dir_of(const char *path) {
     const char *s = path ? strrchr(path, '/') : NULL;
     return s ? xstrndup(path, (size_t)(s - path + 1)) : xstrdup("");
 }
-static VEC(char *) shared_objects; /* --shared-objects: .so files the program is linked with */
+static VEC(char *) shared_objects;   /* --shared-objects: .so files the program is linked with */
+static VEC(char *) static_libraries; /* --static-libraries: .a files the program is linked with */
+static void add_static_libraries(const char *list) { /* 'libMathLib.a;lib/libz.a' (';' or ':' between them) */
+    const char *p = list;
+    while (*p) {
+        size_t n = strcspn(p, ";:");
+        if (n) vpush(static_libraries, xstrndup(p, n));
+        p += n + (p[n] ? 1 : 0);
+    }
+}
+/* run a tool (the C compiler, objcopy, ar) and wait for it; 0 if it succeeded */
+static int run_tool(const char **av) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        execvp(av[0], (char *const *)av);
+        fprintf(stderr, "ppc: cannot run '%s'\n", av[0]);
+        _exit(127);
+    }
+    int st = 0;
+    waitpid(pid, &st, 0);
+    return WIFEXITED(st) && WEXITSTATUS(st) == 0 ? 0 : 1;
+}
 static void add_shared_objects(const char *list) { /* 'libMathLib.so;lib/libz.so' (';' or ':' between them) */
     const char *p = list;
     while (*p) {
@@ -139,6 +160,8 @@ static void usage(void) {
             "  --cc <compiler>    C compiler to use (default: $CC or gcc)\n"
             "  --module-paths <dir1:dir2>  more directories for 'import' (after the directory of the importing file)\n"
             "  --shared-objects <a.so;b.so>  link the shared objects (their C functions are declared 'external')\n"
+            "  --static-libraries <a.a;b.a>  link the static libraries (their C functions are declared 'external')\n"
+            "  --static           a library becomes a static library lib<Name>.a (instead of lib<Name>.so)\n"
             "  -O0 .. -O3         optimization level passed to the C compiler (default -O2)\n"
             "  -g                 debug information for gdb (with -O0 and the C file kept): break and step in the .pas file\n"
             "  --no-line          no #line directives (C compiler messages and gdb then refer to the generated C file)\n"
@@ -177,7 +200,7 @@ int main(int argc, char **argv) {
     const char *input = NULL, *output = NULL, *cc = getenv("CC");
     const char *opt = "-O2";
     int debug = 0;
-    int emit_only = 0, keep = 0, borrow = 1;
+    int emit_only = 0, keep = 0, borrow = 1, static_lib = 0;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         if (STREQ(a, "-o") && i + 1 < argc) output = argv[++i];
@@ -202,6 +225,9 @@ int main(int argc, char **argv) {
         else if (strncmp(a, "--module-paths=", 15) == 0) add_module_paths(a + 15);
         else if ((STREQ(a, "--shared-objects") || STREQ(a, "--shared_objects")) && i + 1 < argc) add_shared_objects(argv[++i]);
         else if (strncmp(a, "--shared-objects=", 17) == 0) add_shared_objects(a + 17);
+        else if ((STREQ(a, "--static-libraries") || STREQ(a, "--static_libraries")) && i + 1 < argc) add_static_libraries(argv[++i]);
+        else if (strncmp(a, "--static-libraries=", 19) == 0) add_static_libraries(a + 19);
+        else if (STREQ(a, "--static")) static_lib = 1;
         else if (a[0] == '-' && a[1] == 'O') opt = a;
         else if (a[0] == '-') usage();
         else if (!input) input = a;
@@ -272,6 +298,14 @@ int main(int argc, char **argv) {
     }
 
     if (check_only) return 0;
+    if (static_lib && !prog->is_library) {
+        fprintf(stderr, "ppc: --static makes a static library: the file must start with 'library Name;'\n");
+        return 2;
+    }
+    if (static_lib && (shared_objects.len || static_libraries.len)) {
+        fprintf(stderr, "ppc: a static library is not linked: give --shared-objects and --static-libraries when the program is built\n");
+        return 2;
+    }
     VEC(char *) rpaths = {0}; /* the directories of the shared objects: found there at run time */
     for (int i = 0; i < shared_objects.len; i++) {
         char rp[PATH_MAX];
@@ -283,11 +317,16 @@ int main(int argc, char **argv) {
         *strrchr(d, '/') = 0;
         vpush(rpaths, sfmt("-Wl,-rpath,%s", *d ? d : "/"));
     }
+    for (int i = 0; i < static_libraries.len; i++)
+        if (!file_exists(static_libraries.items[i])) {
+            fprintf(stderr, "ppc: static library '%s' not found (--static-libraries)\n", static_libraries.items[i]);
+            return 1;
+        }
     char *hfile = NULL;
-    if (prog->is_library) { /* library Name;  ->  libName.so and Name.h (next to the file, or next to -o) */
+    if (prog->is_library) { /* library Name;  ->  libName.so (or libName.a) and Name.h (next to the file, or next to -o) */
         const char *slash = strrchr(input, '/');
         char *dir = slash ? xstrndup(input, (size_t)(slash - input + 1)) : xstrdup("");
-        if (!out_given) output = sfmt("%slib%s.so", dir, pname);
+        if (!out_given) output = sfmt("%slib%s.%s", dir, pname, static_lib ? "a" : "so");
         const char *os = strrchr(output, '/');
         char *odir = os ? xstrndup(output, (size_t)(os - output + 1)) : xstrdup("");
         hfile = sfmt("%s%s.h", odir, pname);
@@ -310,34 +349,51 @@ int main(int argc, char **argv) {
     fclose(f);
     if (emit_only) return 0;
 
-    pid_t pid = fork();
-    if (pid == 0) {
-        const char **av = (const char **)xmalloc(sizeof(char *) * (size_t)(24 + 2 * shared_objects.len));
-        int n = 0;
-        av[n++] = cc;
-        av[n++] = "-std=gnu11";
-        if (debug) av[n++] = "-O0", av[n++] = "-g";
-        else av[n++] = opt;
-        av[n++] = "-w";
-        av[n++] = "-fwrapv";
-        av[n++] = "-fno-strict-aliasing";
+    const char **av = (const char **)xmalloc(sizeof(char *) * (size_t)(24 + 2 * shared_objects.len + static_libraries.len));
+    int n = 0;
+    av[n++] = cc;
+    av[n++] = "-std=gnu11";
+    if (debug) av[n++] = "-O0", av[n++] = "-g";
+    else av[n++] = opt;
+    av[n++] = "-w";
+    av[n++] = "-fwrapv";
+    av[n++] = "-fno-strict-aliasing";
+    char *ofile = sfmt("/tmp/ppc_%d_out.o", (int)getpid());
+    if (static_lib) /* a static library: one object file whose only global symbols are the exports */
+        av[n++] = "-c", av[n++] = "-fPIC", av[n++] = "-fvisibility=hidden", av[n++] = "-o", av[n++] = ofile, av[n++] = cfile;
+    else {
         if (prog->is_library) av[n++] = "-shared", av[n++] = "-fPIC", av[n++] = "-fvisibility=hidden"; /* only the exports are visible */
         av[n++] = "-o";
         av[n++] = output;
         av[n++] = cfile;
+        for (int i = 0; i < static_libraries.len; i++) av[n++] = static_libraries.items[i];
         for (int i = 0; i < shared_objects.len; i++) av[n++] = shared_objects.items[i], av[n++] = rpaths.items[i];
         av[n++] = "-lm";
-        av[n] = NULL;
-        execvp(cc, (char *const *)av);
-        fprintf(stderr, "ppc: cannot run C compiler '%s'\n", cc);
-        _exit(127);
     }
-    int st = 0;
-    waitpid(pid, &st, 0);
+    av[n] = NULL;
+    int failed = run_tool(av);
     if (!keep) remove(cfile);
-    if (!WIFEXITED(st) || WEXITSTATUS(st) != 0) {
+    if (failed) {
         fprintf(stderr, "ppc: C compilation failed\n");
         return 1;
+    }
+    if (static_lib) {
+        /* everything but the exports becomes local, so that programs and other Perfect Pascal libraries
+           (which have the same internal names, e.g. VMTI1) can be linked with it */
+        char *keepf = sfmt("/tmp/ppc_%d_exports.txt", (int)getpid());
+        FILE *k = fopen(keepf, "w");
+        for (int i = 0; k && i < prog->exports.len; i++) fprintf(k, "%s\n", prog->exports.items[i].cname);
+        if (k) fclose(k);
+        const char *oc[] = {"objcopy", sfmt("--keep-global-symbols=%s", keepf), ofile, NULL};
+        remove(output);
+        const char *ar[] = {"ar", "rcs", output, ofile, NULL};
+        int bad = !k || run_tool(oc) || run_tool(ar);
+        remove(keepf);
+        remove(ofile);
+        if (bad) {
+            fprintf(stderr, "ppc: making the static library '%s' failed (objcopy and ar are needed)\n", output);
+            return 1;
+        }
     }
     return 0;
 }

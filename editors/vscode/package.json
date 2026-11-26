@@ -2,7 +2,7 @@
   "name": "perfect-pascal",
   "displayName": "Perfect Pascal",
   "description": "Perfect Pascal (ppc): syntax highlighting, errors while typing, hover, go to definition and completion (.pas, and .pps in the brace syntax)",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "publisher": "ppc",
   "license": "MIT",
   "engines": {
@@ -96,6 +96,14 @@
           },
           "default": [],
           "description": "Shared objects (.so) that 'Perfect Pascal: Run File' links, like 'ppc --shared-objects'; their C functions are declared 'external'. Relative paths belong to the workspace folder."
+        },
+        "ppc.staticLibraries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Static libraries (.a) that 'Perfect Pascal: Run File' links, like 'ppc --static-libraries'; their C functions are declared 'external'. Relative paths belong to the workspace folder."
         },
         "ppc.runArguments": {
           "type": "string",

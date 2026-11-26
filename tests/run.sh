@@ -69,7 +69,34 @@ if command -v gcc >/dev/null; then
       if ! out=$($PPC "--shared-objects=$d/lib$lib.so" -o "$x" "$p" 2>&1); then bad "$f: $p" "$out"; continue; fi
       if diff -u "${p%.*}.expected" <(cd / && "$x" 2>&1) > "$TMP/diff"; then ok "$f: $p"; else bad "$f: $p" "$(cat "$TMP/diff")"; fi
     done
+    # the same library as a static library (--static): the linked C client and the programs (--static-libraries)
+    mkdir -p "$d/static"
+    if ! out=$($PPC --static -o "$d/static/lib$lib.a" "$f" 2>&1); then bad "$f --static" "$out"; continue; fi
+    for c in library/${b}_client.c; do
+      [ -f "$c" ] || continue
+      x="$d/static/$(basename "$c" .c)"
+      if ! out=$(gcc -o "$x" "$c" -I"$d/static" "$d/static/lib$lib.a" -lm 2>&1); then bad "$f --static: $c" "$out"; continue; fi
+      if diff -u "${c%.c}.expected" <("$x" 2>&1) > "$TMP/diff"; then ok "$f --static: $c"; else bad "$f --static: $c" "$(cat "$TMP/diff")"; fi
+    done
+    for p in library/programs/${b}_*.pas library/programs/${b}_*.pps; do
+      x="$d/static/prog_$(basename "$p")"
+      if ! out=$($PPC "--static-libraries=$d/static/lib$lib.a" -o "$x" "$p" 2>&1); then bad "$f --static: $p" "$out"; continue; fi
+      if diff -u "${p%.*}.expected" <("$x" 2>&1) > "$TMP/diff"; then ok "$f --static: $p"; else bad "$f --static: $p" "$(cat "$TMP/diff")"; fi
+    done
   done
+  # two Perfect Pascal libraries in one program (their internal names must not collide): shared and static
+  d="$TMP/two"; mkdir -p "$d"
+  if $PPC -o "$d/libMathLib.so" library/mathlib.pas >/dev/null 2>&1 && $PPC -o "$d/libGreet.so" library/greet.pas >/dev/null 2>&1 &&
+     $PPC --static -o "$d/libMathLib.a" library/mathlib.pas >/dev/null 2>&1 && $PPC --static -o "$d/libGreet.a" library/greet.pas >/dev/null 2>&1; then
+    for p in library/programs/two_libraries.pas library/programs/two_libraries.pps; do
+      for how in "--shared-objects=$d/libMathLib.so;$d/libGreet.so" "--static-libraries=$d/libMathLib.a;$d/libGreet.a"; do
+        if ! out=$($PPC "$how" -o "$d/prog" "$p" 2>&1); then bad "$p ${how%%=*}" "$out"; continue; fi
+        if diff -u library/programs/two_libraries.expected <("$d/prog" 2>&1) > "$TMP/diff"; then ok "$p ${how%%=*}"; else bad "$p ${how%%=*}" "$(cat "$TMP/diff")"; fi
+      done
+    done
+  else bad "library/greet.pas" "the libraries could not be built"; fi
+  # --static only for libraries
+  if out=$($PPC --static -o "$TMP/x" run/basics.pas 2>&1); then bad "--static of a program" "no error"; elif grep -qF "the file must start with 'library Name;'" <<<"$out"; then ok "--static of a program"; else bad "--static of a program" "$out"; fi
 fi
 # tools/pas2pps.pps (the converter written in the brace syntax) reproduces every .pps twin of run/*.pas
 if out=$($PPC -o "$TMP/pas2pps" ../tools/pas2pps.pps 2>&1); then
