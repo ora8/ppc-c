@@ -307,6 +307,7 @@ struct Field {
     Struct *owner;
     int vis;
     Var *cvar; /* class field: the (global) variable */
+    Pos pos;   /* its declaration */
 };
 
 typedef struct {
@@ -475,6 +476,8 @@ int res_temp(Expr *e);
 extern int g_hover_line, g_hover_col; /* --hover: the place to describe (1-based, byte column) */
 extern const char *g_hover_file;
 extern char *g_hover_text;
+extern int g_def_mode;  /* --definition: print where the name at the place is declared */
+extern Pos g_def_pos;
 const char *hover_text(void);
 extern int g_line_dirs;     /* #line directives: C compiler messages and debuggers show the Pascal source */
 extern const char *g_cfile; /* the generated C file (for #line back to it) */

@@ -98,8 +98,13 @@ Other editors: configure `ppc --lsp` as the language server for `.pas` files. Wi
 **Hover:** pointing at a name shows what it is – `(local) val Sum: Integer`, `(parameter) var
 Extra: Integer`, `(field of TBox) Size: Integer`, `function TShape.Area(Scale: Real): Real;
 const; virtual`, `type TColor = (Red, Green, Blue)`, `const Limit = 42: Integer`, built-ins –
-for uses and declarations. On the command line: `ppc --hover LINE:COL file.pas`. Completion and
-go-to-definition are not there yet.
+for uses and declarations. On the command line: `ppc --hover LINE:COL file.pas`.
+
+**Go to definition:** jumps to where a name is declared – variables, parameters, fields,
+methods (from a call or from the implementation to the declaration in the class), types,
+constants, enumeration values, also in imported modules (not into the built-in standard
+library). On the command line: `ppc --definition LINE:COL file.pas` prints `file:line:col`.
+Completion is not there yet.
 
 ### Debugging
 

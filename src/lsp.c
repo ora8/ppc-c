@@ -212,6 +212,7 @@ static Doc *doc_of(const char *uri) {
 
 /* run 'ppc --check --stdin path' (or with '--hover L:C') on the text; returns its stderr (or its stdout for hover) */
 static char *run_ppc(Doc *d, const char *hover);
+static const char *query_opt = "--hover"; /* or --definition */
 static char *run_check(Doc *d) { return run_ppc(d, NULL); }
 static char *run_ppc(Doc *d, const char *hover) {
     int in[2], err[2];
@@ -224,7 +225,7 @@ static char *run_ppc(Doc *d, const char *hover) {
         if (devnull >= 0) dup2(devnull, hover ? 2 : 1);
         close(in[1]);
         close(err[0]);
-        if (hover) execl(self_exe, self_exe, "--check", "--stdin", "--hover", hover, d->path, (char *)NULL);
+        if (hover) execl(self_exe, self_exe, "--check", "--stdin", query_opt, hover, d->path, (char *)NULL);
         else execl(self_exe, self_exe, "--check", "--stdin", d->path, (char *)NULL);
         _exit(127);
     }
@@ -356,7 +357,7 @@ int lsp_main(const char *self) {
             Buf b = {0};
             buf_put(&b, "{\"jsonrpc\":\"2.0\",\"id\":");
             jid(&b, id);
-            buf_put(&b, ",\"result\":{\"capabilities\":{\"textDocumentSync\":{\"openClose\":true,\"change\":1,\"save\":{\"includeText\":false}},\"hoverProvider\":true},"
+            buf_put(&b, ",\"result\":{\"capabilities\":{\"textDocumentSync\":{\"openClose\":true,\"change\":1,\"save\":{\"includeText\":false}},\"hoverProvider\":true,\"definitionProvider\":true},"
                         "\"serverInfo\":{\"name\":\"ppc\",\"version\":\"1\"}}}");
             send_msg(buf_str(&b));
         } else if (STREQ(method, "shutdown")) {
@@ -380,6 +381,66 @@ int lsp_main(const char *self) {
                 text = jstr(jget(changes->items.items[changes->items.len - 1], "text"));
             if (text) d->text = xstrdup(text);
             publish(d);
+        } else if (STREQ(method, "textDocument/definition")) {
+            const char *uri = jstr(jget(jget(params, "textDocument"), "uri"));
+            Json *pos = jget(params, "position");
+            Json *ln = jget(pos, "line"), *ch = jget(pos, "character");
+            Buf b = {0};
+            buf_put(&b, "{\"jsonrpc\":\"2.0\",\"id\":");
+            jid(&b, id);
+            char *out = NULL;
+            if (uri && ln && ch) {
+                Doc *d = doc_of(uri);
+                int line = (int)ln->num + 1;
+                query_opt = "--definition";
+                out = run_ppc(d, sfmt("%d:%d", line, byte_col(d->text, line, (int)ch->num)));
+                query_opt = "--hover";
+            }
+            /* 'file:line:col' of the declaration (the file name may contain ':') */
+            char *c2 = out ? strrchr(out, ':') : NULL, *c1 = NULL;
+            if (c2) {
+                *c2 = 0;
+                c1 = strrchr(out, ':');
+            }
+            int dl = 0, dc = 0;
+            if (c1 && sscanf(c1 + 1, "%d", &dl) == 1 && sscanf(c2 + 1, "%d", &dc) == 1) {
+                *c1 = 0;
+                char *file = out;
+                if (file[0] != '/') { /* relative to the document's directory */
+                    Doc *d = doc_of(uri);
+                    const char *sl = strrchr(d->path, '/');
+                    file = sl ? sfmt("%.*s/%s", (int)(sl - d->path), d->path, file) : file;
+                }
+                const char *text = NULL; /* the file's text: for the column in UTF-16 units */
+                for (int i = 0; i < docs.len; i++)
+                    if (STREQ(docs.items[i].path, file)) text = docs.items[i].text;
+                FILE *f = text ? NULL : fopen(file, "rb");
+                Buf ft = {0};
+                if (f) {
+                    char tmp[65536];
+                    size_t k;
+                    while ((k = fread(tmp, 1, sizeof tmp, f)) > 0) buf_putn(&ft, tmp, k);
+                    fclose(f);
+                    text = buf_str(&ft);
+                }
+                if (text) { /* the declaration is in a file (not in the built-in library) */
+                    int c0 = utf16_col(text, dl, dc);
+                    Buf u = {0};
+                    buf_put(&u, "file://");
+                    for (const char *q = file; *q; q++) {
+                        if (isalnum((unsigned char)*q) || strchr("/-_.~", *q)) buf_putn(&u, q, 1);
+                        else buf_printf(&u, "%%%02X", (unsigned char)*q);
+                    }
+                    buf_put(&b, ",\"result\":{\"uri\":");
+                    jesc(&b, buf_str(&u));
+                    buf_printf(&b, ",\"range\":{\"start\":{\"line\":%d,\"character\":%d},\"end\":{\"line\":%d,\"character\":%d}}}}",
+                               dl - 1, c0, dl - 1, c0);
+                    send_msg(buf_str(&b));
+                    continue;
+                }
+            }
+            buf_put(&b, ",\"result\":null}");
+            send_msg(buf_str(&b));
         } else if (STREQ(method, "textDocument/hover")) {
             const char *uri = jstr(jget(jget(params, "textDocument"), "uri"));
             Json *pos = jget(params, "position");

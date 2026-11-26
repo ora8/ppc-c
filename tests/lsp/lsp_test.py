@@ -34,7 +34,7 @@ def check(cond, what):
 
 send({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {'rootUri': None, 'capabilities': {}}})
 r = recv()
-check(r.get('id') == 1 and r['result']['capabilities']['textDocumentSync']['change'] == 1 and r['result']['capabilities']['hoverProvider'], 'initialize: full text sync, hover')
+check(r.get('id') == 1 and r['result']['capabilities']['textDocumentSync']['change'] == 1 and r['result']['capabilities']['hoverProvider'] and r['result']['capabilities']['definitionProvider'], 'initialize: full text sync, hover, definition')
 send({'jsonrpc': '2.0', 'method': 'initialized', 'params': {}})
 
 bad = "program T;\nval x: Integer := 1;\nbegin\n  x := 'ü' + 'a';\n  WriteLn(y);\nend.\n"
@@ -84,7 +84,25 @@ check('(field of TBox) Size: Integer' in (hover(7, 35) or ''), 'hover on a field
 check('val u: Integer' in (hover(7, 17) or ''), 'hover on a variable')
 check(hover(7, 3) is None, 'no hover on spaces')
 
-send({'jsonrpc': '2.0', 'id': 7, 'method': 'textDocument/definition', 'params': {}})
+def definition(u, line, ch):
+    send({'jsonrpc': '2.0', 'id': 11, 'method': 'textDocument/definition',
+          'params': {'textDocument': {'uri': u}, 'position': {'line': line, 'character': ch}}})
+    return recv().get('result')
+loc = definition(uri, 7, 35)
+check(loc and loc['uri'] == uri and loc['range']['start'] == {'line': 1, 'character': 18}, 'definition of a field in the same file')
+loc = definition(uri, 7, 17)
+check(loc and loc['range']['start'] == {'line': 3, 'character': 4}, 'definition of a variable')
+check(definition(uri, 7, 5) is None, 'no definition for a built-in (WriteLn)')
+useuri = 'file://' + os.path.join(here, 'lspuse2.pas')
+send({'jsonrpc': '2.0', 'method': 'textDocument/didOpen',
+      'params': {'textDocument': {'uri': useuri, 'languageId': 'pascal', 'version': 1,
+                                  'text': "program U;\nimport lspmod2;\nbegin\n  WriteLn(Half(4));\nend.\n"}}})
+check(recv()['params']['diagnostics'] == [], 'program using a module has no errors')
+loc = definition(useuri, 3, 11)
+check(loc and loc['uri'].endswith('/lspmod2.pas') and loc['range']['start'] == {'line': 2, 'character': 9},
+      'definition in an imported module')
+
+send({'jsonrpc': '2.0', 'id': 7, 'method': 'textDocument/completion', 'params': {}})
 r = recv()
 check(r.get('id') == 7 and r['error']['code'] == -32601, 'unsupported request answered with an error')
 

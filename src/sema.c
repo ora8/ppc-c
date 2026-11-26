@@ -52,6 +52,7 @@ typedef struct {
     Expr *cval;
     Routine *rt;
     int vidx;
+    Pos pos; /* where it is declared */
 } Sym;
 
 typedef struct Scope {
@@ -76,6 +77,7 @@ static int hover_at(Pos p, const char *name);
 static Var *pending_hover_var;         /* a declaration under the cursor: described when complete */
 static MethodDecl *pending_hover_method;
 static void hover_set(const char *text);
+static void def_set(Pos p);
 static const char *type_desc(Type *t);
 static void hover_member(Struct *st, const char *name);
 static void hover_look(Look *L, const char *name);
@@ -586,6 +588,7 @@ static Sym *add_sym(SymKind k, const char *name, Pos p) {
     if (find_local(name)) error_at(p, "duplicate identifier \"%s\"", name);
     Sym *s = NEW(Sym);
     s->kind = k;
+    s->pos = p;
     s->name = xstrdup(name);
     vpush(scope->syms, s);
     return s;
@@ -985,6 +988,8 @@ static void add_fields(Struct *s, FieldDeclVec *fields) {
             f->borrowed = fborrowed;
             f->owner = s;
             f->vis = fd->vis;
+            f->pos = id->pos;
+            if (hover_at(id->pos, id->name)) def_set(id->pos);
             if (hover_at(id->pos, id->name)) hover_set(sfmt("(field of %s) %s%s: %s", s->name, f->borrowed ? "var " : "", f->name, type_name(t)));
             vpush(s->fields, f);
         }
@@ -1024,6 +1029,7 @@ static void define_sum(Struct *s, TypeExpr *te) {
                     if (STREQ(s->fields.items[j]->name, sfmt("%s.%s", vd->name.name, id->name)))
                         error_at(id->pos, "duplicate field \"%s\" in variant \"%s\"", id->name, vd->name.name);
                 Field *f = NEW(Field);
+                f->pos = id->pos;
                 f->name = sfmt("%s.%s", vd->name.name, id->name);
                 f->cname = sfmt("f_%s_%s", vd->name.name, id->name);
                 f->type = t;
@@ -1470,8 +1476,13 @@ static int hover_at(Pos p, const char *name) {
     if (g_hover_col < p.col || g_hover_col >= p.col + (int)strlen(name)) return 0;
     return g_hover_file && STREQ(POS_FILE(p), g_hover_file);
 }
+int g_def_mode;
+Pos g_def_pos;
 static void hover_set(const char *text) {
     if (!g_hover_text) g_hover_text = xstrdup(text);
+}
+static void def_set(Pos p) { /* the declaration of the name being described */
+    if (!g_def_pos.line && p.line > 0) g_def_pos = p;
 }
 static const char *type_desc(Type *t) {
     Buf b = {0};
@@ -1529,6 +1540,7 @@ static void hover_member(Struct *st, const char *name) {
     Routine *m;
     Prop *pr;
     if (find_member(st, name, &f, &m, &pr)) {
+        def_set(f ? f->pos : m ? m->pos : pr->pos);
         if (f) hover_set(sfmt("(field of %s) %s%s: %s", f->owner->name, f->borrowed ? "var " : "", name, type_name(f->type)));
         else if (m) hover_set(routine_desc(m));
         else hover_set(sfmt("(property of %s) %s%s: %s", pr->owner->name, name, pr->idx.len ? "[...]" : "", type_name(pr->type)));
@@ -1536,16 +1548,21 @@ static void hover_member(Struct *st, const char *name) {
     }
     Field *cf = find_cfield(st, name);
     if (cf) {
+        def_set(cf->pos);
         hover_set(sfmt("(class field of %s) %s: %s", cf->owner->name, name, type_name(cf->type)));
         return;
     }
     Generic *gm = find_gmethod(st, name);
-    if (gm) hover_set(sfmt("generic method %s.%s<...>", st->name, name));
+    if (gm) hover_set(sfmt("generic method %s.%s<...>", st->name, name)), def_set(gm->pos);
     for (int i = 0; st->is_sum && i < st->variants.len; i++)
-        if (STREQ(st->variants.items[i].name, name)) hover_set(sfmt("(variant of %s) %s", st->name, variant_sig(st, i)));
+        if (STREQ(st->variants.items[i].name, name)) def_set(st->variants.items[i].pos), hover_set(sfmt("(variant of %s) %s", st->name, variant_sig(st, i)));
 }
 static void hover_look(Look *L, const char *name) {
     if (L->kind == LK_MEMBER) {
+        if (L->gm) def_set(L->gm->pos);
+        else if (L->f) def_set(L->f->pos);
+        else if (L->m) def_set(L->m->pos);
+        else if (L->p) def_set(L->p->pos);
         if (L->gm) hover_set(sfmt("generic method %s<...>", name));
         else if (L->f) hover_set(sfmt("(field of %s) %s%s: %s", L->f->owner->name, L->f->borrowed ? "var " : "", name, type_name(L->f->type)));
         else if (L->m) hover_set(routine_desc(L->m));
@@ -1557,6 +1574,7 @@ static void hover_look(Look *L, const char *name) {
         return;
     }
     Sym *s = L->sym;
+    def_set(s->kind == SY_VAR ? s->var->pos : s->pos);
     switch (s->kind) {
     case SY_VAR: hover_set(var_desc(s->var)); break;
     case SY_CONST: {
@@ -1595,6 +1613,7 @@ static void class_fields(Struct *s, FieldDecl *fd, Type *t) {
         v->level = 0;
         if (!archetype_mode) vpush(prog->globals, v);
         Field *f = NEW(Field);
+        f->pos = id->pos;
         f->name = id->name;
         f->cname = v->cname;
         f->type = t;
@@ -1804,7 +1823,8 @@ static Type *resolve_type_inner(TypeExpr *te) {
     switch (te->kind) {
     case TE_NAMED: {
         Look L = lookup(te->name.name);
-        if (hover_at(te->name.pos, te->name.name) && L.kind == LK_SYM && L.sym->kind == SY_TYPE) hover_set(type_desc(L.sym->type));
+        if (hover_at(te->name.pos, te->name.name) && L.kind == LK_SYM && L.sym->kind == SY_TYPE)
+            hover_set(type_desc(L.sym->type)), def_set(L.sym->type->st ? L.sym->type->st->pos : L.sym->pos);
         if (te->targs.len) return generic_type(&L, te->name, &te->targs, te->pos);
         if (L.kind == LK_SYM && L.sym->kind == SY_GENERIC)
             error_at(te->pos, "\"%s\" is generic: give its type arguments, e.g. '%s<Integer>'", te->name.name, te->name.name);
@@ -2661,7 +2681,7 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
             }
             if (L.kind == LK_SYM && L.sym->kind == SY_TYPE) {
                 Type *t = L.sym->type;
-                if (hover_at(e->a->pos, e->a->id.name)) hover_set(type_desc(t));
+                if (hover_at(e->a->pos, e->a->id.name)) hover_set(type_desc(t)), def_set(t->st ? t->st->pos : L.sym->pos);
                 if ((t->kind == T_CLASS || t->kind == T_RECORD) && hover_at(e->id.pos, name)) hover_member(t->st, name);
                 if (t->kind == T_RECORD && t->st->is_sum) { /* TShape.Circle(2.0) */
                     for (int i = 0; i < t->st->variants.len; i++)
@@ -5177,7 +5197,7 @@ static void routine_decl(RoutineDecl *d) {
                 error_at(d->pos, "implementation of \"%s.%s\" does not match its declaration", st->name, rt->name);
             for (int i = 0; i < rt->params.len; i++) rt->params.items[i].name = tmp.params.items[i].name;
         }
-        if (hover_at(d->name.pos, d->name.name)) hover_set(routine_desc(rt));
+        if (hover_at(d->name.pos, d->name.name)) hover_set(routine_desc(rt)), def_set(rt->pos); /* the declaration in the class */
         routine_body(rt, d);
         return;
     }
@@ -5268,7 +5288,7 @@ static void routine_decl(RoutineDecl *d) {
         rt->defined = 1;
         return;
     }
-    if (hover_at(d->name.pos, d->name.name)) hover_set(routine_desc(rt));
+    if (hover_at(d->name.pos, d->name.name)) hover_set(routine_desc(rt)), def_set(rt->pos);
     if (d->forward) {
         rt->forward = 1;
         return;
@@ -5310,7 +5330,12 @@ static void routine_body(Routine *rt, RoutineDecl *d) {
     if (rt->self) add_sym(SY_VAR, "Self", rt->pos)->var = rt->self;
     for (int i = 0; i < rt->params.len; i++) {
         Param *pm = &rt->params.items[i];
-        Var *v = new_var(pm->name, pm->type, VK_PARAM, d->pos);
+        Pos ppos = d->pos; /* the parameter's name in the header */
+        for (int g = 0, k = 0; g < d->params.len; g++)
+            for (int j = 0; j < d->params.items[g].names.len; j++, k++)
+                if (k == i) ppos = d->params.items[g].names.items[j].pos;
+        Var *v = new_var(pm->name, pm->type, VK_PARAM, ppos);
+        if (hover_at(ppos, pm->name)) pending_hover_var = v;
         v->mode = pm->mode;
         v->is_ref = pm->mode == PM_VAR || pm->mode == PM_OUT || pm->mode == PM_CONSTREF;
         v->is_const = pm->mode == PM_CONST || pm->mode == PM_CONSTREF;
@@ -5437,7 +5462,7 @@ static void decl1(Decl *d, int has_frame) {
                     Struct *st = find_local(td->name.name)->type->st;
                     if (k == TE_RECORD) define_record(st, td->ty);
                     else define_struct(st, td->ty->sd);
-                    if (hover_at(td->name.pos, td->name.name)) hover_set(type_desc(st->type));
+                    if (hover_at(td->name.pos, td->name.name)) hover_set(type_desc(st->type)), def_set(td->name.pos);
                     continue;
                 }
                 Type *t = resolve_type(td->ty);
@@ -5445,7 +5470,7 @@ static void decl1(Decl *d, int has_frame) {
                     t->name = td->name.name;
                     t->en->name = td->name.name;
                 }
-                if (hover_at(td->name.pos, td->name.name)) hover_set(type_desc(t));
+                if (hover_at(td->name.pos, td->name.name)) hover_set(type_desc(t)), def_set(td->name.pos);
                 add_sym(SY_TYPE, td->name.name, td->name.pos)->type = t;
             }
             for (int i = 0; i < d->types.len; i++) /* constraints may name classes of this section */
@@ -5725,6 +5750,11 @@ static void add_type(const char *name, Type *t) { add_sym(SY_TYPE, name, (Pos){0
 
 /* --hover: the description of the name at the requested place (NULL: nothing there) */
 const char *hover_text(void) {
+    if (g_def_mode) { /* --definition: file:line:col of the declaration */
+        if (!g_def_pos.line && pending_hover_var) g_def_pos = pending_hover_var->pos;
+        if (!g_def_pos.line && pending_hover_method) g_def_pos = pending_hover_method->name.pos;
+        return g_def_pos.line ? sfmt("%s:%d:%d", POS_FILE(g_def_pos), g_def_pos.line, g_def_pos.col) : NULL;
+    }
     if (g_hover_text) return g_hover_text;
     if (pending_hover_var) return var_desc(pending_hover_var);
     if (pending_hover_method && prog)
