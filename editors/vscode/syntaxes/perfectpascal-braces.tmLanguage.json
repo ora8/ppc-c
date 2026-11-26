@@ -34,9 +34,18 @@
     "comments": {
       "patterns": [
         {
+          "name": "comment.line.double-slash.perfectpascal-braces",
+          "match": "//.*$"
+        },
+        {
           "name": "comment.block.brace-star.perfectpascal-braces",
           "begin": "\\{\\*",
           "end": "\\*\\}"
+        },
+        {
+          "name": "comment.block.paren-star.perfectpascal-braces",
+          "begin": "\\(\\*",
+          "end": "\\*\\)"
         }
       ]
     },

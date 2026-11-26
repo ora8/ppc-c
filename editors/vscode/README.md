@@ -17,8 +17,8 @@ The `ppc` compiler must be installed (`make` in the repository root; put `ppc` o
 ```bash
 cd editors/vscode
 npm install
-npm run package                                   # makes perfect-pascal-0.1.0.vsix
-code --install-extension perfect-pascal-0.1.0.vsix
+npm run package                                   # makes perfect-pascal-0.1.1.vsix
+code --install-extension perfect-pascal-0.1.1.vsix
 ```
 
 ## Settings
