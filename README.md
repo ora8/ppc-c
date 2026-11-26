@@ -41,6 +41,8 @@ Highlights:
 
 ```bash
 make            # builds ./ppc and ./ppm
+sudo make install                  # ppc and ppm to /usr/local/bin (PREFIX=..., DESTDIR=... for packages)
+sudo make uninstall
 make test       # test suite (output, borrow/optional/stack/const/result/clone/generic errors, compile errors)
 ```
 
@@ -72,8 +74,9 @@ Rust. A project is a directory with a `ppc.ini`:
 ```bash
 ppm new calculator          # a program project (--lib: shared library, --static: static library, --pps: brace syntax)
 cd calculator
-ppm build                   # builds target/calculator (a library: target/libCalculator.so or .a)
-ppm run -- arguments        # builds and runs the program
+ppm build                   # builds target/debug/calculator (a library: libCalculator.so or .a)
+ppm build --release         # builds target/release/calculator (optimized)
+ppm run -- arguments        # builds and runs the program (also with --release)
 ppm check                   # checks the program and every module in src/
 ppm test                    # builds and runs the programs in tests/, compares their output with .expected
 ppm clean                   # removes target/
@@ -85,7 +88,7 @@ calculator/
   src/main.pas     the program (a library: src/lib.pas; also .pps)
   src/*.pas        the modules of the project
   tests/*.pas      test programs (with <name>.expected: the output they must print)
-  target/          what ppm builds
+  target/debug/    what ppm builds (target/release/ with --release)
 ```
 
 ```ini
@@ -104,7 +107,13 @@ shared-objects = lib/libz.so       ; separated by ',' or ';'
 static-libraries =
 
 [build]
-options = -O2 --no-range-check     ; ppc options
+options = --no-range-check         ; ppc options for every profile
+
+[debug]
+options = -g                       ; ppm build: debug information for gdb (the default)
+
+[release]
+options = -O2                      ; ppm build --release (the default)
 ```
 
 * `ppm` calls `ppc` with `--module-paths` (the `src/` directories of the project and of all its

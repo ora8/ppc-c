@@ -114,6 +114,11 @@ if [ -x "$PPM" ]; then
     if out=$(cd "$d" && "$PPM" new demo-proj $how && cd demo-proj && "$PPM" check && "$PPM" test 2>&1); then ok "ppm new $how"; else bad "ppm new $how" "$out"; fi
   done
   if diff <(echo 'Hello, demo-proj!') <(cd "$TMP/new/demo-proj" && "$PPM" run 2>/dev/null | tail -1) >/dev/null; then ok "ppm run (new)"; else bad "ppm run (new)" "wrong output"; fi
+  if out=$(cd "$TMP/new/demo-proj" && "$PPM" build --release 2>&1) && [ -x "$TMP/new/demo-proj/target/release/demo-proj" ] &&
+     [ -x "$TMP/new/demo-proj/target/debug/demo-proj" ]; then ok "ppm build --release"; else bad "ppm build --release" "$out"; fi
+  # make install into a directory: the installed ppm uses the installed ppc
+  if out=$(make -s -C .. install DESTDIR="$TMP/inst" PREFIX=/usr 2>&1) && [ "$(cd "$TMP/new/demo-proj" && "$TMP/inst/usr/bin/ppm" run 2>/dev/null | tail -1)" = "Hello, demo-proj!" ]
+  then ok "make install"; else bad "make install" "$out"; fi
   if out=$(cd "$TMP" && "$PPM" build 2>&1); then bad "ppm without project" "no error"; elif grep -qF "no ppc.ini" <<<"$out"; then ok "ppm without project"; else bad "ppm without project" "$out"; fi
   if out=$(cd "$TMP/ppm/units" && "$PPM" run 2>&1); then bad "ppm run (modules)" "no error"; elif grep -qF "has only modules" <<<"$out"; then ok "ppm run (modules)"; else bad "ppm run (modules)" "$out"; fi
 fi

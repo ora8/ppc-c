@@ -1,8 +1,8 @@
 /* ppm - Perfect Pascal Manager: projects with a ppc.ini (like cargo for Rust)
 
      ppm new <name> [--lib] [--static] [--pps]   a new project in the directory <name>
-     ppm build                                   builds into target/
-     ppm run [-- args]                           builds and runs the program
+     ppm build [--release]                       builds into target/debug/ (target/release/)
+     ppm run [--release] [-- args]               builds and runs the program
      ppm check                                   checks the program (library) and every module in src/
      ppm test                                    builds and runs the programs in tests/, compares with .expected
      ppm clean                                   removes target/
@@ -22,6 +22,7 @@
 #include <unistd.h>
 
 static const char *ppc_exe;
+static int release; /* --release: the release profile (target/release/, [release] options; default -O2) */
 static Project proj;
 static StrVec module_dirs;
 
@@ -121,7 +122,9 @@ static int cmd_new(int argc, char **argv) {
     mkdirs(sfmt("%s/tests", name));
     write_file(sfmt("%s/ppc.ini", name),
                sfmt("[project]\nname = %s\nversion = 0.1.0\nkind = %s\n%s\n[dependencies]\n; shapes = ../shapes\n\n"
-                    "[link]\n; shared-objects = libz.so\n; static-libraries =\n\n[build]\noptions = -O2\n",
+                    "[link]\n; shared-objects = libz.so\n; static-libraries =\n\n[build]\n; options = --no-range-check   ; for every profile\n\n"
+                    "[debug]\noptions = -g                     ; ppm build (target/debug/)\n\n"
+                    "[release]\noptions = -O2                    ; ppm build --release (target/release/)\n",
                     base, lib ? "library" : "program", stat ? "static = yes\n" : ""));
     write_file(sfmt("%s/.gitignore", name), "target/\n");
     /* a module of the project, used by the main file and by the test */
@@ -194,9 +197,10 @@ static char *lib_name(void) {
 }
 
 static char *target(void) { return sfmt("%starget/", proj.dir); }
+static char *profile_dir(void) { return sfmt("%s%s/", target(), release ? "release" : "debug"); }
 static char *output(void) {
-    if (proj.is_library) return sfmt("%slib%s.%s", target(), lib_name(), proj.is_static ? "a" : "so");
-    return sfmt("%s%s", target(), proj.name);
+    if (proj.is_library) return sfmt("%slib%s.%s", profile_dir(), lib_name(), proj.is_static ? "a" : "so");
+    return sfmt("%s%s", profile_dir(), proj.name);
 }
 
 static char *joined(StrVec *v, const char *sep) {
@@ -210,6 +214,10 @@ static void ppc_args(StrVec *av, int with_link) {
     vpush(*av, (char *)ppc_exe);
     StrVec opts = ini_split(ini_get(&proj.ini, "build", "options"), " \t");
     for (int i = 0; i < opts.len; i++) vpush(*av, opts.items[i]);
+    /* the profile: [debug] options (default -g: debug information, -O0) or [release] options (default -O2) */
+    const char *po = ini_get(&proj.ini, release ? "release" : "debug", "options");
+    StrVec popts = ini_split(po ? po : release ? "-O2" : "-g", " \t");
+    for (int i = 0; i < popts.len; i++) vpush(*av, popts.items[i]);
     if (module_dirs.len) {
         vpush(*av, "--module-paths");
         vpush(*av, joined(&module_dirs, ":"));
@@ -226,7 +234,7 @@ static void ppc_args(StrVec *av, int with_link) {
 }
 
 static int build(void) {
-    mkdirs(target());
+    mkdirs(profile_dir());
     StrVec av = {0};
     int static_lib = proj.is_library && proj.is_static;
     ppc_args(&av, !static_lib); /* a static library is not linked */
@@ -236,7 +244,8 @@ static int build(void) {
     vpush(av, out);
     vpush(av, proj.main);
     const char *ver = ini_get(&proj.ini, "project", "version");
-    printf("   Compiling %s %s (%s)\n", proj.name, ver ? ver : "", proj.is_library ? (static_lib ? "static library" : "shared library") : "program");
+    printf("   Compiling %s %s (%s, %s)\n", proj.name, ver ? ver : "", proj.is_library ? (static_lib ? "static library" : "shared library") : "program",
+           release ? "release" : "debug");
     fflush(stdout);
     if (run(&av, NULL)) {
         fprintf(stderr, "ppm: could not build '%s'\n", proj.name);
@@ -321,7 +330,7 @@ static int cmd_test(void) {
         if (build()) return 1;
     }
     StrVec tests = sources(sfmt("%stests/", proj.dir));
-    char *tdir = sfmt("%stests/", target());
+    char *tdir = sfmt("%stests/", profile_dir());
     mkdirs(tdir);
     int passed = 0, failed = 0;
     for (int i = 0; i < tests.len; i++) {
@@ -379,19 +388,39 @@ static void usage(void) {
             "ppm - Perfect Pascal Manager (projects with a ppc.ini)\n"
             "usage: ppm <command>\n"
             "  new <name> [--lib] [--static] [--pps]   a new project (program, shared or static library; .pps files)\n"
-            "  build                                   build into target/\n"
-            "  run [-- args]                           build and run the program\n"
+            "  build [--release]                       build into target/debug/ (target/release/: optimized)\n"
+            "  run [--release] [-- args]               build and run the program\n"
             "  check                                   check the program or library and every module in src/\n"
-            "  test                                    build and run tests/*.pas|pps (output compared with .expected)\n"
+            "  test [--release]                        build and run tests/*.pas|pps (output compared with .expected)\n"
             "  clean                                   remove target/\n");
     exit(2);
+}
+
+/* --release (before '--'): removed from the arguments */
+static int take_release(int *argc, char **argv) {
+    int k = 0;
+    for (int i = 0; i < *argc; i++) {
+        if (STREQ(argv[i], "--")) {
+            for (; i < *argc; i++) argv[k++] = argv[i];
+            break;
+        }
+        if (STREQ(argv[i], "--release")) release = 1;
+        else argv[k++] = argv[i];
+    }
+    *argc = k;
+    return release;
 }
 
 int main(int argc, char **argv) {
     if (argc < 2) usage();
     find_ppc(argv[0]);
     const char *c = argv[1];
+    int rest = argc - 2;
+    if (!STREQ(c, "new")) take_release(&rest, argv + 2);
+    argc = rest + 2;
     if (STREQ(c, "new")) return cmd_new(argc - 2, argv + 2);
+    if ((STREQ(c, "build") || STREQ(c, "check") || STREQ(c, "test") || STREQ(c, "clean")) && rest > 0)
+        die("unknown argument '%s' for 'ppm %s'", argv[2], c);
     if (STREQ(c, "build")) return cmd_build();
     if (STREQ(c, "run")) return cmd_run(argc - 2, argv + 2);
     if (STREQ(c, "check")) return cmd_check();
