@@ -1,5 +1,5 @@
 program text_files;
-import ppc_std;
+import std;
 begin
   case TTextFile.OpenWrite('tf_test.tmp') of
     ok f: begin f.WriteLine('first'); f.Write('sec'); f.WriteLine('ond'); end;

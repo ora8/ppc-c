@@ -25,8 +25,8 @@ $(BUILD)/runtime.c: src/ppc_rt.h | $(BUILD)
 $(BUILD)/runtime.o: $(BUILD)/runtime.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# embed the standard library (Perfect Pascal source) for 'uses ppc_std'
-$(BUILD)/stdlib.c: lib/ppc_std.pas | $(BUILD)
+# embed the standard library (Perfect Pascal source) for 'uses std'
+$(BUILD)/stdlib.c: lib/std.pas | $(BUILD)
 	@echo 'const char *PPC_STD =' > $@
 	@sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/"/' -e 's/$$/\\n"/' $< >> $@
 	@echo ';' >> $@

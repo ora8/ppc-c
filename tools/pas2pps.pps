@@ -13,7 +13,7 @@ program Pas2Pps;
    - the ';' after the '}' of a routine body or a type is dropped
    - 'then' is dropped when a statement starts after it, an 'else' of an 'if' gets a ';' before it
      (if n < 2 Result := n; else Result := 0;) *}
-import ppc_std;
+import std;
 
 type
   TKind = (tkId, tkKw, tkNum, tkStr, tkSym);

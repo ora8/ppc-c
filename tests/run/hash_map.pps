@@ -1,5 +1,5 @@
 program hash_map;
-import ppc_std;
+import std;
 type
   TItem = class { N: Integer; constructor Create(AN: Integer); destructor Destroy; override; }
   TPoint = record { X, Y: Integer; }

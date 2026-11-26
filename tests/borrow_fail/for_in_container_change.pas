@@ -1,6 +1,6 @@
 {* EXPECT: 'l' was changed at line 9 while 'it' was borrowing it *}
 program T;
-import ppc_std;
+import std;
 type TItem = class N: Integer; end;
 begin
   vao l := TList<TItem>.Create;

@@ -1,6 +1,6 @@
 program FunctionValuesStd;
-{* lambdas with ppc_std: SortBy, Filter, optional event fields *}
-import ppc_std;
+{* lambdas with std: SortBy, Filter, optional event fields *}
+import std;
 type
   TPerson = record { Name: String; Age: Integer; }
   TButton = class {

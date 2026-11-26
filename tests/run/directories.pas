@@ -1,5 +1,5 @@
 program directories;
-import ppc_std;
+import std;
 val base := 'ppc_dir_test.tmp';
 begin
   if ForceDirs(JoinPath(base, 'a/b/c')) is error e then WriteLn(e);

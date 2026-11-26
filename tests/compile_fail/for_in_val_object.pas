@@ -1,6 +1,6 @@
 {* EXPECT: cannot modify a part of 'it', which is constant *}
 program T;
-import ppc_std;
+import std;
 type TItem = class N: Integer; end;
 begin
   vao l := TList<TItem>.Create;

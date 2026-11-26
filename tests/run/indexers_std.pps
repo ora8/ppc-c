@@ -1,5 +1,5 @@
 program indexers_std;
-import ppc_std;
+import std;
 type TItem = class { N: Integer; constructor Create(AN: Integer); destructor Destroy; override; }
 constructor TItem.Create(AN: Integer); { N := AN; }
 destructor TItem.Destroy; { WriteLn('free ', N); }

@@ -160,7 +160,7 @@ typedef struct {
     ConsVec tcons;
     int iface;            /* header in a module's interface section: defined in the implementation */
     char *external;       /* 'external 'c_name'': implemented in C (the runtime, or a C function / shared object) */
-    int c_external;       /* a C function of a shared object or C library (not the runtime of ppc_std) */
+    int c_external;       /* a C function of a shared object or C library (not the runtime of std) */
     int is_overload;      /* '; overload;' */
     int has_lambda;       /* its body contains a lambda (that may capture its variables: it needs a frame) */
     int is_operator;      /* class operator TVec.Add(...) */
@@ -185,7 +185,7 @@ typedef struct {
 struct Block {
     VEC(Decl *) decls;
     StmtVec body;
-    IdentVec uses; /* program/module: 'import ppc_std;' */
+    IdentVec uses; /* program/module: 'import std;' */
     Block *impl;   /* module: the implementation section (interface: decls of this block) */
     int is_library;              /* 'library Name;' instead of 'program Name;' */
     VEC(ExportDecl) exports;     /* library: 'exports A, B name 'b';' */

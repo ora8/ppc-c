@@ -1,6 +1,6 @@
 program Module;
 {* modules of our own: 'import Geometry' loads Geometry.pas from the same directory *}
-import ppc_std, Geometry;
+import std, Geometry;
 
 val
   a: TPoint := (X: 0; Y: 0);

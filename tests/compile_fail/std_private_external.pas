@@ -1,6 +1,6 @@
 {* EXPECT: identifier not found "__ReadFile" *}
 program T;
-import ppc_std;
+import std;
 begin
   WriteLn(__ReadFile('x'));
 end.

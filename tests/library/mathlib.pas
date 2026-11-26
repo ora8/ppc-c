@@ -1,6 +1,6 @@
 library MathLib;
 {* a shared library: 'ppc mathlib.pas' makes libMathLib.so and the C header MathLib.h *}
-import ppc_std;
+import std;
 
 type
   TColor = (Red, Green, Blue);
@@ -39,7 +39,7 @@ begin
     if ch = c then Inc(Result);
 end;
 
-function Shout(s: String): Integer;    {* the library can print and use ppc_std *}
+function Shout(s: String): Integer;    {* the library can print and use std *}
 begin
   WriteLn(UpperCase(s), '!');
   words.Add(s);

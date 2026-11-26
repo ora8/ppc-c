@@ -1,5 +1,5 @@
 program for_in_more;
-import ppc_std;
+import std;
 type TItem = class N: Integer; end;
 function Total<T: Numeric>(a: array of T): T;
 begin

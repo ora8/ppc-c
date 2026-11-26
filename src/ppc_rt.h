@@ -406,7 +406,7 @@ static int __set_eq(__Set a, __Set b) { for (int i = 0; i < 4; i++) if (a.w[i] !
 static int __set_le(__Set a, __Set b) { for (int i = 0; i < 4; i++) if (a.w[i] & ~b.w[i]) return 0; return 1; } /* a is a subset of b */
 static int64_t __hash_set(__Set a) { int64_t h = 0; for (int i = 0; i < 4; i++) h = __hash_comb(h, (int64_t)a.w[i]); return h; }
 static int64_t __set_count(__Set a) { int64_t n = 0; for (int i = 0; i < 4; i++) n += __builtin_popcountll(a.w[i]); return n; }
-/* ---- standard library primitives (declared 'external' in ppc_std) ---- */
+/* ---- standard library primitives (declared 'external' in std) ---- */
 static int __ppc_argc;
 static char **__ppc_argv;
 static char *__cz(PStr s) { char *c = (char *)malloc((size_t)s.len + 1); if (s.len) memcpy(c, s.p, (size_t)s.len); c[s.len] = 0; return c; }

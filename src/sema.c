@@ -6905,7 +6905,7 @@ Program *sema_program(Block *prelude, Block **libs, int nlibs, Block *pb, const 
     decls(prelude, 0);
     in_prelude = 0;
 
-    push_scope(); /* units ('uses ppc_std'): the program may shadow their names */
+    push_scope(); /* units ('uses std'): the program may shadow their names */
     for (int i = 0; i < nlibs; i++) module_decls(libs[i]);
     gscope = push_scope();
     decls(pb, 0);

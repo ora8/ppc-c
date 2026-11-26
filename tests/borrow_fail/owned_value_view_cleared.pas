@@ -1,6 +1,6 @@
 {* EXPECT: 'l' was changed at line 22 while 'x' was borrowing it *}
 program T;
-import ppc_std;
+import std;
 type
   TItem = class
     N: Integer;

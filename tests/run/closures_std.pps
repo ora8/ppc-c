@@ -1,5 +1,5 @@
 program closures_std;
-import ppc_std;
+import std;
 procedure Demo(Limit: Integer; Desc: Boolean);
 val
   a: array of Integer := (5, 1, 9, 3, 7);

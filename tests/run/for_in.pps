@@ -1,5 +1,5 @@
 program for_in;
-import ppc_std;
+import std;
 type
   TItem = class {
     Name: String;

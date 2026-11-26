@@ -1648,7 +1648,7 @@ static Block *parse_block(void) {
 
 static IdentVec parse_imports(void) {
     IdentVec v = {0};
-    if (is_kw("uses")) error_at(pos(), "'uses' was replaced by 'import' (for example 'import ppc_std;')");
+    if (is_kw("uses")) error_at(pos(), "'uses' was replaced by 'import' (for example 'import std;')");
     if (accept_kw("import")) {
         v = ident_list();
         expect_sym(";");

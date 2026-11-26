@@ -1,4 +1,4 @@
-{* ppc_std: the standard library of Perfect Pascal  (include it with 'import ppc_std;')
+{* std: the standard library of Perfect Pascal  (include it with 'import std;')
 
   TList<T>                  list that grows (index from 0)
   TStack<T>                 stack (last in, first out)
@@ -27,7 +27,7 @@
   All containers own their elements (objects are freed with the container).
   Taking elements out (Extract, Pop, Remove) passes the ownership to the caller. *}
 
-module ppc_std;
+module std;
 
 interface
 

@@ -33,7 +33,7 @@ Highlights:
 * **`T const`** makes variables, parameters and object references unchangeable; `; const;`
   marks methods that do not change `Self`.
 * **Generics** (`TList<T>`, `Max<T: Comparable>`), **modules** (`module` / `import`) and a
-  **standard library** (`import ppc_std`).
+  **standard library** (`import std`).
 * **Class methods** (`class function`), **records with methods**, record and array literals,
   dynamic arrays (`array of T`).
 
@@ -247,7 +247,7 @@ one syntax can import modules in the other.
 
 ```pascal
 program Hello;
-import ppc_std;
+import std;
 // comments are {* ... *}, (* ... *) and //: { } are blocks
 type
   TColor = (Red, Green, Blue);
@@ -466,7 +466,7 @@ type
 
 g.Cell[2, 1] := 7;              {* SetCell(2, 1, 7) *}
 g[0, 0] := g[2, 1] + 1;         {* default indexer *}
-if l[0] is some x then …;       {* TList<T> in ppc_std: property Item[i]: optional T; default *}
+if l[0] is some x then …;       {* TList<T> in std: property Item[i]: optional T; default *}
 m['Anna'] := 30;                {* TMap<String, Integer> *}
 ```
 
@@ -1202,7 +1202,7 @@ The module ends with `end.`:
 
 ```pascal
 module Geometry;                        {* file Geometry.pas *}
-import ppc_std;                         {* imports come right after the header *}
+import std;                         {* imports come right after the header *}
 
 interface
 
@@ -1230,7 +1230,7 @@ end.
 
 ```pascal
 program Main;                           {* file Main.pas in the same directory *}
-import ppc_std, Geometry;
+import std, Geometry;
 
 val a: TPoint := (X: 0; Y: 0);
 val b: TPoint := (X: 3; Y: 4);
@@ -1261,15 +1261,15 @@ end.
 * A module has no main block (`begin … end`); it ends with `end.`. The old `uses` gives
   `'uses' was replaced by 'import'`.
 
-### Standard library: `import ppc_std`
+### Standard library: `import std`
 
-The standard library is itself a Perfect Pascal module ([lib/ppc_std.pas](lib/ppc_std.pas)), with
+The standard library is itself a Perfect Pascal module ([lib/std.pas](lib/std.pas)), with
 an interface and an implementation section, and is embedded into the compiler. It contains generic
 containers and algorithms, string and math functions, whole-file I/O, time and program parameters:
 
 ```pascal
 program Example;
-import ppc_std;
+import std;
 val numbers: array of Integer := (5, 3, 9, 1, 7);
 vao customers := TList<TCustomer>.Create;
 vao ages := TMap<String, Integer>.Create;
@@ -1378,7 +1378,7 @@ The same `ppc` makes executables and shared libraries; the first line of the fil
 
 ```pascal
 library MathLib;
-import ppc_std;
+import std;
 
 type
   TPoint = record
@@ -1436,7 +1436,7 @@ int32_t count_char(const char *s, char c);
   overloaded and generic routines cannot be exported (yet) – the compiler says why.
 * The main block (`begin … end.`) runs when the library is loaded; global objects of the library are
   freed when it is unloaded (also with `dlclose`).
-* Inside, the library is ordinary Perfect Pascal: modules, `ppc_std`, the borrow checker, both
+* Inside, the library is ordinary Perfect Pascal: modules, `std`, the borrow checker, both
   syntaxes (`library` and `exports` work the same in `.pps` files).
 * A run-time error in the library (e.g. a range error) ends the whole program, as in a program.
 * `-o` sets the `.so` (the header is written next to it); `-S` writes the C file and the header.
@@ -1888,7 +1888,7 @@ end.
 ```
 
 * Types can also be written directly: `Less: function(x, y: T): Boolean`; type inference of
-  generics works through them (`SortBy`, `Filter` in `ppc_std`).
+  generics works through them (`SortBy`, `Filter` in `std`).
 * A function value is called like a routine: `f(1, 2)`, also without arguments `t()` and on
   results: `Pick(True)(1, 5)`.
 * A lambda that uses no variables of the routine around it is a plain function value (global
@@ -1934,7 +1934,7 @@ end;
 * A `reference to` parameter also accepts plain routines and lambdas; a closure for a plain
   procedural type is an error: `this lambda uses variables of the routine around it (a closure)
   and cannot be stored as "procedure(Integer)" … declare the parameter or variable 'reference to
-  procedure(Integer)'`. `SortBy` and `Filter` in `ppc_std` take `reference to` parameters.
+  procedure(Integer)'`. `SortBy` and `Filter` in `std` take `reference to` parameters.
 * Lambdas without parameters: `procedure begin … end`; a procedure value without parameters is
   called with `f;` or `f()`.
 * The borrow checker knows what a closure uses: calling it after an object it uses was freed or
@@ -2234,7 +2234,7 @@ once (in every kind of loop); borrows of them are invalid afterwards.
 
 ## Supported language
 
-* `program`, `module` and `import` (own modules, standard library `ppc_std`), `const` (also
+* `program`, `module` and `import` (own modules, standard library `std`), `const` (also
   typed constants and array initializers), `type`, `val` (values), `var` (references), `vao`
   (owners), blocks with their own sections
 * Types: `Integer`/`LongInt` (32 bit), `ShortInt`, `SmallInt`, `Byte`, `Word`, `Cardinal`,
@@ -2262,7 +2262,7 @@ Not supported: `nil` (replaced by `optional`/`none`), pointers (`^`, `@`, `New`,
 (`array of T` is a dynamic array), closures that outlive their routine, `with` (name the variable, or take a short reference
 `var q := a.Inner`), exceptions (replaced by `result T` and `try`), reference-counted
 interfaces, variant records (replaced by enumerations with data), `goto`, Pascal file types (`TextFile`,
-`Assign`/`Reset`; whole-file I/O is in `ppc_std`).
+`Assign`/`Reset`; whole-file I/O is in `std`).
 
 ## Structure
 
@@ -2274,7 +2274,7 @@ interfaces, variant records (replaced by enumerations with data), `goto`, Pascal
 | `src/codegen.c`   | C code generation (structs, VMTs, static links, runtime calls) |
 | `src/ppc_rt.h`    | C runtime library, embedded into every program             |
 | `src/main.c`      | driver, prelude (`TObject`), modules, calling the C compiler |
-| `lib/ppc_std.pas` | standard library in Perfect Pascal, embedded               |
+| `lib/std.pas` | standard library in Perfect Pascal, embedded               |
 | `tests/`          | test programs and `run.sh`                                 |
 | `examples/`       | example programs                                           |
 

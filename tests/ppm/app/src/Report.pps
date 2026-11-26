@@ -1,5 +1,5 @@
 module Report;
-import ppc_std;
+import std;
 interface
 function Line(what: String; v: Real): String;
 implementation

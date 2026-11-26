@@ -1,5 +1,5 @@
 program method_values;
-import ppc_std;
+import std;
 type
   IGreeter = interface {
     procedure Greet(Name: String);

@@ -1,4 +1,4 @@
-{* EXPECT: 'uses' was replaced by 'import' (for example 'import ppc_std;') *}
+{* EXPECT: 'uses' was replaced by 'import' (for example 'import std;') *}
 program T;
-uses ppc_std;
+uses std;
 begin end.

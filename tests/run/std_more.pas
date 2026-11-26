@@ -1,5 +1,5 @@
 program std_more;
-import ppc_std;
+import std;
 val
   parts: array of String := default;
   lines: array of String := default;

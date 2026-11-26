@@ -1,6 +1,6 @@
 {* EXPECT: the result of 'Get' refers into its container and cannot be taken over *}
 program T;
-import ppc_std;
+import std;
 type
   TItem = class
     N: Integer;

@@ -3,7 +3,7 @@
 Status: **accepted** (all proposals of section 8 accepted). Stage 1 (generic records and
 classes), stage 2 (generic functions and procedures), stage 3 (constraints), stage 4 (checking
 the body against the constraints), stage 5 (dynamic arrays) and stage 6 (standard library
-`import ppc_std`) are built – all stages are done.
+`import std`) are built – all stages are done.
 
 ## 1. Goal
 
@@ -176,7 +176,7 @@ Generic containers are only half useful with `array[1..100] of optional T` – t
 | 3 | constraints `class`, base class, `Copy`, `Clone`, `Equatable`, `Comparable`, `Numeric` | `Sort<T: Comparable>` |
 | 4 | checking the generic body against the constraints (errors without an instance) | Rust-like messages |
 | 5 | dynamic arrays `array of T` | growing containers |
-| 6 | small standard library: `TList<T>`, `TStack<T>`, `TMap<K, V>`, `Sort`, `IndexOf` | as `import ppc_std` |
+| 6 | small standard library: `TList<T>`, `TStack<T>`, `TMap<K, V>`, `Sort`, `IndexOf` | as `import std` |
 
 Every stage comes with its own tests (run and error tests), an ASan check and a README section.
 
@@ -188,7 +188,7 @@ Every stage comes with its own tests (run and error tests), an ASan check and a 
 | `val x: T` for object instances | owning reference like `vao`; no stack objects in generic code |
 | Checking strategy | first per instance, from stage 4 against the constraints |
 | Order | dynamic arrays as a stage of their own before the containers |
-| Standard library | as Perfect Pascal source (`import ppc_std`) |
+| Standard library | as Perfect Pascal source (`import std`) |
 
 Original questions:
 
@@ -198,5 +198,5 @@ Original questions:
 3. **Checking strategy:** first per instance, later against the constraints (proposal) – or
    Rust-like right away?
 4. **Order:** dynamic arrays before the generics, after them or in parallel?
-5. **Standard library:** as Perfect Pascal source (`import ppc_std`) or built into the compiler
+5. **Standard library:** as Perfect Pascal source (`import std`) or built into the compiler
    like `TObject`?

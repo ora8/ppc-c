@@ -1,7 +1,7 @@
 library Greet;
 {* a second library with classes of its own: two Perfect Pascal libraries can be linked into one
    program (their internal names, e.g. the method tables, do not collide) *}
-import ppc_std;
+import std;
 
 type
   TGreeter = class {

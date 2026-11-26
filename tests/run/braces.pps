@@ -1,6 +1,6 @@
 program Braces;
 // the brace syntax (.pps): { } instead of begin and end
-import braces_shapes, ppc_std;
+import braces_shapes, std;
 (* the brace syntax: { } blocks *)
 {* comments: brace-star, paren-star and double slash *}
 type

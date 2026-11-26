@@ -86,9 +86,10 @@ static void load_module(Ident *name) {
         if (STREQ(loading.items[i], name->name)) error_at(name->pos, "modules import each other in a cycle: '%s'", name->name);
     const char *src;
     char *file;
-    if (STREQ(name->name, "ppc_std")) {
+    if (STREQ(name->name, "ppc_std")) error_at(name->pos, "the standard library is now called 'std': write 'import std;'");
+    if (STREQ(name->name, "std")) {
         src = PPC_STD;
-        file = "ppc_std.pas";
+        file = "std.pas";
     } else {
         /* next to the importing file, then in the --module-paths; in each directory first the file in the
            syntax of the importing file (M.pps for a .pps file), then the other one */
@@ -283,7 +284,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     /* modules: 'import Name' loads Name.pas next to the importing file or in the --module-paths
-       (ppc_std is built in), dependencies first */
+       (std is built in), dependencies first */
     for (int i = 0; i < prog_block->uses.len; i++) load_module(&prog_block->uses.items[i]);
     g_filename = input;
     if (g_errors) {

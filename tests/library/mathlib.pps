@@ -1,6 +1,6 @@
 library MathLib;
 {* a shared library: 'ppc mathlib.pas' makes libMathLib.so and the C header MathLib.h *}
-import ppc_std;
+import std;
 
 type
   TColor = (Red, Green, Blue);
@@ -39,7 +39,7 @@ function CountChar(s: String; c: Char): Integer;    {* a String parameter: a C s
     if ch = c Inc(Result);
 }
 
-function Shout(s: String): Integer;    {* the library can print and use ppc_std *}
+function Shout(s: String): Integer;    {* the library can print and use std *}
 {
   WriteLn(UpperCase(s), '!');
   words.Add(s);

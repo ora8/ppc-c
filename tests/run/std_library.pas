@@ -1,6 +1,6 @@
 program StdLibrary;
-{* standard library (generics stage 6): import ppc_std -> TList, TStack, TMap, Sort, IndexOf *}
-import ppc_std;
+{* standard library (generics stage 6): import std -> TList, TStack, TMap, Sort, IndexOf *}
+import std;
 type
   TCustomer = class
     Name: String;

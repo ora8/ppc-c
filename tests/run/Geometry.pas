@@ -1,6 +1,6 @@
 module Geometry;
 {* a module of our own: included by modules.pas with 'import Geometry;' *}
-import ppc_std;
+import std;
 
 interface
 

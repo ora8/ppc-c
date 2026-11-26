@@ -1,5 +1,5 @@
 program generic_owned_values;
-import ppc_std;
+import std;
 type
   TItem = class
     N: Integer;
