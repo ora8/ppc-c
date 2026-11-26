@@ -72,6 +72,19 @@ typedef struct {
     Generic *gm; /* a generic method of Self */
 } Look;
 static void check_visible(Look *L, Pos p, const char *name);
+static int hover_at(Pos p, const char *name);
+static Var *pending_hover_var;         /* a declaration under the cursor: described when complete */
+static MethodDecl *pending_hover_method;
+static void hover_set(const char *text);
+static const char *type_desc(Type *t);
+static void hover_member(Struct *st, const char *name);
+static void hover_look(Look *L, const char *name);
+static const char *var_desc(Var *v);
+static const char *routine_desc(Routine *r);
+static Field *find_cfield(Struct *st, const char *name);
+static Generic *find_gmethod(Struct *st, const char *name);
+static char *variant_sig(Struct *st, int vi);
+static int builtin_id(const char *name);
 static Type *classref_of(Struct *st);
 static Expr *classref_member(Expr *cref, const char *name, ExprVec *args, Pos p);
 static Field *find_cfield(Struct *st, const char *name);
@@ -972,6 +985,7 @@ static void add_fields(Struct *s, FieldDeclVec *fields) {
             f->borrowed = fborrowed;
             f->owner = s;
             f->vis = fd->vis;
+            if (hover_at(id->pos, id->name)) hover_set(sfmt("(field of %s) %s%s: %s", s->name, f->borrowed ? "var " : "", f->name, type_name(t)));
             vpush(s->fields, f);
         }
     }
@@ -1047,6 +1061,7 @@ static void define_record(Struct *s, TypeExpr *te) {
             continue;
         }
         if (md->is_operator) operator_rules(s, md);
+        if (hover_at(md->name.pos, md->name.name)) pending_hover_method = md;
         if (md->kind == RK_CTOR || md->kind == RK_DTOR)
             error_at(md->name.pos, "records cannot have constructors or destructors (records are values: use a procedure such as Init or a function that returns the record)");
         if (md->virt != VIRT_NONE || md->is_abstract)
@@ -1445,6 +1460,119 @@ static Expr *classref_member(Expr *cref, const char *name, ExprVec *args, Pos p)
     c->b = cref;
     return c;
 }
+
+/* ---- --hover LINE:COL: what the name at that place is (for the language server) ---- */
+int g_hover_line, g_hover_col;
+const char *g_hover_file;
+char *g_hover_text;
+static int hover_at(Pos p, const char *name) {
+    if (!g_hover_line || g_hover_text || p.line != g_hover_line || !name) return 0;
+    if (g_hover_col < p.col || g_hover_col >= p.col + (int)strlen(name)) return 0;
+    return g_hover_file && STREQ(POS_FILE(p), g_hover_file);
+}
+static void hover_set(const char *text) {
+    if (!g_hover_text) g_hover_text = xstrdup(text);
+}
+static const char *type_desc(Type *t) {
+    Buf b = {0};
+    if (t->kind == T_CLASS && t->st->is_iface) buf_printf(&b, "type %s = interface%s", t->st->name, t->st->parent ? sfmt("(%s)", t->st->parent->name) : "");
+    else if (t->kind == T_CLASS) {
+        buf_printf(&b, "type %s = class", t->st->name);
+        int n = 0;
+        if (t->st->parent && t->st->parent->parent) buf_printf(&b, "(%s", t->st->parent->name), n++;
+        for (int i = 0; i < t->st->ifaces.len; i++) buf_printf(&b, "%s%s", n++ ? ", " : "(", t->st->ifaces.items[i]->name);
+        if (n) buf_put(&b, ")");
+    } else if (t->kind == T_RECORD && t->st->is_sum) {
+        buf_printf(&b, "type %s = (", t->st->name);
+        for (int i = 0; i < t->st->variants.len; i++) buf_printf(&b, "%s%s", i ? ", " : "", variant_sig(t->st, i));
+        buf_put(&b, ")");
+    } else if (t->kind == T_RECORD) buf_printf(&b, "type %s = record", t->st->name);
+    else if (t->kind == T_ENUM) {
+        buf_printf(&b, "type %s = (", type_name(t));
+        for (int i = 0; i < t->en->names.len && i < 12; i++) buf_printf(&b, "%s%s", i ? ", " : "", t->en->names.items[i]);
+        buf_put(&b, t->en->names.len > 12 ? ", ...)" : ")");
+    } else buf_printf(&b, "type %s", type_name(t));
+    return xstrdup(buf_str(&b));
+}
+static const char *routine_desc(Routine *r) {
+    Buf b = {0};
+    if (r->is_classm && r->owner) buf_put(&b, "class ");
+    buf_put(&b, r->kind == RK_FUNC ? "function " : r->kind == RK_CTOR ? "constructor " : r->kind == RK_DTOR ? "destructor " : "procedure ");
+    if (r->owner) buf_printf(&b, "%s.", r->owner->name);
+    buf_put(&b, r->name);
+    if (r->params.len) {
+        buf_put(&b, "(");
+        for (int i = 0; i < r->params.len; i++) {
+            Param *pm = &r->params.items[i];
+            buf_printf(&b, "%s%s%s: %s", i ? "; " : "",
+                       pm->mode == PM_VAR ? "var " : pm->mode == PM_OUT ? "out " : pm->mode == PM_OWNED ? "vao " : "",
+                       pm->name ? pm->name : "_", type_name(pm->type));
+        }
+        buf_put(&b, ")");
+    }
+    if (r->ret) buf_printf(&b, ": %s%s", r->ret_borrowed ? "var " : "", type_name(r->ret));
+    if (r->is_constm && r->owner) buf_put(&b, "; const");
+    if (r->slot >= 0 && r->owner && !r->owner->is_iface) buf_put(&b, "; virtual");
+    if (r->is_overload) buf_put(&b, "; overload");
+    return xstrdup(buf_str(&b));
+}
+static const char *var_desc(Var *v) {
+    const char *where = v->vkind == VK_PARAM ? "parameter" : v->vkind == VK_RESULT ? "result" : v->vkind == VK_SELF ? "self" :
+                        v->is_global ? "global" : "local";
+    const char *kw = v->vkind == VK_PARAM ? (v->mode == PM_VAR ? "var" : v->mode == PM_OUT ? "out" : v->mode == PM_OWNED ? "vao" : "")
+                   : (v->is_alias || v->borrowed) ? "var" : (is_ref_type(v->type) && !v->is_stack) ? "vao" : "val";
+    return sfmt("(%s) %s%s%s: %s%s", where, kw, kw[0] ? " " : "", v->name, type_name(v->type),
+                v->is_stack ? "  { stack object }" : v->is_const && v->vkind != VK_PARAM ? "  { read-only }" : "");
+}
+static void hover_member(Struct *st, const char *name) {
+    Field *f;
+    Routine *m;
+    Prop *pr;
+    if (find_member(st, name, &f, &m, &pr)) {
+        if (f) hover_set(sfmt("(field of %s) %s%s: %s", f->owner->name, f->borrowed ? "var " : "", name, type_name(f->type)));
+        else if (m) hover_set(routine_desc(m));
+        else hover_set(sfmt("(property of %s) %s%s: %s", pr->owner->name, name, pr->idx.len ? "[...]" : "", type_name(pr->type)));
+        return;
+    }
+    Field *cf = find_cfield(st, name);
+    if (cf) {
+        hover_set(sfmt("(class field of %s) %s: %s", cf->owner->name, name, type_name(cf->type)));
+        return;
+    }
+    Generic *gm = find_gmethod(st, name);
+    if (gm) hover_set(sfmt("generic method %s.%s<...>", st->name, name));
+    for (int i = 0; st->is_sum && i < st->variants.len; i++)
+        if (STREQ(st->variants.items[i].name, name)) hover_set(sfmt("(variant of %s) %s", st->name, variant_sig(st, i)));
+}
+static void hover_look(Look *L, const char *name) {
+    if (L->kind == LK_MEMBER) {
+        if (L->gm) hover_set(sfmt("generic method %s<...>", name));
+        else if (L->f) hover_set(sfmt("(field of %s) %s%s: %s", L->f->owner->name, L->f->borrowed ? "var " : "", name, type_name(L->f->type)));
+        else if (L->m) hover_set(routine_desc(L->m));
+        else if (L->p) hover_set(sfmt("(property of %s) %s: %s", L->p->owner->name, name, type_name(L->p->type)));
+        return;
+    }
+    if (L->kind == LK_NONE) {
+        if (builtin_id(name)) hover_set(sfmt("(built-in) %s", name));
+        return;
+    }
+    Sym *s = L->sym;
+    switch (s->kind) {
+    case SY_VAR: hover_set(var_desc(s->var)); break;
+    case SY_CONST: {
+        long long v;
+        if (s->cval && s->cval->type->kind == T_ENUM) hover_set(sfmt("(value of %s) %s", type_name(s->cval->type), name));
+        else if (s->cval && lit_ord(s->cval, &v)) hover_set(sfmt("const %s = %lld: %s", name, v, type_name(s->cval->type)));
+        else if (s->cval && s->cval->kind == E_STR) hover_set(sfmt("const %s = '%s'", name, s->cval->sval));
+        else hover_set(sfmt("const %s: %s", name, s->cval ? type_name(s->cval->type) : "?"));
+        break;
+    }
+    case SY_TYPE: hover_set(type_desc(s->type)); break;
+    case SY_ROUTINE: hover_set(routine_desc(s->rt)); break;
+    case SY_GENERIC: hover_set(sfmt("generic %s %s<...>", s->gen->is_routine ? "routine" : "type", name)); break;
+    case SY_VARIANT: hover_set(sfmt("(variant of %s) %s", s->type->st->name, variant_sig(s->type->st, s->vidx))); break;
+    }
+}
 /* ---- class fields: class var Count: Integer ---- */
 static Field *find_cfield(Struct *st, const char *name) {
     for (Struct *c = st; c; c = c->parent)
@@ -1676,6 +1804,7 @@ static Type *resolve_type_inner(TypeExpr *te) {
     switch (te->kind) {
     case TE_NAMED: {
         Look L = lookup(te->name.name);
+        if (hover_at(te->name.pos, te->name.name) && L.kind == LK_SYM && L.sym->kind == SY_TYPE) hover_set(type_desc(L.sym->type));
         if (te->targs.len) return generic_type(&L, te->name, &te->targs, te->pos);
         if (L.kind == LK_SYM && L.sym->kind == SY_GENERIC)
             error_at(te->pos, "\"%s\" is generic: give its type arguments, e.g. '%s<Integer>'", te->name.name, te->name.name);
@@ -1906,6 +2035,7 @@ static void define_iface(Struct *s, StructDecl *sd) {
             continue;
         }
         if (md->is_operator) operator_rules(s, md);
+        if (hover_at(md->name.pos, md->name.name)) pending_hover_method = md;
         if (md->kind == RK_CTOR || md->kind == RK_DTOR)
             error_at(md->name.pos, "interfaces have no constructors or destructors (objects are created from classes)");
         if (md->virt != VIRT_NONE || md->is_abstract || md->is_classm || md->is_auto)
@@ -2025,6 +2155,7 @@ static void define_struct(Struct *s, StructDecl *sd) {
             continue;
         }
         if (md->is_operator) operator_rules(s, md);
+        if (hover_at(md->name.pos, md->name.name)) pending_hover_method = md;
         int novl = method_overload(s, md, md->kind == RK_CTOR ? "constructor" : "method");
         Routine *r = new_routine(md->name.name, md->kind, md->name.pos);
         r->is_overload = md->is_overload;
@@ -2426,6 +2557,7 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
         const char *name = e->id.name;
         scope_pos = p;
         Look L = lookup(name);
+        if (hover_at(p, name)) hover_look(&L, name);
         if (L.kind == LK_NONE) {
             int bi = builtin_id(name);
             if (bi) return builtin(bi, args, p);
@@ -2529,6 +2661,8 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
             }
             if (L.kind == LK_SYM && L.sym->kind == SY_TYPE) {
                 Type *t = L.sym->type;
+                if (hover_at(e->a->pos, e->a->id.name)) hover_set(type_desc(t));
+                if ((t->kind == T_CLASS || t->kind == T_RECORD) && hover_at(e->id.pos, name)) hover_member(t->st, name);
                 if (t->kind == T_RECORD && t->st->is_sum) { /* TShape.Circle(2.0) */
                     for (int i = 0; i < t->st->variants.len; i++)
                         if (STREQ(t->st->variants.items[i].name, name)) return variant_value(t, i, args, p);
@@ -2574,6 +2708,7 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
         }
         Expr *base = autoderef(value(e->a));
         Type *bt = base->type;
+        if ((bt->kind == T_CLASS || bt->kind == T_RECORD || bt->kind == T_CLASSREF) && bt->st && hover_at(e->id.pos, name)) hover_member(bt->st, name);
         if (bt->kind == T_CLASSREF) return classref_member(base, name, args, p); /* c.Create(...) */
         if (bt->kind == T_RES) {
             ExprVec a2 = {0};
@@ -5042,6 +5177,7 @@ static void routine_decl(RoutineDecl *d) {
                 error_at(d->pos, "implementation of \"%s.%s\" does not match its declaration", st->name, rt->name);
             for (int i = 0; i < rt->params.len; i++) rt->params.items[i].name = tmp.params.items[i].name;
         }
+        if (hover_at(d->name.pos, d->name.name)) hover_set(routine_desc(rt));
         routine_body(rt, d);
         return;
     }
@@ -5132,6 +5268,7 @@ static void routine_decl(RoutineDecl *d) {
         rt->defined = 1;
         return;
     }
+    if (hover_at(d->name.pos, d->name.name)) hover_set(routine_desc(rt));
     if (d->forward) {
         rt->forward = 1;
         return;
@@ -5300,6 +5437,7 @@ static void decl1(Decl *d, int has_frame) {
                     Struct *st = find_local(td->name.name)->type->st;
                     if (k == TE_RECORD) define_record(st, td->ty);
                     else define_struct(st, td->ty->sd);
+                    if (hover_at(td->name.pos, td->name.name)) hover_set(type_desc(st->type));
                     continue;
                 }
                 Type *t = resolve_type(td->ty);
@@ -5307,6 +5445,7 @@ static void decl1(Decl *d, int has_frame) {
                     t->name = td->name.name;
                     t->en->name = td->name.name;
                 }
+                if (hover_at(td->name.pos, td->name.name)) hover_set(type_desc(t));
                 add_sym(SY_TYPE, td->name.name, td->name.pos)->type = t;
             }
             for (int i = 0; i < d->types.len; i++) /* constraints may name classes of this section */
@@ -5417,6 +5556,7 @@ static void decl1(Decl *d, int has_frame) {
                     if (cur) vpush(cur->locals, v);
                     else vpush(prog->globals, v);
                     add_sym(SY_VAR, id->name, id->pos)->var = v;
+                    if (hover_at(id->pos, id->name)) pending_hover_var = v; /* described when it is complete */
                     StmtVec *dst = (cur || in_block) ? local_init : &prog->init;
                     if (is_stack && !(ctor->kind == E_VAR && ctor->var->is_stack) &&
                         !(ctor->kind == E_RCALL && ctor->cmode == CM_NEWCLASS)) { /* heap object moves onto the stack */
@@ -5582,6 +5722,19 @@ static void module_decls(Block *m) {
 /* ============================================================== program */
 
 static void add_type(const char *name, Type *t) { add_sym(SY_TYPE, name, (Pos){0, 0, NULL})->type = t; }
+
+/* --hover: the description of the name at the requested place (NULL: nothing there) */
+const char *hover_text(void) {
+    if (g_hover_text) return g_hover_text;
+    if (pending_hover_var) return var_desc(pending_hover_var);
+    if (pending_hover_method && prog)
+        for (int i = 0; i < prog->routines.len; i++) {
+            Routine *r = prog->routines.items[i];
+            Pos q = pending_hover_method->name.pos;
+            if (r->owner && r->pos.line == q.line && r->pos.col == q.col && STREQ(POS_FILE(r->pos), POS_FILE(q))) return routine_desc(r);
+        }
+    return NULL;
+}
 
 Program *sema_program(Block *prelude, Block **libs, int nlibs, Block *pb, const char *name) {
     prog = NEW(Program);

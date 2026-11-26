@@ -105,6 +105,12 @@ static char *read_stdin(void) {
 
 int lsp_main(const char *self);
 
+static void print_hover(void) { /* --hover: the description on standard output (also after errors) */
+    const char *h = hover_text();
+    if (h) fprintf(stdout, "%s\n", h);
+    fflush(stdout);
+}
+
 int main(int argc, char **argv) {
     if (argc >= 2 && STREQ(argv[1], "--lsp")) return lsp_main(argv[0]);
     int check_only = 0, from_stdin = 0;
@@ -121,6 +127,11 @@ int main(int argc, char **argv) {
         else if (STREQ(a, "--no-line")) g_line_dirs = 0;
         else if (STREQ(a, "--check")) check_only = 1;
         else if (STREQ(a, "--stdin")) from_stdin = 1;
+        else if (STREQ(a, "--hover") && i + 1 < argc) {
+            if (sscanf(argv[++i], "%d:%d", &g_hover_line, &g_hover_col) != 2) usage();
+            check_only = 1;
+            atexit(print_hover);
+        }
         else if (STREQ(a, "--no-borrow-check")) borrow = 0;
         else if (STREQ(a, "--no-nil-check")) g_nil_check = 0;
         else if (STREQ(a, "--no-range-check")) g_range_check = 0;
@@ -145,6 +156,7 @@ int main(int argc, char **argv) {
     g_filename = "<prelude>";
     Block *prelude = parse_decls_only(PRELUDE);
     g_filename = input;
+    g_hover_file = input;
     char *src = from_stdin ? read_stdin() : read_file(input);
     char *pname;
     Pos end_pos;
@@ -170,6 +182,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     prog->end_pos = end_pos;
+    if (g_hover_line) return 0; /* --hover: the description is printed at exit */
 
     g_borrow_check = borrow;
     if (borrow || g_nil_check) {

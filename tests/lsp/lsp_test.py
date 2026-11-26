@@ -34,7 +34,7 @@ def check(cond, what):
 
 send({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {'rootUri': None, 'capabilities': {}}})
 r = recv()
-check(r.get('id') == 1 and r['result']['capabilities']['textDocumentSync']['change'] == 1, 'initialize: full text sync')
+check(r.get('id') == 1 and r['result']['capabilities']['textDocumentSync']['change'] == 1 and r['result']['capabilities']['hoverProvider'], 'initialize: full text sync, hover')
 send({'jsonrpc': '2.0', 'method': 'initialized', 'params': {}})
 
 bad = "program T;\nval x: Integer := 1;\nbegin\n  x := 'ü' + 'a';\n  WriteLn(y);\nend.\n"
@@ -68,7 +68,23 @@ send({'jsonrpc': '2.0', 'method': 'textDocument/didOpen',
 diags = recv()['params']['diagnostics']
 check(len(diags) == 1 and 'lspmod.pas' in diags[0]['message'] and diags[0]['range']['start']['line'] == 0,
       'an error in an imported module is shown at the top of the importing file')
-send({'jsonrpc': '2.0', 'id': 7, 'method': 'textDocument/hover', 'params': {}})
+hovertext = ("program H;\ntype TBox = class Size: Integer; function Area(f: Real): Real; const; end;\n"
+             "function TBox.Area(f: Real): Real; const; begin Result := Size * f; end;\n"
+             "val u := 1;\nbegin\n  vao b := TBox.Create;\n  begin\n    WriteLn('ü', u, b.Area(2.0), b.Size);\n  end;\nend.\n")
+send({'jsonrpc': '2.0', 'method': 'textDocument/didChange',
+      'params': {'textDocument': {'uri': uri, 'version': 4}, 'contentChanges': [{'text': hovertext}]}})
+check(recv()['params']['diagnostics'] == [], 'hover program has no errors')
+def hover(line, ch):
+    send({'jsonrpc': '2.0', 'id': 9, 'method': 'textDocument/hover',
+          'params': {'textDocument': {'uri': uri}, 'position': {'line': line, 'character': ch}}})
+    r = recv()
+    return r['result']['contents']['value'] if r.get('result') else None
+check(r'Area(f: Real): Real; const' in (hover(7, 22) or ''), 'hover on a method call shows its signature (after a non-ASCII string)')
+check('(field of TBox) Size: Integer' in (hover(7, 35) or ''), 'hover on a field')
+check('val u: Integer' in (hover(7, 17) or ''), 'hover on a variable')
+check(hover(7, 3) is None, 'no hover on spaces')
+
+send({'jsonrpc': '2.0', 'id': 7, 'method': 'textDocument/definition', 'params': {}})
 r = recv()
 check(r.get('id') == 7 and r['error']['code'] == -32601, 'unsupported request answered with an error')
 

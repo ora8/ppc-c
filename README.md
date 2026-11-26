@@ -93,8 +93,13 @@ language-servers = ["ppc"]
 Emacs (eglot): `(add-to-list 'eglot-server-programs '(pascal-mode "ppc" "--lsp"))`.
 
 Other editors: configure `ppc --lsp` as the language server for `.pas` files. Without an editor:
-`ppc --check file.pas` checks a file (`--stdin` reads the text from standard input). The server
-offers diagnostics only (no completion or hover yet).
+`ppc --check file.pas` checks a file (`--stdin` reads the text from standard input).
+
+**Hover:** pointing at a name shows what it is – `(local) val Sum: Integer`, `(parameter) var
+Extra: Integer`, `(field of TBox) Size: Integer`, `function TShape.Area(Scale: Real): Real;
+const; virtual`, `type TColor = (Red, Green, Blue)`, `const Limit = 42: Integer`, built-ins –
+for uses and declarations. On the command line: `ppc --hover LINE:COL file.pas`. Completion and
+go-to-definition are not there yet.
 
 ### Debugging
 

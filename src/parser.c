@@ -191,6 +191,8 @@ static TokVec tokenize(const char *src) {
                 break;
             }
         }
+        if (!matched && (unsigned char)c >= 0x80)
+            error_at(pos, "non-ASCII character outside a string or comment (names use the letters A-Z, a-z, digits and '_')");
         if (!matched) error_at(pos, "unexpected character '%c'", c);
     }
     Token e = {0};

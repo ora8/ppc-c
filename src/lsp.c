@@ -122,10 +122,25 @@ static Json *jget(Json *o, const char *key) {
     return NULL;
 }
 static const char *jstr(Json *j) { return j && j->kind == J_STR ? j->str : NULL; }
-static void jesc(Buf *b, const char *s) { /* a JSON string literal */
+static int utf8_len(const unsigned char *s) { /* length of a valid UTF-8 sequence at s, 0 if invalid */
+    int n = s[0] >= 0xF0 ? 4 : s[0] >= 0xE0 ? 3 : s[0] >= 0xC2 ? 2 : 0;
+    for (int i = 1; i < n; i++)
+        if ((s[i] & 0xC0) != 0x80) return 0;
+    return n;
+}
+static void jesc(Buf *b, const char *s) { /* a JSON string literal (invalid UTF-8 becomes '?') */
     buf_put(b, "\"");
     for (; *s; s++) {
         unsigned char c = (unsigned char)*s;
+        if (c >= 0x80) {
+            int n = utf8_len((const unsigned char *)s);
+            if (n) {
+                buf_putn(b, s, (size_t)n);
+                s += n - 1;
+            } else
+                buf_put(b, "?");
+            continue;
+        }
         if (c == '"') buf_put(b, "\\\"");
         else if (c == '\\') buf_put(b, "\\\\");
         else if (c == '\n') buf_put(b, "\\n");
@@ -195,19 +210,22 @@ static Doc *doc_of(const char *uri) {
     return &docs.items[docs.len - 1];
 }
 
-/* run 'ppc --check --stdin path' with the text and return what it printed on stderr */
-static char *run_check(Doc *d) {
+/* run 'ppc --check --stdin path' (or with '--hover L:C') on the text; returns its stderr (or its stdout for hover) */
+static char *run_ppc(Doc *d, const char *hover);
+static char *run_check(Doc *d) { return run_ppc(d, NULL); }
+static char *run_ppc(Doc *d, const char *hover) {
     int in[2], err[2];
     if (pipe(in) || pipe(err)) return xstrdup("");
     pid_t pid = fork();
     if (pid == 0) {
         dup2(in[0], 0);
-        dup2(err[1], 2);
         int devnull = open("/dev/null", 1);
-        if (devnull >= 0) dup2(devnull, 1);
+        dup2(err[1], hover ? 1 : 2); /* the messages, or the description of --hover */
+        if (devnull >= 0) dup2(devnull, hover ? 2 : 1);
         close(in[1]);
         close(err[0]);
-        execl(self_exe, self_exe, "--check", "--stdin", d->path, (char *)NULL);
+        if (hover) execl(self_exe, self_exe, "--check", "--stdin", "--hover", hover, d->path, (char *)NULL);
+        else execl(self_exe, self_exe, "--check", "--stdin", d->path, (char *)NULL);
         _exit(127);
     }
     close(in[0]);
@@ -252,6 +270,22 @@ static int utf16_col(const char *text, int line, int bytecol) {
         units += (c >= 0xF0) ? 2 : 1;        /* 4-byte characters are two UTF-16 units */
     }
     return units;
+}
+
+/* the other way: an editor column (UTF-16 units) as the compiler's 1-based byte column */
+static int byte_col(const char *text, int line, int units) {
+    const char *p = text;
+    for (int l = 1; l < line && *p; p++)
+        if (*p == '\n') l++;
+    const char *start = p;
+    int u = 0;
+    while (*p && *p != '\n' && u < units) {
+        unsigned char c = (unsigned char)*p;
+        int len = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1;
+        u += c >= 0xF0 ? 2 : 1;
+        p += len;
+    }
+    return (int)(p - start) + 1;
 }
 
 /* 'file(line,col) Kind: message' lines of the compiler as LSP diagnostics */
@@ -322,7 +356,7 @@ int lsp_main(const char *self) {
             Buf b = {0};
             buf_put(&b, "{\"jsonrpc\":\"2.0\",\"id\":");
             jid(&b, id);
-            buf_put(&b, ",\"result\":{\"capabilities\":{\"textDocumentSync\":{\"openClose\":true,\"change\":1,\"save\":{\"includeText\":false}}},"
+            buf_put(&b, ",\"result\":{\"capabilities\":{\"textDocumentSync\":{\"openClose\":true,\"change\":1,\"save\":{\"includeText\":false}},\"hoverProvider\":true},"
                         "\"serverInfo\":{\"name\":\"ppc\",\"version\":\"1\"}}}");
             send_msg(buf_str(&b));
         } else if (STREQ(method, "shutdown")) {
@@ -346,6 +380,28 @@ int lsp_main(const char *self) {
                 text = jstr(jget(changes->items.items[changes->items.len - 1], "text"));
             if (text) d->text = xstrdup(text);
             publish(d);
+        } else if (STREQ(method, "textDocument/hover")) {
+            const char *uri = jstr(jget(jget(params, "textDocument"), "uri"));
+            Json *pos = jget(params, "position");
+            Json *ln = jget(pos, "line"), *ch = jget(pos, "character");
+            Buf b = {0};
+            buf_put(&b, "{\"jsonrpc\":\"2.0\",\"id\":");
+            jid(&b, id);
+            char *text = NULL;
+            if (uri && ln && ch) {
+                Doc *d = doc_of(uri);
+                int line = (int)ln->num + 1;
+                text = run_ppc(d, sfmt("%d:%d", line, byte_col(d->text, line, (int)ch->num)));
+                size_t n = strlen(text);
+                while (n && (text[n - 1] == '\n' || text[n - 1] == '\r')) text[--n] = 0;
+            }
+            if (text && *text) {
+                buf_put(&b, ",\"result\":{\"contents\":{\"kind\":\"markdown\",\"value\":");
+                jesc(&b, sfmt("```pascal\n%s\n```", text));
+                buf_put(&b, "}}}");
+            } else
+                buf_put(&b, ",\"result\":null}");
+            send_msg(buf_str(&b));
         } else if (STREQ(method, "textDocument/didClose")) {
             const char *uri = jstr(jget(jget(params, "textDocument"), "uri"));
             if (uri) clear(uri);
