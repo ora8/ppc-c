@@ -44,12 +44,12 @@ def tokens(src):
         elif src.startswith("//", i):
             j = src.find("\n", i)
             i = n if j < 0 else j
-        elif c.isalpha() or c == "_":
+        elif ("a" <= c <= "z") or ("A" <= c <= "Z") or c == "_":  # names are ASCII (like in ppc)
             m = re.compile(r"[A-Za-z_][A-Za-z0-9_]*").match(src, i)
             w = m.group(0)
             out.append(Tok("kw" if w in KEYWORDS else "id", w, i, m.end()))
             i = m.end()
-        elif c.isdigit() or c == "$":
+        elif ("0" <= c <= "9") or c == "$":
             m = re.compile(r"\$[0-9A-Fa-f]+|[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?").match(src, i)
             out.append(Tok("num", m.group(0), i, m.end()))
             i = m.end()

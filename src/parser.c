@@ -1435,6 +1435,7 @@ static Stmt *parse_case(Pos p, int expr) {
         vpush(s->arms, arm);
         if (!accept_sym(";")) {
             if (is_kw("else")) continue;
+            if (after_brace() && !is_kw("end") && CUR.kind != TK_EOF) continue; /* the brace syntax: 'A: { ... }  B: ...' */
             break;
         }
     }

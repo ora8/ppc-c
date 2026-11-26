@@ -26,4 +26,10 @@ vao q: TShape := TSquare.Create(3);
   Hello('you');
   q.Grow;
   WriteLn(q.Area:0:1, ' ', Twice(4), ' ', Old(1));
+  for val i := 1 to 3 do
+    case i of {                       // no ';' needed after an arm's '}'
+      1: { Write('one'); Write(' ') }
+      2: { Write('two'); Write(' ') }
+    else WriteLn('three')
+    }
 }

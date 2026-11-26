@@ -1,0 +1,398 @@
+program Pas2Pps;
+{* pas2pps: convert Perfect Pascal from the Pascal syntax (.pas) to the brace syntax (.pps).
+   The same conversion as tools/pas2pps.py, written in the brace syntax itself.
+
+     ppc -o pas2pps tools/pas2pps.pps
+     ./pas2pps file.pas ...          writes file.pps next to each file
+     ./pas2pps -o out.pps file.pas
+
+   The conversion works on tokens; comments, strings and the layout stay as they are:
+   - function -> func, procedure -> proc, begin -> {, end -> }
+   - record, class(...), = interface(...) and case ... of get an opening {
+   - the program's final 'end.' becomes '}', a module's final 'end.' is dropped
+   - the ';' after a routine header (or its last directive) is dropped when the body follows,
+     and the ';' after the '}' of a routine body or a type *}
+import ppc_std;
+
+type
+  TKind = (tkId, tkKw, tkNum, tkStr, tkSym);
+  TTok = record {
+    Kind: TKind;
+    Text: String;
+    Start, Stop: Integer;   // the token is Src[Start .. Stop - 1]
+  }
+  TOpen = (opBody, opBlock, opType, opCase);   // what an open '{' belongs to
+
+val Src: String := '';
+val N: Integer := 0;
+val Toks: array of TTok := default;
+val Count: Integer := 0;
+val Rep: array of String := default;       // the replacement of a token ...
+val HasRep: array of Boolean := default;   // ... if there is one ('' drops the token)
+val After: array of String := default;     // text inserted after a token
+
+// ---- words
+
+func IsKeyword(w: String): Boolean
+{
+  Result := case w of {
+    'and', 'array', 'as', 'begin', 'case', 'class', 'const', 'constructor', 'destructor', 'div', 'do',
+    'downto', 'else', 'end', 'for', 'function', 'goto', 'if', 'implementation', 'in', 'inherited',
+    'interface', 'is', 'label', 'mod', 'nil', 'none', 'some', 'optional', 'not', 'object', 'of', 'or',
+    'packed', 'procedure', 'program', 'property', 'record', 'repeat', 'set', 'shl', 'shr', 'then', 'to',
+    'type', 'unit', 'until', 'uses', 'var', 'while', 'with', 'xor', 'try', 'loop', 'val', 'vao',
+    'default', 'result', 'ok', 'error', 'module', 'import': True;
+  else False
+  };
+}
+
+func IsDirective(w: String): Boolean
+{
+  Result := case w of {
+    'virtual', 'override', 'abstract', 'forward', 'overload', 'auto', 'reintroduce', 'static', 'inline': True;
+  else False
+  };
+}
+
+func IsRoutine(w: String): Boolean
+{
+  Result := case w of { 'function', 'procedure', 'constructor', 'destructor', 'operator': True; else False };
+}
+
+// ---- the tokens
+
+func At(i: Integer): Char
+{
+  if (i >= 1) and (i <= N) then Result := Src[i] else Result := #0;
+}
+
+func StartsAt(s: String; i: Integer): Boolean { Result := Copy(Src, i, Length(s)) = s; }
+
+func IsHex(c: Char): Boolean { Result := IsDigit(c) or (c in ['a'..'f', 'A'..'F']); }
+
+func IsIdChar(c: Char): Boolean { Result := IsLetter(c) or IsDigit(c) or (c = '_'); }
+
+// the index after the next 'close' from 'from' on (after the end of the text if there is none)
+func SkipTo(close: String; from: Integer): Integer;
+val j: Integer := PosFrom(close, Src, from);
+{
+  if j = 0 then Result := N + 1 else Result := j + Length(close);
+}
+
+proc AddTok(k: TKind; a, b: Integer)
+{
+  if Count = Length(Toks) then SetLength(Toks, 2 * Count + 64);
+  Toks[Count] := (Kind: k; Text: Copy(Src, a, b - a); Start: a; Stop: b);
+  Inc(Count);
+}
+
+func SkipString(i: Integer): Integer;   // 'it''s' and #10 joined: 'a'#10'b'
+val j: Integer := i;
+{
+  while (At(j) = '''') or (At(j) = '#') do
+    if At(j) = '''' then {
+      Inc(j);
+      loop {
+        if j > N then Break;
+        if Src[j] = '''' then {
+          if At(j + 1) = '''' then { j := j + 2; Continue; }
+          Inc(j);
+          Break;
+        }
+        Inc(j);
+      }
+    } else {
+      val k: Integer := j + 1;
+      val m: Integer := 0;
+      {
+        if At(k) = '$' then {
+          Inc(k);
+          m := k;
+          while IsHex(At(k)) do Inc(k);
+        } else {
+          m := k;
+          while IsDigit(At(k)) do Inc(k);
+        }
+        if k > m then j := k else Inc(j);
+      }
+    }
+  Result := j;
+}
+
+func SkipNumber(i: Integer): Integer;
+val j: Integer := i;
+{
+  if At(j) = '$' then {
+    Inc(j);
+    while IsHex(At(j)) do Inc(j);
+  } else {
+    while IsDigit(At(j)) do Inc(j);
+    if (At(j) = '.') and IsDigit(At(j + 1)) then {
+      Inc(j);
+      while IsDigit(At(j)) do Inc(j);
+    }
+    if At(j) in ['e', 'E'] then {
+      val k: Integer := j + 1;
+      {
+        if At(k) in ['+', '-'] then Inc(k);
+        if IsDigit(At(k)) then {
+          j := k;
+          while IsDigit(At(j)) do Inc(j);
+        }
+      }
+    }
+  }
+  Result := j;
+}
+
+proc Tokenize;
+val i: Integer := 1;
+val j: Integer := 0;
+{
+  Count := 0;
+  while i <= N do {
+    if IsSpace(Src[i]) then Inc(i)
+    else if StartsAt('{*', i) then i := SkipTo('*}', i + 2)
+    else if StartsAt('(*', i) then i := SkipTo('*)', i + 2)
+    else if StartsAt('//', i) then { while (i <= N) and (Src[i] <> #10) do Inc(i); }
+    else if IsLetter(Src[i]) or (Src[i] = '_') then {
+      j := i;
+      while IsIdChar(At(j)) do Inc(j);
+      if IsKeyword(Copy(Src, i, j - i)) then AddTok(tkKw, i, j) else AddTok(tkId, i, j);
+      i := j;
+    } else if IsDigit(Src[i]) or (Src[i] = '$') then {
+      j := SkipNumber(i);
+      AddTok(tkNum, i, j);
+      i := j;
+    } else if (Src[i] = '''') or (Src[i] = '#') then {
+      j := SkipString(i);
+      AddTok(tkStr, i, j);
+      i := j;
+    } else if StartsAt(':=', i) or StartsAt('<=', i) or StartsAt('>=', i) or StartsAt('<>', i) or StartsAt('..', i) then {
+      AddTok(tkSym, i, i + 2);
+      i := i + 2;
+    } else {
+      if (Src[i] = '{') or (Src[i] = '}') then {
+        WriteLn('pas2pps: ''', Src[i], ''' outside a comment at offset ', i - 1, ': is this already the brace syntax?');
+        Halt(1);
+      }
+      AddTok(tkSym, i, i + 1);
+      Inc(i);
+    }
+  }
+}
+
+// ---- the conversion
+
+func Kw(k: Integer; w: String): Boolean
+{
+  Result := (k >= 0) and (k < Count) and (Toks[k].Kind = tkKw) and (Toks[k].Text = w);
+}
+
+func Sym(k: Integer; s: String): Boolean
+{
+  Result := (k >= 0) and (k < Count) and (Toks[k].Kind = tkSym) and (Toks[k].Text = s);
+}
+
+proc Replace(k: Integer; s: String) { Rep[k] := s; HasRep[k] := True; }
+
+func SkipParens(k: Integer): Integer;   // k at '(': the index after the matching ')'
+val d: Integer := 0;
+{
+  Result := k;
+  while Result < Count do {
+    if Sym(Result, '(') then Inc(d)
+    else if Sym(Result, ')') then {
+      Dec(d);
+      if d = 0 then { Result := Result + 1; Exit; }
+    }
+    Inc(Result);
+  }
+}
+
+// a routine header ends at the first ';' (or a lambda's 'begin') at paren depth 0; then come
+// directives; when the body follows, the last ';' is dropped
+proc HeaderSemicolon(k: Integer);
+val j: Integer := k + 1;
+val d: Integer := 0;
+val last: Integer := 0;
+{
+  while j < Count do {
+    if Sym(j, '(') then Inc(d)
+    else if Sym(j, ')') then Dec(d)
+    else if (d = 0) and (Sym(j, ';') or Kw(j, 'begin')) then Break;
+    Inc(j);
+  }
+  if (j >= Count) or Kw(j, 'begin') then Exit;   // a lambda: 'function(x: Integer): Integer begin ... end'
+  last := j;
+  Inc(j);
+  while j < Count do {
+    if ((Toks[j].Kind = tkId) and IsDirective(Toks[j].Text)) or Kw(j, 'const') then
+      if Sym(j + 1, ';') then {
+        last := j + 1;
+        j := j + 2;
+        Continue;
+      }
+    Break;
+  }
+  if Kw(j, 'begin') then Replace(last, '');
+}
+
+func OpenBlock(var opens: array of TOpen; n: Integer): Boolean   // inside a block, a body or a case?
+{
+  Result := False;
+  for val i := 0 to n - 1 do
+    if opens[i] <> opType then Result := True;
+}
+
+// after a class or '= interface': the '{' comes after the parents
+proc OpenAfterParents(k: Integer)
+{
+  if Sym(k + 1, '(') then After[SkipParens(k + 1) - 1] := ' {' else After[k] := ' {';
+}
+
+// spaces and tabs at the end of a line are dropped
+func StripLineEnds(s: String): String;
+val parts: array of String := Split(s, #10);
+{
+  for val i := 0 to High(parts) do
+    while (Length(parts[i]) > 0) and (parts[i][Length(parts[i])] in [' ', #9]) do
+      SetLength(parts[i], Length(parts[i]) - 1);
+  Result := Join(parts, #10);
+}
+
+func Convert: String;
+val isModule: Boolean := False;
+val opens: array of TOpen := default;
+val nOpen: Integer := 0;
+val cases: array of Integer := default;   // paren depth of the open 'case' selectors
+val nCase: Integer := 0;
+val depth: Integer := 0;
+val parts: array of String := default;
+val pos: Integer := 1;
+{
+  N := Length(Src);
+  Tokenize;
+  SetLength(Rep, Count);
+  SetLength(HasRep, Count);
+  SetLength(After, Count);
+  for val k := 0 to Count - 1 do { Rep[k] := ''; HasRep[k] := False; After[k] := ''; }
+  SetLength(opens, Count + 1);
+  SetLength(cases, Count + 1);
+  isModule := Kw(0, 'module');
+  for val k := 0 to Count - 1 do {
+    if Sym(k, '(') then Inc(depth) else if Sym(k, ')') then Dec(depth);
+    if (Toks[k].Kind = tkId) and (Toks[k].Text = 'operator') and Kw(k - 1, 'class') then
+      HeaderSemicolon(k)   // class operator Add(a, b: TVec): TVec;
+    else if Toks[k].Kind = tkKw then {
+      val w := Toks[k].Text;
+      {
+        case w of {
+          'function': Replace(k, 'func');
+          'procedure': Replace(k, 'proc');
+          'begin': {
+            Replace(k, '{');
+            if OpenBlock(opens, nOpen) then opens[nOpen] := opBlock else opens[nOpen] := opBody;
+            Inc(nOpen);
+          }
+          'end': {
+            if nOpen > 0 then {
+              Dec(nOpen);
+              if (opens[nOpen] in [opBody, opType]) and Sym(k + 1, ';') and (k + 2 < Count) then
+                Replace(k + 1, '');   // 'end;' of a routine body or a type: '}' needs no ';'
+            }
+            if Sym(k + 1, '.') and (k + 2 = Count) then {   // the end of the file
+              if isModule then Replace(k, '') else Replace(k, '}');
+              Replace(k + 1, '');
+            } else
+              Replace(k, '}');
+          }
+          'record': {
+            After[k] := ' {';
+            opens[nOpen] := opType;
+            Inc(nOpen);
+          }
+          'class':   // a class type only after '=' (TA = class ...); not 'class function', 'T: class'
+            if (Sym(k - 1, '=') or Kw(k - 1, 'packed')) and not Sym(k + 1, ';') and not Kw(k + 1, 'of') then {
+              OpenAfterParents(k);
+              opens[nOpen] := opType;
+              Inc(nOpen);
+            }
+          'interface':
+            if Sym(k - 1, '=') then {
+              OpenAfterParents(k);
+              opens[nOpen] := opType;
+              Inc(nOpen);
+            }
+          'case': {
+            cases[nCase] := depth;
+            Inc(nCase);
+          }
+          'of':
+            if (nCase > 0) and (cases[nCase - 1] = depth) and not Kw(k - 1, 'array') and not Kw(k - 1, 'set')
+               and not Kw(k - 1, 'class') then {
+              Dec(nCase);
+              After[k] := ' {';
+              opens[nOpen] := opCase;
+              Inc(nOpen);
+            }
+        else
+        }
+        // a routine declaration (not a procedural type 'x: function: Integer')
+        if IsRoutine(w) and not ((k > 0) and (Toks[k - 1].Kind in [tkSym, tkKw]) and
+            (case Toks[k - 1].Text of { ':', '=', '(', ',', ':=', 'of', 'to': True; else False })) then
+          HeaderSemicolon(k);
+      }
+    }
+  }
+  // the text: the gaps between the tokens stay, the tokens are replaced
+  SetLength(parts, 3 * Count + 1);
+  for val k := 0 to Count - 1 do {
+    parts[3 * k] := Copy(Src, pos, Toks[k].Start - pos);
+    if not HasRep[k] then parts[3 * k + 1] := Toks[k].Text
+    else if (Rep[k] = '') and (Toks[k].Text = ';') and (Toks[k].Stop <= N) and not IsSpace(Src[Toks[k].Stop]) then
+      parts[3 * k + 1] := ' '   // 'x;begin' -> 'x {'
+    else
+      parts[3 * k + 1] := Rep[k];
+    parts[3 * k + 2] := After[k];
+    pos := Toks[k].Stop;
+  }
+  parts[3 * Count] := Copy(Src, pos, N - pos + 1);
+  Result := Join(parts, '');
+  if isModule then Result := TrimRight(Result) + #10;
+  Result := StripLineEnds(Result);
+}
+
+// ---- the program
+
+proc ConvertFile(f, dst: String)
+{
+  case ReadFile(f) of {
+    ok text: {
+      Src := text;
+      case WriteFile(dst, Convert) of {
+        ok: WriteLn(f, ' -> ', dst);
+        error e: { WriteLn('pas2pps: ', e); Halt(1); }
+      }
+    }
+    error e: { WriteLn('pas2pps: ', e); Halt(1); }
+  }
+}
+
+func Target(f: String): String
+{
+  if EndsWith(f, '.pas') then Result := Copy(f, 1, Length(f) - 4) + '.pps' else Result := f + '.pps';
+}
+
+{
+  if ParamCount = 0 then {
+    WriteLn('usage: pas2pps file.pas ...   (writes file.pps)');
+    WriteLn('       pas2pps -o out.pps file.pas');
+    Halt(2);
+  }
+  if ParamStr(1) = '-o' then {
+    if ParamCount <> 3 then { WriteLn('pas2pps: -o needs one output and one input file'); Halt(2); }
+    ConvertFile(ParamStr(3), ParamStr(2));
+  } else
+    for val i := 1 to ParamCount do ConvertFile(ParamStr(i), Target(ParamStr(i)));
+}

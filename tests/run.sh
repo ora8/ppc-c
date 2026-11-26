@@ -33,6 +33,14 @@ for f in runtime_fail/*.pas; do
   if [ $rc -ne 0 ] && grep -qF "$exp" <<<"$err"; then ok "$f"; else bad "$f" "expected: $exp
 got (rc=$rc): $err"; fi
 done
+# tools/pas2pps.pps (the converter written in the brace syntax) reproduces every .pps twin of run/*.pas
+if out=$($PPC -o "$TMP/pas2pps" ../tools/pas2pps.pps 2>&1); then
+  for f in run/*.pas; do
+    n=$(basename "$f" .pas)
+    [ -f "run/$n.pps" ] || continue
+    if "$TMP/pas2pps" -o "$TMP/$n.pps" "$f" >/dev/null && cmp -s "$TMP/$n.pps" "run/$n.pps"; then ok "pas2pps $f"; else bad "pas2pps $f" "differs from run/$n.pps"; fi
+  done
+else bad "tools/pas2pps.pps" "$out"; fi
 # the language server, driven like an editor (needs python3)
 if command -v python3 >/dev/null; then
   if out=$(python3 lsp/lsp_test.py "$PPC" 2>&1); then ok "lsp/lsp_test.py"; else bad "lsp/lsp_test.py" "$out"; fi

@@ -233,7 +233,8 @@ val c: TColor := Green;
 | `module M; … implementation … end.` | `module M; … implementation …` (ends with the file) |
 | comments `{* *}`, `(* *)`, `//` | the same comments; `{ }` without `*` is a block |
 
-* A `;` after a `}` can be left out (`{ … } WriteLn(1)`, and after a routine's body).
+* A `;` after a `}` can be left out (`{ … } WriteLn(1)`, after a routine's body, between `case` arms
+  `1: { … }  2: { … }`).
 * The `;` at the end of a routine header – or after its last directive – can be left out when the
   body `{` follows directly: `func Twice(x: Integer): Integer { … }`,
   `func TSquare.Area: Real; override; const { … }`. It is still needed before local declarations
@@ -245,6 +246,9 @@ val c: TColor := Green;
   `M.pas` from a `.pas` file), then for the other one.
 * `tools/pas2pps.py file.pas` converts a file to the brace syntax (`file.pps`, comments and layout
   stay); every test program in `tests/run` exists in both syntaxes, generated with it.
+  `tools/pas2pps.pps` is the same converter written in the brace syntax itself
+  (`ppc -o pas2pps tools/pas2pps.pps`, then `./pas2pps file.pas`); the test suite checks that both
+  give the same files.
 * Messages, hover and completion use the words of the file's syntax; the VS Code extension
   highlights `.pps` files as *Perfect Pascal (braces)*.
 
