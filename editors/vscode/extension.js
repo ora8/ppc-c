@@ -11,8 +11,28 @@ function ppcPath() {
   return vscode.workspace.getConfiguration('ppc').get('path') || 'ppc';
 }
 
+// ppc.modulePaths: directories for 'import' (relative ones belong to the first workspace folder)
+function modulePaths() {
+  const dirs = vscode.workspace.getConfiguration('ppc').get('modulePaths') || [];
+  const root = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0]
+    ? vscode.workspace.workspaceFolders[0].uri.fsPath : process.cwd();
+  return dirs.filter((d) => d).map((d) => (path.isAbsolute(d) ? d : path.join(root, d))).join(':');
+}
+// ppc.sharedObjects: .so files that 'Run File' links (their C functions are declared 'external')
+function sharedObjectArgs() {
+  const sos = vscode.workspace.getConfiguration('ppc').get('sharedObjects') || [];
+  const root = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0]
+    ? vscode.workspace.workspaceFolders[0].uri.fsPath : process.cwd();
+  const list = sos.filter((d) => d).map((d) => (path.isAbsolute(d) ? d : path.join(root, d))).join(';');
+  return list ? ['--shared-objects=' + list] : [];
+}
+function modulePathArgs() {
+  const mp = modulePaths();
+  return mp ? ['--module-paths', mp] : [];
+}
+
 async function startClient() {
-  const serverOptions = { command: ppcPath(), args: ['--lsp'], transport: TransportKind.stdio };
+  const serverOptions = { command: ppcPath(), args: ['--lsp', ...modulePathArgs()], transport: TransportKind.stdio };
   const clientOptions = {
     documentSelector: [
       { scheme: 'file', language: 'perfectpascal' },
@@ -56,7 +76,8 @@ async function runFile() {
   const extra = vscode.workspace.getConfiguration('ppc').get('runArguments') || '';
   const t = terminal();
   t.show();
-  t.sendText(`${quote(ppcPath())} ${extra} -o ${quote(exe)} ${quote(file)} && ${quote(exe)}`);
+  const mp = [...modulePathArgs(), ...sharedObjectArgs()].map(quote).join(' ');
+  t.sendText(`${quote(ppcPath())} ${extra} ${mp} -o ${quote(exe)} ${quote(file)} && ${quote(exe)}`);
 }
 
 async function checkFile() {
@@ -65,7 +86,8 @@ async function checkFile() {
   await doc.save();
   const t = terminal();
   t.show();
-  t.sendText(`${quote(ppcPath())} --check ${quote(doc.fileName)} && echo 'no errors'`);
+  const mp = modulePathArgs().map(quote).join(' ');
+  t.sendText(`${quote(ppcPath())} --check ${mp} ${quote(doc.fileName)} && echo 'no errors'`);
 }
 
 async function activate(context) {
@@ -79,7 +101,7 @@ async function activate(context) {
       await startClient();
     }),
     vscode.workspace.onDidChangeConfiguration(async (e) => {
-      if (e.affectsConfiguration('ppc.path')) {
+      if (e.affectsConfiguration('ppc.path') || e.affectsConfiguration('ppc.modulePaths')) {
         if (client) await client.stop();
         await startClient();
       }

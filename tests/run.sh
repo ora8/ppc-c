@@ -33,6 +33,24 @@ for f in runtime_fail/*.pas; do
   if [ $rc -ne 0 ] && grep -qF "$exp" <<<"$err"; then ok "$f"; else bad "$f" "expected: $exp
 got (rc=$rc): $err"; fi
 done
+# modules from other directories: --module-paths (both syntaxes share modpaths/app.expected)
+for f in modpaths/*.pas modpaths/*.pps; do
+  n=$(basename "$f"); mp="modpaths/lib1:modpaths/lib2"
+  if ! out=$($PPC --module-paths "$mp" -o "$TMP/mp_$n" "$f" 2>&1); then bad "$f" "$out"; continue; fi
+  if diff -u modpaths/app.expected <("$TMP/mp_$n" < /dev/null) > "$TMP/diff"; then ok "$f"; else bad "$f" "$(cat "$TMP/diff")"; fi
+done
+# --check of a module file (as an editor does): every module of the tests is fine on its own ...
+for f in run/*.pas run/*.pps modpaths/lib*/*.pas modpaths/lib*/*.pps; do
+  head -1 "$f" | grep -q '^module ' || continue
+  if out=$($PPC --check "$f" 2>&1); then ok "check module $f"; else bad "check module $f" "$out"; fi
+done
+# ... and the errors of a module are found when it is checked alone
+for f in module_fail/*.pas; do
+  exp=$(sed -n '1s/^{\* EXPECT: \(.*\) \*}$/\1/p' "$f")
+  out=$($PPC --check "$f" 2>&1); rc=$?
+  if [ $rc -ne 0 ] && [ -n "$exp" ] && grep -qF "$exp" <<<"$out"; then ok "$f"; else bad "$f" "expected: $exp
+got: $out"; fi
+done
 # shared libraries: each library/<name>.pas (and .pps) becomes lib<Name>.so with <Name>.h; the C programs
 # library/<name>_*.c use it (linked, or loaded with dlopen: the .so is their first argument)
 if command -v gcc >/dev/null; then
@@ -44,6 +62,12 @@ if command -v gcc >/dev/null; then
       x="$d/$(basename "$c" .c)"
       if ! out=$(gcc -o "$x" "$c" -I"$d" -L"$d" -l"$lib" -ldl -Wl,-rpath,"$d" 2>&1); then bad "$f: $c" "$out"; continue; fi
       if diff -u "${c%.c}.expected" <("$x" "$d/lib$lib.so" 2>&1) > "$TMP/diff"; then ok "$f: $c"; else bad "$f: $c" "$(cat "$TMP/diff")"; fi
+    done
+    # Perfect Pascal programs that use the library: 'external' C functions, --shared-objects
+    for p in library/programs/${b}_*.pas library/programs/${b}_*.pps; do
+      x="$d/prog_$(basename "$p")"
+      if ! out=$($PPC "--shared-objects=$d/lib$lib.so" -o "$x" "$p" 2>&1); then bad "$f: $p" "$out"; continue; fi
+      if diff -u "${p%.*}.expected" <(cd / && "$x" 2>&1) > "$TMP/diff"; then ok "$f: $p"; else bad "$f: $p" "$(cat "$TMP/diff")"; fi
     done
   done
 fi

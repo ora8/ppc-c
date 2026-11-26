@@ -1,0 +1,6 @@
+module Units;
+// a module in the brace syntax, imported by a .pas program
+interface
+function ToCm(inch: Real): Real;
+implementation
+function ToCm(inch: Real): Real; { Result := inch * 2.54; }

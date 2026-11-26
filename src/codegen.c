@@ -2012,6 +2012,35 @@ void codegen(Program *p, FILE *f) {
         buf_printf(&b_globals, "static %s%s %s;\n", ctype(v->type), v->is_ref ? "*" : "", v->cname);
         if (v->is_stack) buf_printf(&b_globals, "static struct S%d %s__st;\nstatic int %s__live;\n", v->type->st->id, v->cname, v->cname);
     }
+    /* C functions (of shared objects): the C prototype and a wrapper with the types of ppc;
+       String arguments are passed as C strings that live during the call */
+    for (int i = 0; i < p->routines.len; i++) {
+        Routine *r = p->routines.items[i];
+        if (!r->c_name) continue;
+        Buf cps = {0}, ps = {0}, args = {0}, pre = {0}, post = {0};
+        for (int k = 0; k < r->params.len; k++) {
+            Param *pm = &r->params.items[k];
+            int ref = pm->mode == PM_CONSTREF;
+            const char *sep = k ? ", " : "";
+            if (pm->type->kind == T_STR) {
+                buf_printf(&cps, "%sconst char *", sep);
+                buf_printf(&ps, "%sPStr p%d", sep, k);
+                buf_printf(&pre, "  char *c%d = __cz(p%d);\n", k, k);
+                buf_printf(&post, "  free(c%d);\n", k);
+                buf_printf(&args, "%sc%d", sep, k);
+            } else {
+                buf_printf(&cps, "%s%s%s", sep, ctype(pm->type), ref ? "*" : "");
+                buf_printf(&ps, "%s%s%s p%d", sep, ctype(pm->type), ref ? "*" : "", k);
+                buf_printf(&args, "%sp%d", sep, k);
+            }
+        }
+        const char *rt = r->ret ? ctype(r->ret) : "void";
+        buf_printf(&b_protos, "extern %s %s(%s);\n", rt, r->c_name, r->params.len ? buf_str(&cps) : "void");
+        buf_printf(&b_protos, "static %s %s(%s);\n", rt, r->cname, r->params.len ? buf_str(&ps) : "void");
+        buf_printf(&b_funcs, "static %s %s(%s) {\n%s", rt, r->cname, r->params.len ? buf_str(&ps) : "void", buf_str(&pre));
+        if (r->ret) buf_printf(&b_funcs, "  %s __r = %s(%s);\n%s  return __r;\n}\n", rt, r->c_name, buf_str(&args), buf_str(&post));
+        else buf_printf(&b_funcs, "  %s(%s);\n%s}\n", r->c_name, buf_str(&args), buf_str(&post));
+    }
     /* prototypes and bodies */
     for (int i = 0; i < p->routines.len; i++) {
         Routine *r = p->routines.items[i];

@@ -159,7 +159,8 @@ typedef struct {
     IdentVec tparams;     /* generic routine: function Max<T>(a, b: T): T */
     ConsVec tcons;
     int iface;            /* header in a module's interface section: defined in the implementation */
-    char *external;       /* 'external 'c_name'': implemented in the runtime (standard library only) */
+    char *external;       /* 'external 'c_name'': implemented in C (the runtime, or a C function / shared object) */
+    int c_external;       /* a C function of a shared object or C library (not the runtime of ppc_std) */
     int is_overload;      /* '; overload;' */
     int has_lambda;       /* its body contains a lambda (that may capture its variables: it needs a frame) */
     int is_operator;      /* class operator TVec.Add(...) */
@@ -425,6 +426,7 @@ struct Routine {
     int is_classm; /* class method: no Self, called as TClass.Name(...) */
     int is_auto;   /* generated body (Clone: deep copy) */
     int is_external; /* implemented in C by the runtime (cname) */
+    char *c_name;    /* c_external: a C function with C types (cname is its wrapper) */
     int is_overload;   /* '; overload;': one of several routines/methods with this name */
     int captures;      /* lambda nested in a routine: uses its variables through the frame (a closure) */
     int is_operator;   /* class operator: used by +, -, =, ... */
@@ -477,6 +479,7 @@ enum {
 Block *parse_program(const char *src, char **name, Pos *end_pos);
 Block *parse_decls_only(const char *src);
 Block *parse_module(const char *src, Ident *name);
+char *module_header_name(const char *src); /* 'module Name;' at the start of src: Name, else NULL */
 int is_brace_file(const char *f); /* .pps: the brace syntax (func, proc, { }) */
 TypeExpr *reparse_type(void *toks, int start);
 RoutineDecl *reparse_routine(void *toks, int start);

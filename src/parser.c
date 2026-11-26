@@ -873,14 +873,20 @@ static RoutineDecl *parse_routine(void) {
     int virt = 0, abs = 0;
     parse_directives(&virt, &abs, &d->forward, &d->is_const, NULL);
     d->is_overload = last_overload;
-    if (is_ident("external")) { /* function Floor(x: Real): Int64; external '__std_floor'; */
-        Pos ep = pos();
+    if (is_ident("external")) {
+        /* the standard library: function Floor(x: Real): Int64; external '__std_floor';   (the runtime)
+           elsewhere: a C function (of a shared object): external;  or  external 'c_name'; */
         next();
-        if (CUR.kind != TK_STR) error_at(pos(), "the C name of the external routine expected (a string)");
-        d->external = xstrndup(CUR.str, (size_t)CUR.slen);
-        next();
+        if (CUR.kind == TK_STR) {
+            d->external = xstrndup(CUR.str, (size_t)CUR.slen);
+            next();
+        } else if (g_allow_external)
+            error_at(pos(), "the C name of the external routine expected (a string)");
+        else
+            d->external = d->name.name;
         expect_sym(";");
-        if (!g_allow_external) error_at(ep, "external routines are not supported (only the standard library uses them)");
+        d->c_external = !g_allow_external;
+        if (d->has_cls) error_at(d->pos, "a method cannot be external: declare the C function as a routine and call it from the method");
         return d;
     }
     if (in_interface) { /* module interface: only the header, the body is in the implementation */
@@ -1683,6 +1689,14 @@ Block *parse_module(const char *src, Ident *name) {
     expect_sym(".");
     if (CUR.kind != TK_EOF) error_at(pos(), "unexpected %s after the end of the module", describe());
     return b;
+}
+
+/* the name of a module (its first line 'module Name;'), NULL if src is no module */
+char *module_header_name(const char *src) {
+    TokVec t = tokenize(src);
+    if (t.len >= 3 && t.items[0].kind == TK_KW && STREQ(t.items[0].s, "module") && t.items[1].kind == TK_IDENT)
+        return (char *)t.items[1].s;
+    return NULL;
 }
 
 Block *parse_program(const char *src, char **name, Pos *end_pos) {

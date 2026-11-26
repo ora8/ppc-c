@@ -1,0 +1,10 @@
+MathLib loaded
+Add: 42
+Area: 3.1416
+Fib: 102334155
+CountChar: 4 4
+Middle: 7 6, Width: 10
+Next: 1 TRUE
+IsEven: TRUE FALSE
+Calls: 2
+cbrt: 3.0

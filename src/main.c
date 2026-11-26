@@ -1,5 +1,6 @@
 /* main.c - ppc compiler driver */
 #include "ast.h"
+#include <limits.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -22,6 +23,39 @@ static VEC(char *) mod_names; /* parallel to mods */
 static VEC(char *) loading;   /* modules being loaded (cycle detection) */
 static const char *mod_dir;
 static char *read_file(const char *path);
+static VEC(char *) module_paths;  /* --module-paths: more directories for 'import' (each ends with '/') */
+static const char *src_override_path, *src_override; /* --check --stdin of a module file: its text */
+static int file_exists(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (f) fclose(f);
+    return f != NULL;
+}
+/* the directory of a path with its '/' ("" for a file in the current directory) */
+static char *dir_of(const char *path) {
+    const char *s = path ? strrchr(path, '/') : NULL;
+    return s ? xstrndup(path, (size_t)(s - path + 1)) : xstrdup("");
+}
+static VEC(char *) shared_objects; /* --shared-objects: .so files the program is linked with */
+static void add_shared_objects(const char *list) { /* 'libMathLib.so;lib/libz.so' (';' or ':' between them) */
+    const char *p = list;
+    while (*p) {
+        size_t n = strcspn(p, ";:");
+        if (n) vpush(shared_objects, xstrndup(p, n));
+        p += n + (p[n] ? 1 : 0);
+    }
+}
+static void add_module_paths(const char *list) { /* 'lib:../shared/modules' (':' or ';' between them) */
+    const char *p = list;
+    while (*p) {
+        const char *e = strpbrk(p, ":;");
+        size_t n = e ? (size_t)(e - p) : strlen(p);
+        if (n) {
+            char *d = xstrndup(p, n);
+            vpush(module_paths, d[n - 1] == '/' ? d : sfmt("%s/", d));
+        }
+        p += n + (e ? 1 : 0);
+    }
+}
 
 static void load_module(Ident *name) {
     for (int i = 0; i < mod_names.len; i++)
@@ -34,18 +68,27 @@ static void load_module(Ident *name) {
         src = PPC_STD;
         file = "ppc_std.pas";
     } else {
-        /* first the file in the syntax of the importing file (M.pps for a .pps file), then the other one */
+        /* next to the importing file, then in the --module-paths; in each directory first the file in the
+           syntax of the importing file (M.pps for a .pps file), then the other one */
         int br = is_brace_file(name->pos.file);
-        file = sfmt("%s/%s.%s", mod_dir, name->name, br ? "pps" : "pas");
-        FILE *f = fopen(file, "rb");
-        if (!f) {
-            char *alt = sfmt("%s/%s.%s", mod_dir, name->name, br ? "pas" : "pps");
-            f = fopen(alt, "rb");
-            if (!f) error_at(name->pos, "module '%s' not found (looked for %s and %s)", name->name, file, alt);
-            file = alt;
+        VEC(char *) dirs = {0}, tried = {0};
+        vpush(dirs, name->pos.file && strchr(name->pos.file, '/') ? dir_of(name->pos.file) : sfmt("%s/", mod_dir));
+        for (int i = 0; i < module_paths.len; i++) vpush(dirs, module_paths.items[i]);
+        file = NULL;
+        for (int i = 0; i < dirs.len && !file; i++)
+            for (int k = 0; k < 2 && !file; k++) {
+                char *f = sfmt("%s%s.%s", STREQ(dirs.items[i], "./") ? "" : dirs.items[i], name->name, (k == 0) == br ? "pps" : "pas");
+                if (STREQ(dirs.items[i], "./")) f = sfmt("./%s", f);
+                if (file_exists(f)) file = f;
+                else vpush(tried, f);
+            }
+        if (!file) {
+            Buf b = {0};
+            for (int i = 0; i < tried.len; i++) buf_printf(&b, "%s%s", i == 0 ? "" : i == tried.len - 1 ? " and " : ", ", tried.items[i]);
+            error_at(name->pos, "module '%s' not found (looked for %s)%s", name->name, buf_str(&b),
+                     module_paths.len ? "" : "; other directories are given with --module-paths dir1:dir2");
         }
-        fclose(f);
-        src = read_file(file);
+        src = src_override_path && STREQ(file, src_override_path) ? src_override : read_file(file);
     }
     vpush(loading, name->name);
     const char *save = g_filename;
@@ -94,6 +137,8 @@ static void usage(void) {
             "  --no-nil-check     replace the compile-time nil analysis by runtime nil checks\n"
             "  --no-range-check   no runtime check of array and string indexes\n"
             "  --cc <compiler>    C compiler to use (default: $CC or gcc)\n"
+            "  --module-paths <dir1:dir2>  more directories for 'import' (after the directory of the importing file)\n"
+            "  --shared-objects <a.so;b.so>  link the shared objects (their C functions are declared 'external')\n"
             "  -O0 .. -O3         optimization level passed to the C compiler (default -O2)\n"
             "  -g                 debug information for gdb (with -O0 and the C file kept): break and step in the .pas file\n"
             "  --no-line          no #line directives (C compiler messages and gdb then refer to the generated C file)\n"
@@ -111,7 +156,7 @@ static char *read_stdin(void) {
     return xstrdup(buf_str(&b));
 }
 
-int lsp_main(const char *self);
+int lsp_main(const char *self, const char *module_paths);
 
 static void print_hover(void) { /* --hover: the description on standard output (also after errors) */
     const char *h = hover_text();
@@ -120,7 +165,14 @@ static void print_hover(void) { /* --hover: the description on standard output (
 }
 
 int main(int argc, char **argv) {
-    if (argc >= 2 && STREQ(argv[1], "--lsp")) return lsp_main(argv[0]);
+    if (argc >= 2 && STREQ(argv[1], "--lsp")) { /* ppc --lsp [--module-paths dir1:dir2] */
+        const char *mp = NULL;
+        for (int i = 2; i + 1 < argc; i++)
+            if (STREQ(argv[i], "--module-paths") || STREQ(argv[i], "--module_paths")) mp = argv[i + 1];
+        for (int i = 2; i < argc; i++)
+            if (strncmp(argv[i], "--module-paths=", 15) == 0) mp = argv[i] + 15;
+        return lsp_main(argv[0], mp);
+    }
     int check_only = 0, from_stdin = 0;
     const char *input = NULL, *output = NULL, *cc = getenv("CC");
     const char *opt = "-O2";
@@ -146,6 +198,10 @@ int main(int argc, char **argv) {
         else if (STREQ(a, "--no-nil-check")) g_nil_check = 0;
         else if (STREQ(a, "--no-range-check")) g_range_check = 0;
         else if (STREQ(a, "--cc") && i + 1 < argc) cc = argv[++i];
+        else if ((STREQ(a, "--module-paths") || STREQ(a, "--module_paths")) && i + 1 < argc) add_module_paths(argv[++i]);
+        else if (strncmp(a, "--module-paths=", 15) == 0) add_module_paths(a + 15);
+        else if ((STREQ(a, "--shared-objects") || STREQ(a, "--shared_objects")) && i + 1 < argc) add_shared_objects(argv[++i]);
+        else if (strncmp(a, "--shared-objects=", 17) == 0) add_shared_objects(a + 17);
         else if (a[0] == '-' && a[1] == 'O') opt = a;
         else if (a[0] == '-') usage();
         else if (!input) input = a;
@@ -170,17 +226,28 @@ int main(int argc, char **argv) {
     g_hover_file = input;
     char *src = from_stdin ? read_stdin() : read_file(input);
     char *pname;
-    Pos end_pos;
-    Block *prog_block = parse_program(src, &pname, &end_pos);
-    if (g_errors) {
-        fprintf(stderr, "%s: %d syntax error(s), compilation aborted\n", input, g_errors);
-        return 1;
-    }
-    /* modules: 'import Name' loads Name.pas next to the program (ppc_std is built in), dependencies first */
+    Pos end_pos = {0};
     {
         const char *slash = strrchr(input, '/');
         mod_dir = slash ? xstrndup(input, (size_t)(slash - input)) : ".";
     }
+    char *mname = check_only ? module_header_name(src) : NULL;
+    Block *prog_block;
+    if (mname) { /* --check of a module (an editor): checked as if a program imported it */
+        prog_block = NEW(Block);
+        pname = xstrdup("main");
+        src_override_path = input;
+        src_override = src;
+        Ident mi = {mname, {1, 1, input}};
+        vpush(prog_block->uses, mi);
+    } else
+        prog_block = parse_program(src, &pname, &end_pos);
+    if (g_errors) {
+        fprintf(stderr, "%s: %d syntax error(s), compilation aborted\n", input, g_errors);
+        return 1;
+    }
+    /* modules: 'import Name' loads Name.pas next to the importing file or in the --module-paths
+       (ppc_std is built in), dependencies first */
     for (int i = 0; i < prog_block->uses.len; i++) load_module(&prog_block->uses.items[i]);
     g_filename = input;
     if (g_errors) {
@@ -205,6 +272,17 @@ int main(int argc, char **argv) {
     }
 
     if (check_only) return 0;
+    VEC(char *) rpaths = {0}; /* the directories of the shared objects: found there at run time */
+    for (int i = 0; i < shared_objects.len; i++) {
+        char rp[PATH_MAX];
+        if (!realpath(shared_objects.items[i], rp)) {
+            fprintf(stderr, "ppc: shared object '%s' not found (--shared-objects)\n", shared_objects.items[i]);
+            return 1;
+        }
+        char *d = xstrdup(rp);
+        *strrchr(d, '/') = 0;
+        vpush(rpaths, sfmt("-Wl,-rpath,%s", *d ? d : "/"));
+    }
     char *hfile = NULL;
     if (prog->is_library) { /* library Name;  ->  libName.so and Name.h (next to the file, or next to -o) */
         const char *slash = strrchr(input, '/');
@@ -234,7 +312,7 @@ int main(int argc, char **argv) {
 
     pid_t pid = fork();
     if (pid == 0) {
-        const char *av[20];
+        const char **av = (const char **)xmalloc(sizeof(char *) * (size_t)(24 + 2 * shared_objects.len));
         int n = 0;
         av[n++] = cc;
         av[n++] = "-std=gnu11";
@@ -247,6 +325,7 @@ int main(int argc, char **argv) {
         av[n++] = "-o";
         av[n++] = output;
         av[n++] = cfile;
+        for (int i = 0; i < shared_objects.len; i++) av[n++] = shared_objects.items[i], av[n++] = rpaths.items[i];
         av[n++] = "-lm";
         av[n] = NULL;
         execvp(cc, (char *const *)av);

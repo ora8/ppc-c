@@ -1,0 +1,39 @@
+program MathLibUser;
+{* uses the shared library MathLib (library/mathlib.pas) through 'external' C functions:
+   ppc --shared-objects=libMathLib.so library/programs/mathlib_user.pas *}
+type
+  TColor = (Red, Green, Blue);
+  TPoint = record {
+    X, Y: Integer;
+  }
+  TRect = record {
+    TopLeft, BottomRight: TPoint;
+    Visible: Boolean;
+  }
+
+function Add(a, b: Integer): Integer; external;
+function Area(r: Real): Real; external 'mathlib_area';     {* the C name of the export *}
+function Fib(n: Integer): Int64; external;
+function CountChar(s: String; c: Char): Integer; external;
+function Middle(r: TRect): TPoint; external;
+function Width(r: TRect const): Integer; external;
+function Next(c: TColor): TColor; external;
+function IsEven(n: Integer): Boolean; external;
+function Calls: Integer; external;
+function cbrt(x: Real): Real; external;                    {* a function of the C library (libm) *}
+
+val r: TRect := (TopLeft: (X: 2; Y: 4); BottomRight: (X: 12; Y: 8); Visible: True);
+val m: TPoint := default;
+val word: String := 'Mississippi';
+{
+  WriteLn('Add: ', Add(20, 22));
+  WriteLn('Area: ', Area(1.0):0:4);
+  WriteLn('Fib: ', Fib(40));
+  WriteLn('CountChar: ', CountChar(word, 's'), ' ', CountChar(word + '!', 'i'));
+  m := Middle(r);
+  WriteLn('Middle: ', m.X, ' ', m.Y, ', Width: ', Width(r));
+  WriteLn('Next: ', Ord(Next(Red)), ' ', Next(Blue) = Red);
+  WriteLn('IsEven: ', IsEven(10), ' ', IsEven(3));
+  WriteLn('Calls: ', Calls);
+  WriteLn('cbrt: ', cbrt(27.0):0:1);
+}

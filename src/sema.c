@@ -199,6 +199,8 @@ static Expr *param_binary(Expr *e);
 static Expr *ex(Expr *e);
 static Type *resolve_type(TypeExpr *te);
 static void decls(Block *b, int has_frame);
+static const char *export_type_problem(Type *t, int is_result);
+static int c_ident(const char *s);
 static void stmts(StmtVec *v);
 static void decl1(Decl *d, int has_frame);
 static void decls_tail(Block *b);
@@ -6285,6 +6287,28 @@ static void routine_decl(RoutineDecl *d) {
         rt->cname = d->external;
         rt->is_external = 1;
         rt->defined = 1;
+        if (d->c_external) { /* a C function: C types only, called through a wrapper (cname) */
+            if (d->has_cls) error_at(d->pos, "a method cannot be external: declare the C function as a routine");
+            if (d->tparams.len) error_at(d->pos, "a generic routine cannot be external");
+            if (!c_ident(d->external)) error_at(d->pos, "'%s' is not a valid C name", d->external);
+            if (strncmp(d->external, "__", 2) == 0) error_at(d->pos, "the C name '%s' is reserved (names starting with '__')", d->external);
+            for (int k = 0; k < rt->params.len; k++) {
+                Param *pm = &rt->params.items[k];
+                if (pm->mode == PM_VAR || pm->mode == PM_OUT || pm->mode == PM_OWNED)
+                    error_at(d->pos, "the C function '%s' cannot have the '%s' parameter '%s' (only value and const parameters)", d->name.name,
+                             pm->mode == PM_VAR ? "var" : pm->mode == PM_OUT ? "out" : "vao", pm->name ? pm->name : "?");
+                const char *why = export_type_problem(pm->type, 0);
+                if (why) error_at(d->pos, "the C function '%s' cannot have the parameter '%s' of type \"%s\": %s", d->name.name,
+                                  pm->name ? pm->name : "?", type_name(pm->type), why);
+            }
+            if (rt->ret) {
+                if (rt->ret_borrowed) error_at(d->pos, "the C function '%s' cannot return a reference ('var' result)", d->name.name);
+                const char *why = export_type_problem(rt->ret, 1);
+                if (why) error_at(d->pos, "the C function '%s' cannot return a \"%s\": %s", d->name.name, type_name(rt->ret), why);
+            }
+            rt->c_name = d->external;
+            rt->cname = sfmt("E%d_%s", rt->id, d->name.name);
+        }
         return;
     }
     if (hover_at(d->name.pos, d->name.name)) hover_set(routine_desc(rt)), def_set(rt->pos);

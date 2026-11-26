@@ -48,6 +48,8 @@ make test       # test suite (output, borrow/optional/stack/const/result/clone/g
 ./ppc program.pas             # produces ./program
 ./ppc -o hello program.pas    # name of the program
 ./ppc mathlib.pas             # 'library MathLib;': produces ./libMathLib.so and ./MathLib.h
+./ppc --module-paths lib:shared app.pas         # modules also from lib/ and shared/
+./ppc --shared-objects=libMathLib.so use.pas     # link shared objects ('external' C functions)
 ./ppc -S program.pas          # only produce the C code (program.c)
 ./ppc -k program.pas          # keep the C file as well
 ./ppc --no-borrow-check x.pas # switch off the borrow checker
@@ -65,8 +67,9 @@ make test       # test suite (output, borrow/optional/stack/const/result/clone/g
 `ppc --lsp` is a language server (LSP over standard input/output). Editors show the compiler's
 messages while you type – syntax and type errors, borrow and nil errors, warnings – on the
 right line and column, also for unsaved changes. Every check runs `ppc --check` on the current
-text; modules next to the file are found as usual, and an error inside an imported module is
-shown at the top of the importing file.
+text; modules are found as usual (start the server as `ppc --lsp --module-paths dir1:dir2` for
+modules in other directories), an open module is checked on its own, and an error inside an
+imported module is shown at the top of the importing file.
 
 Neovim (`init.lua`):
 
@@ -1183,9 +1186,18 @@ begin
 end.
 ```
 
-* `import Name` looks for `Name.pas` in the directory of the program; the name after `module`
+* `import Name` looks for `Name.pas` (or `Name.pps`) **next to the importing file**, then in the
+  directories given with **`--module-paths`**, in their order (the first one found wins):
+
+  ```bash
+  ppc --module-paths lib:../shared/modules app.pas    # also --module-paths=lib;vendor
+  ```
+
+  A module found in `lib/` finds its own imports next to it in `lib/`. The name after `module`
   must match the file name. Every module is loaded only once, its own imports first; modules
   that import each other (cycles) are an error.
+* `ppc --check Geometry.pas` checks a module on its own (as if a program imported it) – editors do
+  this for every open module.
 * Everything in the interface is visible in the importing program; the implementation is
   private (`identifier not found "Square"`). Names of the program hide those of a module.
 * Every routine declared in the interface must be defined in the implementation
@@ -1375,6 +1387,40 @@ int32_t count_char(const char *s, char c);
   syntaxes (`library` and `exports` work the same in `.pps` files).
 * A run-time error in the library (e.g. a range error) ends the whole program, as in a program.
 * `-o` sets the `.so` (the header is written next to it); `-S` writes the C file and the header.
+
+### Using shared objects: `external` and `--shared-objects`
+
+A program (or a module, or another library) declares the C functions of a shared object with
+`external` and is linked with **`--shared-objects`**; the C name is the routine's own name or the
+one after `external`:
+
+```pascal
+program UseMath;
+type
+  TPoint = record
+    X, Y: Integer;
+  end;
+
+function Add(a, b: Integer): Integer; external;
+function Area(r: Real): Real; external 'mathlib_area';
+function CountChar(s: String; c: Char): Integer; external;
+function cbrt(x: Real): Real; external;               {* also C library functions (libm) *}
+
+begin
+  WriteLn(Add(20, 22), ' ', Area(1.0):0:4, ' ', CountChar('banana', 'a'), ' ', cbrt(27.0):0:1);
+end.
+```
+
+```bash
+ppc --shared-objects=libMathLib.so usemath.pas       # several: "--shared-objects=a.so;b.so"
+./usemath
+```
+
+* The same types as for `exports` are possible (numbers, `Boolean`, `Char`, enumerations, records
+  of those; `String` parameters are passed as C strings for the time of the call).
+* The program finds the shared objects at run time in the directories they were linked from (the
+  absolute path is recorded in it), wherever it is started.
+* The declaration must match the C function – the compiler cannot check that.
 
 ## Records with methods
 

@@ -186,6 +186,7 @@ typedef struct {
 } Doc;
 static VEC(Doc) docs;
 static char *self_exe;
+static const char *lsp_module_paths; /* --module-paths of 'ppc --lsp': passed on to every check */
 
 static char *uri_to_path(const char *uri) {
     const char *p = uri;
@@ -226,9 +227,17 @@ static char *run_ppc(Doc *d, const char *hover) {
         if (devnull >= 0) dup2(devnull, hover ? 2 : 1);
         close(in[1]);
         close(err[0]);
-        if (hover && STREQ(hover, "complete")) execl(self_exe, self_exe, "--check", "--stdin", "--complete", d->path, (char *)NULL);
-        else if (hover) execl(self_exe, self_exe, "--check", "--stdin", query_opt, hover, d->path, (char *)NULL);
-        else execl(self_exe, self_exe, "--check", "--stdin", d->path, (char *)NULL);
+        const char *av[10];
+        int n = 0;
+        av[n++] = self_exe;
+        av[n++] = "--check";
+        av[n++] = "--stdin";
+        if (lsp_module_paths) av[n++] = "--module-paths", av[n++] = lsp_module_paths; /* ppc --lsp --module-paths ... */
+        if (hover && STREQ(hover, "complete")) av[n++] = "--complete";
+        else if (hover) av[n++] = query_opt, av[n++] = hover;
+        av[n++] = d->path;
+        av[n] = NULL;
+        execv(self_exe, (char *const *)av);
         _exit(127);
     }
     close(in[0]);
@@ -410,7 +419,8 @@ static void complete(Buf *b, Doc *d, int line, int units) {
     }
 }
 
-int lsp_main(const char *self) {
+int lsp_main(const char *self, const char *module_paths) {
+    lsp_module_paths = module_paths;
     char buf[4096];
     ssize_t n = readlink("/proc/self/exe", buf, sizeof buf - 1);
     self_exe = n > 0 ? xstrndup(buf, (size_t)n) : xstrdup(self);
