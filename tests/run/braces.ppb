@@ -7,18 +7,18 @@ type
   TColor = (Red, Green, Blue);
   TItem = (Circle(R: Real), Named(Name: String), Empty);
 
-proc Greet(name: String);
+proc Greet(name: String)
 {
   WriteLn('Hello, ', name, '!');
 }
 
-func Fib(n: Integer): Integer;
+func Fib(n: Integer): Integer
 {
   if n < 2 then Result := n
   else Result := Fib(n - 1) + Fib(n - 2);
 }
 
-func Describe(it: TItem): String;
+func Describe(it: TItem): String
 {
   Result := case it of {
     Circle(r) when r > 1: 'big circle';

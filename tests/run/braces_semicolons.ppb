@@ -20,7 +20,7 @@ val greeting := 'Hello, ';
 {
   WriteLn(greeting, name);
 }
-func Old(x: Integer): Integer; { Result := x + 1; }
+func Old(x: Integer): Integer; { Result := x + 1; }   // the ';' is still allowed
 vao q: TShape := TSquare.Create(3);
 {
   Hello('you');

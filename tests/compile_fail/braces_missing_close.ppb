@@ -1,4 +1,4 @@
 // EXPECT: '}' expected but end of file found
 program T;
-proc P; { WriteLn(1);
+proc P { WriteLn(1);
 { P; }
