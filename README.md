@@ -1810,6 +1810,33 @@ val name := case c of Red: 'R' else 'other' end;
 * Only the chosen arm runs: a move in two different arms is fine, after the `case` the moved value
   counts as possibly moved.
 
+### Type patterns: `case` on the class of an object
+
+A `case` on an object tests its **class** (like a type switch). `TCircle(c)` names the object as a
+`TCircle` – a read-only reference, `TSquare(var q)` a changeable one:
+
+```pascal
+case f of
+  TCircle(c) when c.R > 10: WriteLn('big circle');
+  TCircle(c): WriteLn('circle ', c.R:0:1);
+  TCube: WriteLn('cube');
+  TSquare(q): WriteLn('square ', q.S);
+else WriteLn('some figure');
+end;
+
+if f is TSquare(q) then WriteLn(q.S);          { one pattern as the condition of an if }
+val area := case f of TCircle(c): 3 * c.R * c.R; TSquare(q): q.S * q.S else 0 end;
+```
+
+* The arms are tried in order: a class must come **before** its ancestors (`this arm is never
+  reached: "TCube" objects are already handled by the arm for "TSquare"`).
+* A pattern class must be a descendant of the object's class (or an interface).
+* An arm for the object's own class (or an ancestor) handles everything: an `else` after it is an
+  error. A `case` expression needs such an arm or an `else`.
+* The object must not be `optional` (unpack it first), and it must not be moved or freed while a
+  pattern name is still used. A fresh object (`case Make(1) of …`) belongs to the `case` and is
+  freed when it ends.
+
 ## Loops over collections: `for val x in …`
 
 `for val x in c do …` runs through the elements of an array (fixed or dynamic), a string (the
@@ -1915,7 +1942,7 @@ once (in every kind of loop); borrows of them are invalid afterwards.
 * Procedures/functions, nested to any depth (access to outer variables through static links),
   `var`, `out`, `vao` and `T const` parameters, `forward`, recursion, `Result`/function name,
   `Exit(value)`
-* Statements: `:=`, `if`, `case` (also with strings and ranges, guards with `when`, and as an expression), `while`, `repeat`,
+* Statements: `:=`, `if`, `case` (also with strings and ranges, guards with `when`, type patterns, and as an expression), `while`, `repeat`,
   `for … to/downto`, `for val/var x in …`, `loop` (endless loop), `Break`, `Continue`, `Exit`
 * Expressions: arithmetic, `div`, `mod`, `shl`, `shr`, `and`/`or`/`xor`/`not` (short-circuit for
   Boolean), comparisons, string concatenation, `in [a, b..c]`, type casts `Integer(x)`,
