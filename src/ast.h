@@ -476,6 +476,7 @@ int res_temp(Expr *e);
 extern int g_hover_line, g_hover_col; /* --hover: the place to describe (1-based, byte column) */
 extern const char *g_hover_file;
 extern char *g_hover_text;
+extern int g_complete;   /* --complete: list what can stand at the marker __ppc_complete__ */
 extern int g_def_mode;  /* --definition: print where the name at the place is declared */
 extern Pos g_def_pos;
 const char *hover_text(void);

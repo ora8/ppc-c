@@ -213,6 +213,7 @@ static Doc *doc_of(const char *uri) {
 /* run 'ppc --check --stdin path' (or with '--hover L:C') on the text; returns its stderr (or its stdout for hover) */
 static char *run_ppc(Doc *d, const char *hover);
 static const char *query_opt = "--hover"; /* or --definition */
+static const char *run_text;              /* the text to check instead of the document's (completion) */
 static char *run_check(Doc *d) { return run_ppc(d, NULL); }
 static char *run_ppc(Doc *d, const char *hover) {
     int in[2], err[2];
@@ -225,7 +226,8 @@ static char *run_ppc(Doc *d, const char *hover) {
         if (devnull >= 0) dup2(devnull, hover ? 2 : 1);
         close(in[1]);
         close(err[0]);
-        if (hover) execl(self_exe, self_exe, "--check", "--stdin", query_opt, hover, d->path, (char *)NULL);
+        if (hover && STREQ(hover, "complete")) execl(self_exe, self_exe, "--check", "--stdin", "--complete", d->path, (char *)NULL);
+        else if (hover) execl(self_exe, self_exe, "--check", "--stdin", query_opt, hover, d->path, (char *)NULL);
         else execl(self_exe, self_exe, "--check", "--stdin", d->path, (char *)NULL);
         _exit(127);
     }
@@ -235,9 +237,10 @@ static char *run_ppc(Doc *d, const char *hover) {
     pid_t wpid = fork();
     if (wpid == 0) {
         close(err[0]);
-        size_t n = strlen(d->text), off = 0;
+        const char *txt = run_text ? run_text : d->text;
+        size_t n = strlen(txt), off = 0;
         while (off < n) {
-            ssize_t k = write(in[1], d->text + off, n - off);
+            ssize_t k = write(in[1], txt + off, n - off);
             if (k <= 0) break;
             off += (size_t)k;
         }
@@ -339,6 +342,74 @@ static void clear(const char *uri) {
     send_msg(buf_str(&b));
 }
 
+/* completion: the marker in place of the word at the cursor; if the line is unfinished (it usually is while
+   typing), also with the rest of the line cut off and the open brackets closed */
+static const char *const MARK = "__ppc_complete__";
+static int item_kind(const char *k) {
+    static const struct { const char *k; int n; } K[] = {{"method", 2}, {"function", 3}, {"constructor", 4}, {"field", 5},
+        {"variable", 6}, {"class", 7}, {"interface", 8}, {"property", 10}, {"enum", 13}, {"keyword", 14}, {"enummember", 20},
+        {"constant", 21}, {"struct", 22}, {"type", 7}, {NULL, 0}};
+    for (int i = 0; K[i].k; i++)
+        if (STREQ(K[i].k, k)) return K[i].n;
+    return 1;
+}
+static void complete(Buf *b, Doc *d, int line, int units) {
+    const char *t = d->text, *p = t;
+    for (int l = 1; l < line && *p; p++)
+        if (*p == '\n') l++;
+    const char *ls = p; /* the line */
+    const char *le = strchr(ls, '\n');
+    if (!le) le = ls + strlen(ls);
+    const char *cur = ls + byte_col(t, line, units) - 1;
+    if (cur > le) cur = le;
+    const char *ws = cur; /* the word being typed */
+    while (ws > ls && (isalnum((unsigned char)ws[-1]) || ws[-1] == '_')) ws--;
+    char *prefix = xstrndup(ws, (size_t)(cur - ws));
+    int parens = 0, brackets = 0;
+    for (const char *q = ls; q < ws; q++) {
+        if (*q == '\'') { /* skip strings */
+            for (q++; q < ws && *q != '\''; q++) {}
+            continue;
+        }
+        parens += *q == '(' ? 1 : *q == ')' ? -1 : 0;
+        brackets += *q == '[' ? 1 : *q == ']' ? -1 : 0;
+    }
+    Buf closers = {0};
+    for (int i = 0; i < brackets; i++) buf_put(&closers, "]");
+    for (int i = 0; i < parens; i++) buf_put(&closers, ")");
+    const char *variants[3];
+    variants[0] = sfmt("%.*s%s%s", (int)(ws - t), t, MARK, cur);                                  /* as it is */
+    variants[1] = sfmt("%.*s%s%s%s", (int)(ws - t), t, MARK, buf_str(&closers), le);             /* rest of line cut */
+    variants[2] = sfmt("%.*s%s%s;%s", (int)(ws - t), t, MARK, buf_str(&closers), le);            /* ... and a ';' */
+    char *out = NULL;
+    for (int v = 0; v < 3 && (!out || !*out); v++) {
+        run_text = variants[v];
+        out = run_ppc(d, "complete");
+        run_text = NULL;
+    }
+    int n = 0;
+    for (char *l = out; l && *l;) {
+        char *nl = strchr(l, '\n');
+        if (nl) *nl = 0;
+        char *t1 = strchr(l, '\t');
+        char *t2 = t1 ? strchr(t1 + 1, '\t') : NULL;
+        if (t1 && t2) {
+            *t1 = 0;
+            *t2 = 0;
+            const char *name = t1 + 1;
+            if (!strncasecmp(name, prefix, strlen(prefix))) {
+                buf_printf(b, "%s{\"label\":", n++ ? "," : "");
+                jesc(b, name);
+                buf_printf(b, ",\"kind\":%d,\"detail\":", item_kind(l));
+                jesc(b, t2 + 1);
+                buf_put(b, "}");
+            }
+        }
+        if (!nl) break;
+        l = nl + 1;
+    }
+}
+
 int lsp_main(const char *self) {
     char buf[4096];
     ssize_t n = readlink("/proc/self/exe", buf, sizeof buf - 1);
@@ -357,7 +428,7 @@ int lsp_main(const char *self) {
             Buf b = {0};
             buf_put(&b, "{\"jsonrpc\":\"2.0\",\"id\":");
             jid(&b, id);
-            buf_put(&b, ",\"result\":{\"capabilities\":{\"textDocumentSync\":{\"openClose\":true,\"change\":1,\"save\":{\"includeText\":false}},\"hoverProvider\":true,\"definitionProvider\":true},"
+            buf_put(&b, ",\"result\":{\"capabilities\":{\"textDocumentSync\":{\"openClose\":true,\"change\":1,\"save\":{\"includeText\":false}},\"hoverProvider\":true,\"definitionProvider\":true,\"completionProvider\":{\"triggerCharacters\":[\".\"]}},"
                         "\"serverInfo\":{\"name\":\"ppc\",\"version\":\"1\"}}}");
             send_msg(buf_str(&b));
         } else if (STREQ(method, "shutdown")) {
@@ -381,6 +452,17 @@ int lsp_main(const char *self) {
                 text = jstr(jget(changes->items.items[changes->items.len - 1], "text"));
             if (text) d->text = xstrdup(text);
             publish(d);
+        } else if (STREQ(method, "textDocument/completion")) {
+            const char *uri = jstr(jget(jget(params, "textDocument"), "uri"));
+            Json *pos = jget(params, "position");
+            Json *ln = jget(pos, "line"), *ch = jget(pos, "character");
+            Buf b = {0};
+            buf_put(&b, "{\"jsonrpc\":\"2.0\",\"id\":");
+            jid(&b, id);
+            buf_put(&b, ",\"result\":{\"isIncomplete\":false,\"items\":[");
+            if (uri && ln && ch) complete(&b, doc_of(uri), (int)ln->num + 1, (int)ch->num);
+            buf_put(&b, "]}}");
+            send_msg(buf_str(&b));
         } else if (STREQ(method, "textDocument/definition")) {
             const char *uri = jstr(jget(jget(params, "textDocument"), "uri"));
             Json *pos = jget(params, "position");

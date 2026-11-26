@@ -127,6 +127,7 @@ int main(int argc, char **argv) {
         else if (STREQ(a, "--no-line")) g_line_dirs = 0;
         else if (STREQ(a, "--check")) check_only = 1;
         else if (STREQ(a, "--stdin")) from_stdin = 1;
+        else if (STREQ(a, "--complete")) g_complete = 1, check_only = 1; /* the marker __ppc_complete__ is in the text */
         else if ((STREQ(a, "--hover") || STREQ(a, "--definition")) && i + 1 < argc) {
             g_def_mode = STREQ(a, "--definition");
             if (sscanf(argv[++i], "%d:%d", &g_hover_line, &g_hover_col) != 2) usage();

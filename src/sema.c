@@ -73,6 +73,11 @@ typedef struct {
     Generic *gm; /* a generic method of Self */
 } Look;
 static void check_visible(Look *L, Pos p, const char *name);
+#define COMPLETE_MARK "__ppc_complete__"
+static _Noreturn void complete_scope(void);
+static const char *builtin_name_at(int i);
+static _Noreturn void complete_members(Expr *base);
+static Routine *enclosing_method(void);
 static int hover_at(Pos p, const char *name);
 static Var *pending_hover_var;         /* a declaration under the cursor: described when complete */
 static MethodDecl *pending_hover_method;
@@ -1591,6 +1596,106 @@ static void hover_look(Look *L, const char *name) {
     case SY_VARIANT: hover_set(sfmt("(variant of %s) %s", s->type->st->name, variant_sig(s->type->st, s->vidx))); break;
     }
 }
+
+/* ---- --complete: the server puts the marker at the cursor; when it is resolved, the candidates are printed ---- */
+int g_complete;
+static VEC(const char *) complete_seen;
+static void complete_item(const char *kind, const char *name, const char *detail) {
+    if (!name || !name[0] || (name[0] == '_' && name[1] == '_') || strchr(name, '.') || strchr(name, '#')) return; /* hidden names */
+    for (int i = 0; i < complete_seen.len; i++)
+        if (STREQ(complete_seen.items[i], name)) return; /* an inner name hides an outer one */
+    vpush(complete_seen, name);
+    printf("%s\t%s\t%s\n", kind, name, detail ? detail : "");
+}
+static int member_visible(int vis, Struct *owner) {
+    if (vis == VIS_PUBLIC) return 1;
+    Routine *m = enclosing_method();
+    Struct *ctx = m ? m->owner : NULL;
+    return ctx == owner || (vis == VIS_PROTECTED && ctx && struct_descends(ctx, owner));
+}
+/* the members of a class or record: instance members, or (on the type) constructors and class methods */
+static void complete_struct(Struct *st, int on_type) {
+    for (Struct *c = st; c; c = c->parent) {
+        for (int i = 0; !on_type && i < c->fields.len; i++) {
+            Field *f = c->fields.items[i];
+            if (f->owner == c && member_visible(f->vis, c) && !STREQ(f->name, "__vmt"))
+                complete_item("field", f->name, type_name(f->type));
+        }
+        for (int i = 0; i < c->methods.len; i++) {
+            Routine *m = c->methods.items[i];
+            if (!member_visible(m->vis, c) || m->is_operator) continue;
+            int type_level = m->is_classm || m->kind == RK_CTOR;
+            if (on_type != type_level || m->kind == RK_DTOR) continue;
+            complete_item(m->kind == RK_CTOR ? "constructor" : "method", m->name, routine_desc(m));
+        }
+        for (int i = 0; !on_type && i < c->props.len; i++)
+            if (member_visible(c->props.items[i]->vis, c))
+                complete_item("property", c->props.items[i]->name, type_name(c->props.items[i]->type));
+        for (int i = 0; i < c->cfields.len; i++)
+            if (member_visible(c->cfields.items[i]->vis, c)) complete_item("field", c->cfields.items[i]->name, type_name(c->cfields.items[i]->type));
+        for (int i = 0; i < c->gmethods.len; i++) complete_item("method", ((Generic *)c->gmethods.items[i])->name, "generic method");
+        for (int i = 0; on_type && c->is_sum && i < c->variants.len; i++) complete_item("enummember", c->variants.items[i].name, variant_sig(c, i));
+    }
+}
+static _Noreturn void complete_done(void) {
+    fflush(stdout);
+    exit(0);
+}
+static _Noreturn void complete_members(Expr *base) {
+    if (base->kind == E_IDENT) {
+        Look L = lookup(base->id.name);
+        if (L.kind == LK_SYM && L.sym->kind == SY_TYPE) { /* TFoo.| */
+            Type *t = L.sym->type;
+            if (t->kind == T_CLASS || t->kind == T_RECORD) complete_struct(t->st, 1);
+            if (t->kind == T_ENUM)
+                for (int i = 0; i < t->en->names.len; i++) complete_item("enummember", t->en->names.items[i], type_name(t));
+            complete_done();
+        }
+    }
+    Expr *b = autoderef(value(base));
+    Type *t = b->type;
+    if (t->kind == T_CLASS || t->kind == T_RECORD) {
+        complete_struct(t->st, 0);
+        if (t->kind == T_CLASS && t->st->is_iface && prog->tobject) complete_struct(prog->tobject, 0);
+        if (t->kind == T_CLASS && !t->st->is_iface) complete_item("method", "ClassType", "the class of the object");
+    } else if (t->kind == T_CLASSREF) {
+        complete_struct(t->st, 1);
+        complete_item("method", "ClassName", "String");
+    } else if (t->kind == T_RES) {
+        complete_item("method", "IsOk", "Boolean");
+        complete_item("method", "IsError", "Boolean");
+        if (t->base && !is_ref_type(t->base)) complete_item("method", "ValueOr", type_name(t->base));
+    } else if (is_optional(t)) {
+        complete_item("method", "HasValue", "Boolean");
+        if (t->kind == T_OPT) complete_item("method", "ValueOr", type_name(t->base));
+    }
+    complete_done();
+}
+static _Noreturn void complete_scope(void) {
+    for (Scope *sc = scope; sc; sc = sc->up) {
+        if (sc->self_obj) complete_struct(sc->self_obj->type->st, 0);
+        if (sc->cls) complete_struct(sc->cls, 1);
+        for (int i = sc->syms.len - 1; i >= 0; i--) {
+            Sym *y = sc->syms.items[i];
+            switch (y->kind) {
+            case SY_VAR: complete_item("variable", y->name, type_name(y->var->type)); break;
+            case SY_CONST: complete_item(y->cval && y->cval->type->kind == T_ENUM ? "enummember" : "constant", y->name, y->cval ? type_name(y->cval->type) : ""); break;
+            case SY_TYPE: complete_item(y->type->kind == T_CLASS ? (y->type->st->is_iface ? "interface" : "class") : y->type->kind == T_RECORD ? "struct" :
+                                        y->type->kind == T_ENUM ? "enum" : "type", y->name, type_desc(y->type)); break;
+            case SY_ROUTINE: complete_item("function", y->name, routine_desc(y->rt)); break;
+            case SY_GENERIC: complete_item(y->gen->is_routine ? "function" : "class", y->name, "generic"); break;
+            case SY_VARIANT: complete_item("enummember", y->name, variant_sig(y->type->st, y->vidx)); break;
+            }
+        }
+    }
+    for (int i = 0; builtin_name_at(i); i++) complete_item("function", builtin_name_at(i), "built-in");
+    static const char *kw[] = {"begin", "end", "val", "var", "vao", "if", "then", "else", "while", "do", "for", "in", "to",
+                               "downto", "repeat", "until", "loop", "case", "of", "is", "some", "none", "ok", "error", "try",
+                               "not", "and", "or", "div", "mod", "function", "procedure", "result", "optional", "default",
+                               "Break", "Continue", "Exit", "inherited", NULL};
+    for (int i = 0; kw[i]; i++) complete_item("keyword", kw[i], "");
+    complete_done();
+}
 /* ---- class fields: class var Count: Integer ---- */
 static Field *find_cfield(Struct *st, const char *name) {
     for (Struct *c = st; c; c = c->parent)
@@ -1822,6 +1927,7 @@ static void check_constraints(Generic *g, Type **args, Pos p) {
 static Type *resolve_type_inner(TypeExpr *te) {
     switch (te->kind) {
     case TE_NAMED: {
+        if (g_complete && STREQ(te->name.name, COMPLETE_MARK)) complete_scope(); /* a type at the cursor */
         Look L = lookup(te->name.name);
         if (hover_at(te->name.pos, te->name.name) && L.kind == LK_SYM && L.sym->kind == SY_TYPE)
             hover_set(type_desc(L.sym->type)), def_set(L.sym->type->st ? L.sym->type->st->pos : L.sym->pos);
@@ -2576,6 +2682,7 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
     if (e->kind == E_IDENT) {
         const char *name = e->id.name;
         scope_pos = p;
+        if (g_complete && STREQ(name, COMPLETE_MARK)) complete_scope(); /* a name at the cursor: what is visible here */
         Look L = lookup(name);
         if (hover_at(p, name)) hover_look(&L, name);
         if (L.kind == LK_NONE) {
@@ -2662,6 +2769,7 @@ static Expr *resolve_ref(Expr *e, ExprVec *args) {
     }
     if (e->kind == E_MEMBER) {
         const char *name = e->id.name;
+        if (g_complete && STREQ(name, COMPLETE_MARK)) complete_members(e->a); /* x.| : the members of x */
         if (e->a->kind == E_IDENT) {
             Look L = lookup(e->a->id.name);
             Sym gsym = {0};
@@ -4027,6 +4135,8 @@ static const struct {
     {"FreeAndNil", BI_FREEANDNIL}, {"Take", BI_TAKE}, {"SetLength", BI_SETLENGTH},
     {"__ClassName", BI_CLASSNAME}, {"Pi", BI_PI}, {"Exit", BI_EXIT}, {"Break", BI_BREAK},
     {"Continue", BI_CONTINUE}, {NULL, 0}};
+static const char *builtin_name_at(int i) { return BUILTINS[i].name; }
+
 
 static int builtin_id(const char *name) {
     for (int i = 0; BUILTINS[i].name; i++)

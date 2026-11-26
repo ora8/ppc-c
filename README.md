@@ -104,7 +104,13 @@ for uses and declarations. On the command line: `ppc --hover LINE:COL file.pas`.
 methods (from a call or from the implementation to the declaration in the class), types,
 constants, enumeration values, also in imported modules (not into the built-in standard
 library). On the command line: `ppc --definition LINE:COL file.pas` prints `file:line:col`.
-Completion is not there yet.
+
+**Completion:** after `x.` the members of `x` (fields, methods, properties; private ones only
+where they may be used), after a type name its constructors, class methods and enumeration
+values, otherwise the names in scope (variables, routines, types, constants), built-ins and
+keywords – filtered by what is already typed. It works on unfinished lines like
+`WriteLn(b.Si`: the server tries the line as it is and then with the rest cut off and the
+brackets closed.
 
 ### Debugging
 

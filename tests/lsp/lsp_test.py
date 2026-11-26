@@ -102,9 +102,28 @@ loc = definition(useuri, 3, 11)
 check(loc and loc['uri'].endswith('/lspmod2.pas') and loc['range']['start'] == {'line': 2, 'character': 9},
       'definition in an imported module')
 
-send({'jsonrpc': '2.0', 'id': 7, 'method': 'textDocument/completion', 'params': {}})
-r = recv()
-check(r.get('id') == 7 and r['error']['code'] == -32601, 'unsupported request answered with an error')
+def complete(text, line, ch):
+    send({'jsonrpc': '2.0', 'method': 'textDocument/didChange',
+          'params': {'textDocument': {'uri': uri, 'version': 9}, 'contentChanges': [{'text': text}]}})
+    recv()  # the diagnostics of the unfinished text
+    send({'jsonrpc': '2.0', 'id': 12, 'method': 'textDocument/completion',
+          'params': {'textDocument': {'uri': uri}, 'position': {'line': line, 'character': ch}}})
+    return {i['label']: i for i in recv()['result']['items']}
+prog = ("program C;\ntype TColor = (Red, Green, Blue);\n  TBox = class private FHidden: Integer; public Size: Integer; "
+        "function Area: Integer; end;\nfunction TBox.Area: Integer; begin Result := Size; end;\n"
+        "val total := 0;\nbegin\n  vao b := TBox.Create;\n  begin\n    WriteLn(b.Si\n  end;\nend.\n")
+items = complete(prog, 8, 16)
+check('Size' in items and 'Area' not in items and items['Size']['kind'] == 5, 'members after b. with the prefix Si (unfinished line)')
+items = complete(prog.replace('WriteLn(b.Si', 'WriteLn(b.'), 8, 14)
+check({'Size', 'Area', 'Free'} <= set(items) and 'FHidden' not in items, 'all public members after b. (private ones hidden)')
+items = complete(prog.replace('WriteLn(b.Si', 'tot'), 8, 7)
+check('total' in items and 'WriteLn' not in items, 'names in scope with a prefix')
+items = complete(prog.replace('WriteLn(b.Si', 'Wr'), 8, 6)
+check('WriteLn' in items and 'Write' in items and items['WriteLn']['kind'] == 3, 'built-ins are offered')
+items = complete(prog.replace('WriteLn(b.Si', 'WriteLn(TColor.'), 8, 19)
+check(set(items) == {'Red', 'Green', 'Blue'}, 'the values of an enumeration after TColor.')
+items = complete(prog.replace('    WriteLn(b.Si', '    b.Area; s'), 8, 15)
+check('Self' not in items and 'Size' not in items, 'no Self members outside methods')
 
 send({'jsonrpc': '2.0', 'method': 'textDocument/didClose', 'params': {'textDocument': {'uri': uri}}})
 check(recv()['params']['diagnostics'] == [], 'diagnostics cleared on close')
