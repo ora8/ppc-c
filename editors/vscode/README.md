@@ -5,7 +5,8 @@ Support for [Perfect Pascal](../../README.md) (`ppc`) in Visual Studio Code:
 * syntax highlighting (`val`/`var`/`vao`, `optional`, `result`, `reference to`, …), comment
   toggling (`//`, `{* *}`), brackets, `begin`/`end` folding and indentation;
 * through the language server `ppc --lsp`: errors and warnings while you type (also borrow and
-  nil errors), hover, go to definition (F12) and completion (after `.` and for names);
+  nil errors), hover, go to definition (F12), find all references (Shift+F12), rename (F2) and
+  completion (after `.` and for names);
 * commands **Perfect Pascal: Run File** (also the ▷ button above the editor), **Check File** and
   **Restart Language Server**.
 

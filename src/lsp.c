@@ -213,7 +213,7 @@ static Doc *doc_of(const char *uri) {
 
 /* run 'ppc --check --stdin path' (or with '--hover L:C') on the text; returns its stderr (or its stdout for hover) */
 static char *run_ppc(Doc *d, const char *hover);
-static const char *query_opt = "--hover"; /* or --definition */
+static const char *query_opt = "--hover"; /* or --definition, --references */
 static const char *run_text;              /* the text to check instead of the document's (completion) */
 static char *run_check(Doc *d) { return run_ppc(d, NULL); }
 static char *run_ppc(Doc *d, const char *hover) {
@@ -419,6 +419,92 @@ static void complete(Buf *b, Doc *d, int line, int units) {
     }
 }
 
+/* ---- references and rename ---- */
+
+/* the text of a file: the editor's version if it is open, else the file on disk (NULL: no such file) */
+static char *file_text(const char *file) {
+    for (int i = 0; i < docs.len; i++)
+        if (STREQ(docs.items[i].path, file)) return docs.items[i].text;
+    FILE *f = fopen(file, "rb");
+    if (!f) return NULL;
+    Buf ft = {0};
+    char tmp[65536];
+    size_t k;
+    while ((k = fread(tmp, 1, sizeof tmp, f)) > 0) buf_putn(&ft, tmp, k);
+    fclose(f);
+    return xstrdup(buf_str(&ft));
+}
+static char *path_uri(const char *file) {
+    Buf u = {0};
+    buf_put(&u, "file://");
+    for (const char *q = file; *q; q++) {
+        if (isalnum((unsigned char)*q) || strchr("/-_.~", *q)) buf_putn(&u, q, 1);
+        else buf_printf(&u, "%%%02X", (unsigned char)*q);
+    }
+    return xstrdup(buf_str(&u));
+}
+static char *abs_file(Doc *d, const char *file) { /* the compiler's file names are relative to the document's directory */
+    if (file[0] == '/') return xstrdup(file);
+    const char *sl = strrchr(d->path, '/');
+    return sl ? sfmt("%.*s/%s", (int)(sl - d->path), d->path, file) : xstrdup(file);
+}
+
+typedef struct {
+    char *file, *text; /* text NULL: not in a file (the built-in standard library) */
+    int line, col, len; /* the compiler's: 1-based, bytes */
+} Place;
+typedef VEC(Place) PlaceVec;
+
+/* every place of the name at line/units: 'ppc --references' prints "file:line:col:len" lines */
+static PlaceVec find_places(Doc *d, int line, int units) {
+    PlaceVec v = {0};
+    query_opt = "--references";
+    char *out = run_ppc(d, sfmt("%d:%d", line, byte_col(d->text, line, units)));
+    query_opt = "--hover";
+    for (char *l = out; l && *l;) {
+        char *e = strchr(l, '\n');
+        if (e) *e = 0;
+        char *c3 = strrchr(l, ':'), *c2 = NULL, *c1 = NULL; /* from the right: the file name may contain ':' */
+        if (c3) { *c3 = 0; c2 = strrchr(l, ':'); }
+        if (c2) { *c2 = 0; c1 = strrchr(l, ':'); }
+        Place pl = {0};
+        if (c1 && sscanf(c1 + 1, "%d", &pl.line) == 1 && sscanf(c2 + 1, "%d", &pl.col) == 1 && sscanf(c3 + 1, "%d", &pl.len) == 1) {
+            *c1 = 0;
+            pl.file = abs_file(d, l);
+            pl.text = file_text(pl.file);
+            vpush(v, pl);
+        }
+        l = e ? e + 1 : l + strlen(l);
+    }
+    return v;
+}
+/* the name at a place in its text (to check that a place really shows the name) */
+static char *place_word(Place *p) {
+    const char *t = p->text;
+    for (int l = 1; l < p->line && *t; t++)
+        if (*t == '\n') l++;
+    for (int c = 1; c < p->col && *t && *t != '\n'; c++) t++;
+    return xstrndup(t, strlen(t) < (size_t)p->len ? strlen(t) : (size_t)p->len);
+}
+static void put_range(Buf *b, Place *p) {
+    int c0 = utf16_col(p->text, p->line, p->col), c1 = utf16_col(p->text, p->line, p->col + p->len);
+    buf_printf(b, "{\"start\":{\"line\":%d,\"character\":%d},\"end\":{\"line\":%d,\"character\":%d}}", p->line - 1, c0, p->line - 1, c1);
+}
+static const char *LSP_KEYWORDS[] = {
+    "and", "array", "as", "begin", "case", "class", "const", "constructor", "destructor", "div", "do", "downto", "else", "end", "for",
+    "function", "goto", "if", "implementation", "in", "inherited", "interface", "is", "label", "mod", "nil", "none", "some", "optional",
+    "not", "object", "of", "or", "packed", "procedure", "program", "property", "record", "repeat", "set", "shl", "shr", "then", "to",
+    "type", "unit", "until", "uses", "var", "while", "with", "xor", "try", "loop", "val", "vao", "default", "result", "ok", "error",
+    "module", "import", NULL};
+static const char *rename_problem(const char *name) {
+    if (!name || !*name || !(isalpha((unsigned char)*name) || *name == '_')) return "a name starts with a letter or '_'";
+    for (const char *c = name; *c; c++)
+        if (!(isalnum((unsigned char)*c) || *c == '_')) return "a name has only letters, digits and '_'";
+    for (int i = 0; LSP_KEYWORDS[i]; i++)
+        if (STREQ(LSP_KEYWORDS[i], name)) return "this is a keyword";
+    return NULL;
+}
+
 int lsp_main(const char *self, const char *module_paths) {
     lsp_module_paths = module_paths;
     char buf[4096];
@@ -438,7 +524,7 @@ int lsp_main(const char *self, const char *module_paths) {
             Buf b = {0};
             buf_put(&b, "{\"jsonrpc\":\"2.0\",\"id\":");
             jid(&b, id);
-            buf_put(&b, ",\"result\":{\"capabilities\":{\"textDocumentSync\":{\"openClose\":true,\"change\":1,\"save\":{\"includeText\":false}},\"hoverProvider\":true,\"definitionProvider\":true,\"completionProvider\":{\"triggerCharacters\":[\".\"]}},"
+            buf_put(&b, ",\"result\":{\"capabilities\":{\"textDocumentSync\":{\"openClose\":true,\"change\":1,\"save\":{\"includeText\":false}},\"hoverProvider\":true,\"definitionProvider\":true,\"referencesProvider\":true,\"renameProvider\":{\"prepareProvider\":true},\"completionProvider\":{\"triggerCharacters\":[\".\"]}},"
                         "\"serverInfo\":{\"name\":\"ppc\",\"version\":\"1\"}}}");
             send_msg(buf_str(&b));
         } else if (STREQ(method, "shutdown")) {
@@ -532,6 +618,88 @@ int lsp_main(const char *self, const char *module_paths) {
                 }
             }
             buf_put(&b, ",\"result\":null}");
+            send_msg(buf_str(&b));
+        } else if (STREQ(method, "textDocument/references") || STREQ(method, "textDocument/prepareRename") ||
+                   STREQ(method, "textDocument/rename")) {
+            const char *uri = jstr(jget(jget(params, "textDocument"), "uri"));
+            Json *pos = jget(params, "position");
+            Json *ln = jget(pos, "line"), *ch = jget(pos, "character");
+            Buf b = {0};
+            buf_put(&b, "{\"jsonrpc\":\"2.0\",\"id\":");
+            jid(&b, id);
+            PlaceVec pv = {0};
+            Doc *d = uri ? doc_of(uri) : NULL;
+            int line = ln ? (int)ln->num + 1 : 0;
+            if (d && ln && ch) pv = find_places(d, line, (int)ch->num);
+            /* the place under the cursor gives the name; places that do not show it are left out */
+            int bc = d && ln && ch ? byte_col(d->text, line, (int)ch->num) : 0;
+            char *name = NULL;
+            int here = -1;
+            for (int i = 0; i < pv.len; i++)
+                if (pv.items[i].text && STREQ(pv.items[i].file, d->path) && pv.items[i].line == line && bc >= pv.items[i].col &&
+                    bc < pv.items[i].col + pv.items[i].len)
+                    here = i, name = place_word(&pv.items[i]);
+            int in_std = 0, k = 0;
+            for (int i = 0; i < pv.len; i++) {
+                if (!pv.items[i].text) { in_std = 1; continue; }
+                if (name && !STREQ(place_word(&pv.items[i]), name)) continue;
+                pv.items[k++] = pv.items[i];
+            }
+            pv.len = k;
+            if (STREQ(method, "textDocument/references")) {
+                buf_put(&b, ",\"result\":[");
+                for (int i = 0; i < pv.len; i++) {
+                    buf_put(&b, i ? ",{\"uri\":" : "{\"uri\":");
+                    jesc(&b, path_uri(pv.items[i].file));
+                    buf_put(&b, ",\"range\":");
+                    put_range(&b, &pv.items[i]);
+                    buf_put(&b, "}");
+                }
+                buf_put(&b, "]}");
+            } else if (here < 0 || !name || in_std) {
+                buf_printf(&b, ",\"error\":{\"code\":-32602,\"message\":%s}}",
+                           in_std ? "\"names of the standard library cannot be renamed\"" : "\"there is no name to rename here\"");
+            } else if (STREQ(method, "textDocument/prepareRename")) {
+                Place hp = {d->path, d->text, line, 0, 0};
+                for (int i = 0; i < pv.len; i++)
+                    if (STREQ(pv.items[i].file, d->path) && pv.items[i].line == line && bc >= pv.items[i].col && bc < pv.items[i].col + pv.items[i].len)
+                        hp = pv.items[i];
+                buf_put(&b, ",\"result\":{\"range\":");
+                put_range(&b, &hp);
+                buf_put(&b, ",\"placeholder\":");
+                jesc(&b, name);
+                buf_put(&b, "}}");
+            } else {
+                const char *nn = jstr(jget(params, "newName"));
+                const char *why = rename_problem(nn);
+                if (why) {
+                    buf_put(&b, ",\"error\":{\"code\":-32602,\"message\":");
+                    jesc(&b, sfmt("'%s' cannot be the new name: %s", nn ? nn : "", why));
+                    buf_put(&b, "}}");
+                } else { /* a WorkspaceEdit: the places grouped by file */
+                    buf_put(&b, ",\"result\":{\"changes\":{");
+                    int nf = 0;
+                    for (int i = 0; i < pv.len; i++) {
+                        int first = 1;
+                        for (int j = 0; j < i; j++) first &= !STREQ(pv.items[j].file, pv.items[i].file);
+                        if (!first) continue;
+                        if (nf++) buf_put(&b, ",");
+                        jesc(&b, path_uri(pv.items[i].file));
+                        buf_put(&b, ":[");
+                        int ne = 0;
+                        for (int j = i; j < pv.len; j++) {
+                            if (!STREQ(pv.items[j].file, pv.items[i].file)) continue;
+                            buf_put(&b, ne++ ? ",{\"range\":" : "{\"range\":");
+                            put_range(&b, &pv.items[j]);
+                            buf_put(&b, ",\"newText\":");
+                            jesc(&b, nn);
+                            buf_put(&b, "}");
+                        }
+                        buf_put(&b, "]");
+                    }
+                    buf_put(&b, "}}}");
+                }
+            }
             send_msg(buf_str(&b));
         } else if (STREQ(method, "textDocument/hover")) {
             const char *uri = jstr(jget(jget(params, "textDocument"), "uri"));

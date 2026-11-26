@@ -1101,7 +1101,10 @@ static void define_record(Struct *s, TypeExpr *te) {
             continue;
         }
         if (md->is_operator) operator_rules(s, md);
-        if (hover_at(md->name.pos, md->name.name)) pending_hover_method = md;
+        if (hover_at(md->name.pos, md->name.name)) {
+            if (g_ref_mode) def_set(md->name.pos);
+            else pending_hover_method = md;
+        }
         if (md->kind == RK_CTOR || md->kind == RK_DTOR)
             error_at(md->name.pos, "records cannot have constructors or destructors (records are values: use a procedure such as Init or a function that returns the record)");
         if (md->virt != VIRT_NONE || md->is_abstract)
@@ -1515,7 +1518,22 @@ static Expr *classref_member(Expr *cref, const char *name, ExprVec *args, Pos p)
 int g_hover_line, g_hover_col;
 const char *g_hover_file;
 char *g_hover_text;
+/* --references LINE:COL: every name is noted with the declaration it refers to (def_set) */
+int g_ref_mode;
+typedef struct {
+    Pos use, decl;
+    int len;
+} RefNote;
+static VEC(RefNote) ref_notes;
+static Pos ref_use;
+static int ref_len;
 static int hover_at(Pos p, const char *name) {
+    if (g_ref_mode) {
+        if (!name || p.line <= 0) return 0;
+        ref_use = p;
+        ref_len = (int)strlen(name);
+        return 1;
+    }
     if (!g_hover_line || g_hover_text || p.line != g_hover_line || !name) return 0;
     if (g_hover_col < p.col || g_hover_col >= p.col + (int)strlen(name)) return 0;
     return g_hover_file && STREQ(POS_FILE(p), g_hover_file);
@@ -1523,10 +1541,43 @@ static int hover_at(Pos p, const char *name) {
 int g_def_mode;
 Pos g_def_pos;
 static void hover_set(const char *text) {
+    if (g_ref_mode) return;
     if (!g_hover_text) g_hover_text = xstrdup(text);
 }
 static void def_set(Pos p) { /* the declaration of the name being described */
+    if (g_ref_mode) {
+        if (p.line > 0 && ref_use.line > 0) {
+            RefNote n = {ref_use, p, ref_len};
+            vpush(ref_notes, n);
+        }
+        ref_use.line = 0;
+        return;
+    }
     if (!g_def_pos.line && p.line > 0) g_def_pos = p;
+}
+static int same_pos(Pos a, Pos b) { return a.line == b.line && a.col == b.col && STREQ(POS_FILE(a), POS_FILE(b)); }
+/* the places of the name at LINE:COL and of every other use of what it refers to: "file:line:col:len" lines */
+const char *references_text(void) {
+    Pos target = {0};
+    for (int i = 0; i < ref_notes.len && !target.line; i++) {
+        RefNote *n = &ref_notes.items[i];
+        if (n->use.line == g_hover_line && g_hover_col >= n->use.col && g_hover_col < n->use.col + n->len && g_hover_file &&
+            STREQ(POS_FILE(n->use), g_hover_file))
+            target = n->decl;
+    }
+    if (!target.line) return NULL;
+    Buf b = {0};
+    VEC(Pos) seen = {0};
+    for (int i = 0; i < ref_notes.len; i++) {
+        RefNote *n = &ref_notes.items[i];
+        if (!same_pos(n->decl, target)) continue;
+        int dup = 0;
+        for (int k = 0; k < seen.len && !dup; k++) dup = same_pos(seen.items[k], n->use);
+        if (dup) continue;
+        vpush(seen, n->use);
+        buf_printf(&b, "%s:%d:%d:%d\n", POS_FILE(n->use), n->use.line, n->use.col, n->len);
+    }
+    return xstrdup(buf_str(&b));
 }
 static const char *type_desc(Type *t) {
     Buf b = {0};
@@ -2203,7 +2254,10 @@ static void define_iface(Struct *s, StructDecl *sd) {
             continue;
         }
         if (md->is_operator) operator_rules(s, md);
-        if (hover_at(md->name.pos, md->name.name)) pending_hover_method = md;
+        if (hover_at(md->name.pos, md->name.name)) {
+            if (g_ref_mode) def_set(md->name.pos);
+            else pending_hover_method = md;
+        }
         if (md->kind == RK_CTOR || md->kind == RK_DTOR)
             error_at(md->name.pos, "interfaces have no constructors or destructors (objects are created from classes)");
         if (md->virt != VIRT_NONE || md->is_abstract || md->is_classm || md->is_auto)
@@ -2324,7 +2378,10 @@ static void define_struct(Struct *s, StructDecl *sd) {
             continue;
         }
         if (md->is_operator) operator_rules(s, md);
-        if (hover_at(md->name.pos, md->name.name)) pending_hover_method = md;
+        if (hover_at(md->name.pos, md->name.name)) {
+            if (g_ref_mode) def_set(md->name.pos);
+            else pending_hover_method = md;
+        }
         int novl = method_overload(s, md, md->kind == RK_CTOR ? "constructor" : "method");
         Routine *r = new_routine(md->name.name, md->kind, md->name.pos);
         r->is_overload = md->is_overload;
@@ -6437,7 +6494,10 @@ static void routine_body(Routine *rt, RoutineDecl *d) {
             for (int j = 0; j < d->params.items[g].names.len; j++, k++)
                 if (k == i) ppos = d->params.items[g].names.items[j].pos;
         Var *v = new_var(pm->name, pm->type, VK_PARAM, ppos);
-        if (hover_at(ppos, pm->name)) pending_hover_var = v;
+        if (hover_at(ppos, pm->name)) {
+            if (g_ref_mode) def_set(v->pos);
+            else pending_hover_var = v;
+        }
         v->mode = pm->mode;
         v->is_ref = pm->mode == PM_VAR || pm->mode == PM_OUT || pm->mode == PM_CONSTREF;
         v->is_const = pm->mode == PM_CONST || pm->mode == PM_CONSTREF;
@@ -6686,7 +6746,10 @@ static void decl1(Decl *d, int has_frame) {
                     if (cur) vpush(cur->locals, v);
                     else vpush(prog->globals, v);
                     add_sym(SY_VAR, id->name, id->pos)->var = v;
-                    if (hover_at(id->pos, id->name)) pending_hover_var = v; /* described when it is complete */
+                    if (hover_at(id->pos, id->name)) { /* described when it is complete */
+                        if (g_ref_mode) def_set(v->pos);
+                        else pending_hover_var = v;
+                    }
                     StmtVec *dst = (cur || in_block) ? local_init : &prog->init;
                     if (is_stack && !(ctor->kind == E_VAR && ctor->var->is_stack) &&
                         !(ctor->kind == E_RCALL && ctor->cmode == CM_NEWCLASS)) { /* heap object moves onto the stack */

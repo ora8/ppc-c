@@ -183,6 +183,11 @@ static char *read_stdin(void) {
 
 int lsp_main(const char *self, const char *module_paths);
 
+static void print_references(void) { /* --references: file:line:col:len per place (also after errors) */
+    const char *r = references_text();
+    if (r) fputs(r, stdout);
+    fflush(stdout);
+}
 static void print_hover(void) { /* --hover: the description on standard output (also after errors) */
     const char *h = hover_text();
     if (h) fprintf(stdout, "%s\n", h);
@@ -213,6 +218,12 @@ int main(int argc, char **argv) {
         else if (STREQ(a, "--check")) check_only = 1;
         else if (STREQ(a, "--stdin")) from_stdin = 1;
         else if (STREQ(a, "--complete")) g_complete = 1, check_only = 1; /* the marker __ppc_complete__ is in the text */
+        else if (STREQ(a, "--references") && i + 1 < argc) { /* every place of the name at LINE:COL */
+            g_ref_mode = 1;
+            if (sscanf(argv[++i], "%d:%d", &g_hover_line, &g_hover_col) != 2) usage();
+            check_only = 1;
+            atexit(print_references);
+        }
         else if ((STREQ(a, "--hover") || STREQ(a, "--definition")) && i + 1 < argc) {
             g_def_mode = STREQ(a, "--definition");
             if (sscanf(argv[++i], "%d:%d", &g_hover_line, &g_hover_col) != 2) usage();

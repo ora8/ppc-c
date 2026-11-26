@@ -175,6 +175,12 @@ methods (from a call or from the implementation to the declaration in the class)
 constants, enumeration values, also in imported modules (not into the built-in standard
 library). On the command line: `ppc --definition LINE:COL file.pas` prints `file:line:col`.
 
+**Find references and rename:** all places of a name – its declaration, the implementation of a
+method, every use (also `Count` inside a method without `Self.`), in the file and in the modules
+it imports. Rename changes them all at once (in every file); it refuses keywords, invalid names and
+names of the standard library. On the command line: `ppc --references LINE:COL file.pas` prints
+`file:line:col:length` for every place.
+
 **Completion:** after `x.` the members of `x` (fields, methods, properties; private ones only
 where they may be used), after a type name its constructors, class methods and enumeration
 values, otherwise the names in scope (variables, routines, types, constants), built-ins and

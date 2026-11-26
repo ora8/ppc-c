@@ -34,7 +34,9 @@ def check(cond, what):
 
 send({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {'rootUri': None, 'capabilities': {}}})
 r = recv()
-check(r.get('id') == 1 and r['result']['capabilities']['textDocumentSync']['change'] == 1 and r['result']['capabilities']['hoverProvider'] and r['result']['capabilities']['definitionProvider'], 'initialize: full text sync, hover, definition')
+caps = r['result']['capabilities']
+check(r.get('id') == 1 and caps['textDocumentSync']['change'] == 1 and caps['hoverProvider'] and caps['definitionProvider'], 'initialize: full text sync, hover, definition')
+check(caps.get('referencesProvider') and caps.get('renameProvider', {}).get('prepareProvider'), 'initialize: references, rename with prepareRename')
 send({'jsonrpc': '2.0', 'method': 'initialized', 'params': {}})
 
 bad = "program T;\nval x: Integer := 1;\nbegin\n  x := 'ü' + 'a';\n  WriteLn(y);\nend.\n"
@@ -101,6 +103,31 @@ check(recv()['params']['diagnostics'] == [], 'program using a module has no erro
 loc = definition(useuri, 3, 11)
 check(loc and loc['uri'].endswith('/lspmod2.pas') and loc['range']['start'] == {'line': 2, 'character': 9},
       'definition in an imported module')
+
+def request(method, u, line, ch, **extra):
+    params = {'textDocument': {'uri': u}, 'position': {'line': line, 'character': ch}}
+    params.update(extra)
+    send({'jsonrpc': '2.0', 'id': 13, 'method': method, 'params': params})
+    return recv()
+refs = request('textDocument/references', useuri, 3, 11, context={'includeDeclaration': True}).get('result') or []
+where = sorted((x['uri'].rsplit('/', 1)[1], x['range']['start']['line'], x['range']['start']['character'], x['range']['end']['character']) for x in refs)
+check(where == [('lspmod2.pas', 2, 9, 13), ('lspmod2.pas', 4, 9, 13), ('lspuse2.pas', 3, 10, 14)],
+      'references of Half: interface, implementation (module) and the call (%s)' % where)
+r = request('textDocument/prepareRename', useuri, 3, 12).get('result')
+check(r and r['placeholder'] == 'Half' and r['range']['start'] == {'line': 3, 'character': 10}, 'prepareRename gives the name and its range')
+edit = request('textDocument/rename', useuri, 3, 12, newName='Halve').get('result') or {}
+changes = {u.rsplit('/', 1)[1]: [e['range']['start']['line'] for e in v] for u, v in edit.get('changes', {}).items()}
+check(changes == {'lspmod2.pas': [2, 4], 'lspuse2.pas': [3]} and all(e['newText'] == 'Halve' for v in edit['changes'].values() for e in v),
+      'rename edits the module and the program (%s)' % changes)
+check('keyword' in request('textDocument/rename', useuri, 3, 12, newName='begin').get('error', {}).get('message', ''),
+      'rename to a keyword is refused')
+send({'jsonrpc': '2.0', 'method': 'textDocument/didChange',
+      'params': {'textDocument': {'uri': useuri, 'version': 2},
+                 'contentChanges': [{'text': "program U;\nimport std;\nbegin\n  WriteLn(Trim(' x '));\nend.\n"}]}})
+recv()
+check('standard library' in request('textDocument/prepareRename', useuri, 3, 11).get('error', {}).get('message', ''),
+      'names of the standard library cannot be renamed')
+check('error' in request('textDocument/prepareRename', useuri, 3, 4), 'a built-in (WriteLn) cannot be renamed')
 
 def complete(text, line, ch):
     send({'jsonrpc': '2.0', 'method': 'textDocument/didChange',

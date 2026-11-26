@@ -497,7 +497,9 @@ extern int g_hover_line, g_hover_col; /* --hover: the place to describe (1-based
 extern const char *g_hover_file;
 extern char *g_hover_text;
 extern int g_complete;   /* --complete: list what can stand at the marker __ppc_complete__ */
-extern int g_def_mode;  /* --definition: print where the name at the place is declared */
+extern int g_def_mode;
+extern int g_ref_mode;  /* --references: every use of the name at the place */
+const char *references_text(void);  /* --definition: print where the name at the place is declared */
 extern Pos g_def_pos;
 const char *hover_text(void);
 extern int g_line_dirs;     /* #line directives: C compiler messages and debuggers show the Pascal source */
