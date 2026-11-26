@@ -1,0 +1,7 @@
+{
+  // .pas files of this project are Perfect Pascal (the Delphi extension claims .pas as well)
+  "files.associations": {
+    "*.pas": "perfectpascal",
+    "*.pps": "perfectpascal-braces"
+  }
+}
