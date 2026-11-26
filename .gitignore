@@ -1,5 +1,6 @@
 build/
 /ppc
+/ppm
 tests/run/*.c
 examples/*
 !examples/*.pas

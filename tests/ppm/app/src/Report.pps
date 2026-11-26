@@ -1,0 +1,6 @@
+module Report;
+import ppc_std;
+interface
+function Line(what: String; v: Real): String;
+implementation
+function Line(what: String; v: Real): String; { Result := PadRight(what, 18, '.') + ' ' + FloatToStr(Round(v * 100) / 100); }

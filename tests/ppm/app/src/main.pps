@@ -1,0 +1,7 @@
+program App;
+import Shapes, Units, Report;
+{
+  WriteLn(Line('area of 2 inches', AreaCm2(Square(2.0))));
+  WriteLn(Line('10 inches', ToCm(10.0)));
+  if ParamCount > 0 WriteLn('argument: ', ParamStr(1));
+}

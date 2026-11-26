@@ -40,7 +40,7 @@ Highlights:
 ## Building and using
 
 ```bash
-make            # builds ./ppc
+make            # builds ./ppc and ./ppm
 make test       # test suite (output, borrow/optional/stack/const/result/clone/generic errors, compile errors)
 ```
 
@@ -63,6 +63,57 @@ make test       # test suite (output, borrow/optional/stack/const/result/clone/g
 ./ppc --check x.pas           # only check (errors, warnings), produce nothing
 ./ppc --lsp                   # language server for editors (see below)
 ```
+
+### Projects: `ppm` and `ppc.ini`
+
+`ppm` (Perfect Pascal Manager, built by `make` next to `ppc`) manages projects, like `cargo` for
+Rust. A project is a directory with a `ppc.ini`:
+
+```bash
+ppm new calculator          # a program project (--lib: shared library, --static: static library, --pps: brace syntax)
+cd calculator
+ppm build                   # builds target/calculator (a library: target/libCalculator.so or .a)
+ppm run -- arguments        # builds and runs the program
+ppm check                   # checks the program and every module in src/
+ppm test                    # builds and runs the programs in tests/, compares their output with .expected
+ppm clean                   # removes target/
+```
+
+```
+calculator/
+  ppc.ini          the project file
+  src/main.pas     the program (a library: src/lib.pas; also .pps)
+  src/*.pas        the modules of the project
+  tests/*.pas      test programs (with <name>.expected: the output they must print)
+  target/          what ppm builds
+```
+
+```ini
+[project]
+name = calculator
+version = 0.1.0
+kind = program            ; program, library or modules (only modules for other projects)
+; static = yes            ; a library as a static library (.a)
+; main = src/app.pas      ; another main file
+
+[dependencies]
+shapes = ../shapes        ; another project: its src/ modules can be imported (and those of its dependencies)
+
+[link]
+shared-objects = lib/libz.so       ; separated by ',' or ';'
+static-libraries =
+
+[build]
+options = -O2 --no-range-check     ; ppc options
+```
+
+* `ppm` calls `ppc` with `--module-paths` (the `src/` directories of the project and of all its
+  dependencies, each once), `--shared-objects`, `--static-libraries` and the `[build]` options; the
+  `ppc` next to `ppm` is used (or `$PPC`).
+* The tests of a library are linked with it: they declare its routines with `external`.
+* `ppc` itself also reads the `ppc.ini` above a file it compiles: the modules of the project and its
+  dependencies are found from every file, so editors need no settings for them.
+* Dependencies are local directories for now.
 
 ### Editor support: `ppc --lsp`
 

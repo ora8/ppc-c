@@ -1,15 +1,19 @@
 CC      ?= gcc
 CFLAGS  ?= -std=gnu11 -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare
 BUILD   := build
-SRCS    := src/util.c src/parser.c src/sema.c src/borrow.c src/codegen.c src/lsp.c src/main.c
+SRCS    := src/util.c src/ini.c src/parser.c src/sema.c src/borrow.c src/codegen.c src/lsp.c src/main.c
 OBJS    := $(SRCS:src/%.c=$(BUILD)/%.o) $(BUILD)/runtime.o $(BUILD)/stdlib.o
 
-all: ppc
+all: ppc ppm
 
 ppc: $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS)
 
-$(BUILD)/%.o: src/%.c src/ast.h src/util.h | $(BUILD)
+# ppm: the project tool (ppc.ini), calls ppc
+ppm: $(BUILD)/ppm.o $(BUILD)/ini.o $(BUILD)/util.o
+	$(CC) $(CFLAGS) -o $@ $^
+
+$(BUILD)/%.o: src/%.c src/ast.h src/util.h src/ini.h | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # embed the C runtime as a string literal
@@ -33,10 +37,10 @@ $(BUILD)/stdlib.o: $(BUILD)/stdlib.c
 $(BUILD):
 	mkdir -p $(BUILD)
 
-test: ppc
+test: ppc ppm
 	./tests/run.sh
 
 clean:
-	rm -rf $(BUILD) ppc
+	rm -rf $(BUILD) ppc ppm
 
 .PHONY: all clean test

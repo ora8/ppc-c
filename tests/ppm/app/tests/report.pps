@@ -1,0 +1,5 @@
+program ReportTest;
+import Report;
+{
+  WriteLn(Line('x', 1.5));
+}

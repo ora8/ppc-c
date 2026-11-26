@@ -1,5 +1,6 @@
 /* main.c - ppc compiler driver */
 #include "ast.h"
+#include "ini.h"
 #include <limits.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -235,6 +236,15 @@ int main(int argc, char **argv) {
     }
     if (!input) usage();
     if (!cc || !*cc) cc = "gcc";
+    { /* a file of a ppm project (a ppc.ini in its directory or above): the src/ directories of the project and
+         its dependencies are module paths too (after --module-paths), so editors find their modules */
+        char *ini = project_find(dir_of(input));
+        Project pr;
+        StrVec dirs = {0};
+        char *err = NULL;
+        if (ini && !project_load(ini, &pr, &err) && !project_module_dirs(&pr, &dirs, &err))
+            for (int i = 0; i < dirs.len; i++) vpush(module_paths, dirs.items[i]);
+    }
 
     char *base;
     {

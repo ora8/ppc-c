@@ -98,6 +98,25 @@ if command -v gcc >/dev/null; then
   # --static only for libraries
   if out=$($PPC --static -o "$TMP/x" run/basics.pas 2>&1); then bad "--static of a program" "no error"; elif grep -qF "the file must start with 'library Name;'" <<<"$out"; then ok "--static of a program"; else bad "--static of a program" "$out"; fi
 fi
+# ppm: projects with a ppc.ini (copied: their target/ stays out of the repository)
+PPM="$(cd .. && pwd)/ppm"
+if [ -x "$PPM" ]; then
+  cp -r ppm "$TMP/ppm"
+  for p in "$TMP"/ppm/*/; do
+    n=$(basename "$p")
+    if out=$(cd "$p" && "$PPM" test 2>&1); then ok "ppm test $n"; else bad "ppm test $n" "$out"; fi
+  done
+  if diff -u <(printf 'area of 2 inches.. 25.81\n10 inches......... 25.4\nargument: hello\n') <(cd "$TMP/ppm/app" && "$PPM" run -- hello 2>/dev/null | grep -v '^ *\(Compiling\|Finished\|Running\)') > "$TMP/diff"
+  then ok "ppm run app"; else bad "ppm run app" "$(cat "$TMP/diff")"; fi
+  # ppm new: every kind of project builds and passes its test
+  for how in "" "--pps" "--lib" "--lib --pps" "--static"; do
+    d="$TMP/new$(echo "$how" | tr -d ' -')"; mkdir -p "$d"
+    if out=$(cd "$d" && "$PPM" new demo-proj $how && cd demo-proj && "$PPM" check && "$PPM" test 2>&1); then ok "ppm new $how"; else bad "ppm new $how" "$out"; fi
+  done
+  if diff <(echo 'Hello, demo-proj!') <(cd "$TMP/new/demo-proj" && "$PPM" run 2>/dev/null | tail -1) >/dev/null; then ok "ppm run (new)"; else bad "ppm run (new)" "wrong output"; fi
+  if out=$(cd "$TMP" && "$PPM" build 2>&1); then bad "ppm without project" "no error"; elif grep -qF "no ppc.ini" <<<"$out"; then ok "ppm without project"; else bad "ppm without project" "$out"; fi
+  if out=$(cd "$TMP/ppm/units" && "$PPM" run 2>&1); then bad "ppm run (modules)" "no error"; elif grep -qF "has only modules" <<<"$out"; then ok "ppm run (modules)"; else bad "ppm run (modules)" "$out"; fi
+fi
 # tools/pas2pps.pps (the converter written in the brace syntax) reproduces every .pps twin of run/*.pas
 if out=$($PPC -o "$TMP/pas2pps" ../tools/pas2pps.pps 2>&1); then
   for f in run/*.pas; do
