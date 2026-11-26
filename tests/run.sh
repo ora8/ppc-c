@@ -4,19 +4,19 @@ cd "$(dirname "$0")"
 PPC=../ppc
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-shopt -s nullglob   # *.ppb: the brace syntax, not in every directory
+shopt -s nullglob   # *.pps: the brace syntax, not in every directory
 pass=0; fail=0
 ok()  { pass=$((pass+1)); echo "ok    $1"; }
 bad() { fail=$((fail+1)); echo "FAIL  $1"; [ -n "$2" ] && echo "$2" | sed 's/^/      /'; }
 
-for f in run/*.pas run/*.ppb; do
+for f in run/*.pas run/*.pps; do
   n=$(basename "${f%.*}")
   head -1 "$f" | grep -q '^module ' && continue   # modules are imported by the run tests, not run themselves
   if ! out=$($PPC -o "$TMP/$n" "$f" 2>&1); then bad "$f" "$out"; continue; fi
   if diff -u "run/$n.expected" <("$TMP/$n" < /dev/null) > "$TMP/diff"; then ok "$f"; else bad "$f" "$(cat "$TMP/diff")"; fi
 done
 for d in borrow_fail optional_fail stack_fail const_fail result_fail clone_fail generic_fail proc_fail iface_fail overload_fail set_fail compile_fail; do
-  for f in $d/*.pas $d/*.ppb; do
+  for f in $d/*.pas $d/*.pps; do
     head -1 "$f" | grep -q '^module ' && continue   # imported by a test
     exp=$(sed -n -e '1s/^{\* EXPECT: \(.*\) \*}$/\1/p' -e '1s|^// EXPECT: \(.*\)$|\1|p' "$f")
     out=$($PPC -S -o "$TMP/x" "$f" 2>&1); rc=$?

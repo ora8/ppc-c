@@ -1529,7 +1529,7 @@ static const char *type_desc(Type *t) {
 static const char *routine_desc(Routine *r) {
     Buf b = {0};
     if (r->is_classm && r->owner) buf_put(&b, "class ");
-    int br = is_brace_file(g_hover_file); /* hover and completion in a .ppb file: its own words */
+    int br = is_brace_file(g_hover_file); /* hover and completion in a .pps file: its own words */
     buf_put(&b, r->kind == RK_FUNC ? (br ? "func " : "function ") : r->kind == RK_CTOR ? "constructor " : r->kind == RK_DTOR ? "destructor "
                 : br ? "proc " : "procedure ");
     if (r->owner) buf_printf(&b, "%s.", r->owner->name);

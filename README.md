@@ -181,9 +181,9 @@ prog.pas: 3 syntax error(s), compilation aborted
 `{ }` is **not** a comment (unlike standard Pascal): in the brace syntax `{ }` are blocks, and the
 same comments work in both syntaxes. Comments do not nest.
 
-## The brace syntax: `.ppb` files
+## The brace syntax: `.pps` files
 
-Files ending in **`.ppb`** use a second syntax of the same language: `func` and `proc` instead of
+Files ending in **`.pps`** (*Perfect Pascal Source*) use a second syntax of the same language: `func` and `proc` instead of
 `function` and `procedure`, and `{ }` instead of `begin` … `end`. Everything else is unchanged, both
 syntaxes are compiled by the same `ppc`, and a program in one syntax can import modules in the other.
 
@@ -223,7 +223,7 @@ val c: TColor := Green;
 }
 ```
 
-| Pascal syntax (`.pas`) | brace syntax (`.ppb`) |
+| Pascal syntax (`.pas`) | brace syntax (`.pps`) |
 |---|---|
 | `function F: Integer;` / `procedure P;` | `func F: Integer;` / `proc P;` (before the body `{`: `func F: Integer { … }`) |
 | `begin … end` | `{ … }` |
@@ -239,11 +239,11 @@ val c: TColor := Green;
   `func TSquare.Area: Real; override; const { … }`. It is still needed before local declarations
   (`proc P; val x := 1; { … }`) and in declarations without a body (in a class, in the interface
   section of a module, `forward`).
-* `begin`, `end`, `function` and `procedure` are errors in a `.ppb` file (`in the brace syntax
-  (.ppb) 'begin' is written '{'`); `func` and `proc` are ordinary names in a `.pas` file.
-* `import M` looks for `M.pas`, then `M.ppb`.
+* `begin`, `end`, `function` and `procedure` are errors in a `.pps` file (`in the brace syntax
+  (.pps) 'begin' is written '{'`); `func` and `proc` are ordinary names in a `.pas` file.
+* `import M` looks for `M.pas`, then `M.pps`.
 * Messages, hover and completion use the words of the file's syntax; the VS Code extension
-  highlights `.ppb` files as *Perfect Pascal (braces)*.
+  highlights `.pps` files as *Perfect Pascal (braces)*.
 
 ## Classes
 

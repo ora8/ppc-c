@@ -13,7 +13,7 @@ typedef struct {
     char *str;
     int slen;
     Pos pos;
-    int br;           /* from a file in the brace syntax (.ppb) */
+    int br;           /* from a file in the brace syntax (.pps) */
     const char *orig; /* the written form when it differs from s ('{' for begin, 'func' for function) */
 } Token;
 
@@ -30,11 +30,11 @@ static const char *SYMS[] = {":=", "<=", ">=", "<>", "..", "+", "-", "*", "/", "
 
 typedef VEC(Token) TokVec;
 
-/* the brace syntax (files ending in .ppb): func, proc, { } instead of function, procedure, begin, end;
+/* the brace syntax (files ending in .pps): func, proc, { } instead of function, procedure, begin, end;
    comments are {* *}, (* *) and // in both syntaxes */
 int is_brace_file(const char *f) {
     size_t n = f ? strlen(f) : 0;
-    return n > 4 && strcmp(f + n - 4, ".ppb") == 0;
+    return n > 4 && strcmp(f + n - 4, ".pps") == 0;
 }
 static const char *brace_word(const char *k) {
     if (STREQ(k, "begin")) return "{";
@@ -119,7 +119,7 @@ static TokVec tokenize(const char *src) {
             if (br) {
                 t.br = 1;
                 if (t.kind == TK_KW && (STREQ(w, "begin") || STREQ(w, "end") || STREQ(w, "function") || STREQ(w, "procedure")))
-                    error_at(pos, "in the brace syntax (.ppb) '%s' is written '%s'", w, brace_word(w));
+                    error_at(pos, "in the brace syntax (.pps) '%s' is written '%s'", w, brace_word(w));
                 if (STREQ(w, "func") || STREQ(w, "proc")) {
                     t.kind = TK_KW;
                     t.s = STREQ(w, "func") ? "function" : "procedure";

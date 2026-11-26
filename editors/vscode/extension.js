@@ -32,7 +32,7 @@ async function startClient() {
 function currentFile() {
   const editor = vscode.window.activeTextEditor;
   if (!editor || !['perfectpascal', 'perfectpascal-braces'].includes(editor.document.languageId)) {
-    vscode.window.showWarningMessage('Perfect Pascal: open a .pas or .ppb file first.');
+    vscode.window.showWarningMessage('Perfect Pascal: open a .pas or .pps file first.');
     return undefined;
   }
   return editor.document;

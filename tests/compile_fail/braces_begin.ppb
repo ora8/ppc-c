@@ -1,5 +1,0 @@
-// EXPECT: in the brace syntax (.ppb) 'begin' is written '{'
-program T;
-begin
-  WriteLn(1);
-end.

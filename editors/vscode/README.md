@@ -29,6 +29,6 @@ code --install-extension perfect-pascal-0.1.0.vsix
 | `ppc.runArguments` | extra options for *Run File*, e.g. `-O3` or `-g` |
 | `ppc.trace.server` | `messages` / `verbose`: log the LSP traffic (Output: Perfect Pascal) |
 
-Files ending in `.pas` are Perfect Pascal files, files ending in `.ppb` use the brace syntax
+Files ending in `.pas` are Perfect Pascal files, files ending in `.pps` use the brace syntax
 (`func`, `proc`, `{ }`; comments `{* *}`, `(* *)` and `//`) with their own highlighting. If another Pascal extension claims them, choose
 *Perfect Pascal* with *Change Language Mode*.

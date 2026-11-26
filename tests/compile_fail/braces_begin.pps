@@ -1,0 +1,5 @@
+// EXPECT: in the brace syntax (.pps) 'begin' is written '{'
+program T;
+begin
+  WriteLn(1);
+end.

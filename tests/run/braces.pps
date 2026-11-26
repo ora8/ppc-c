@@ -1,5 +1,5 @@
 program Braces;
-// the brace syntax (.ppb): func, proc and { } instead of function, procedure, begin and end
+// the brace syntax (.pps): func, proc and { } instead of function, procedure, begin and end
 import braces_shapes, ppc_std;
 (* the brace syntax: func, proc, { } *)
 {* comments: brace-star, paren-star and double slash *}

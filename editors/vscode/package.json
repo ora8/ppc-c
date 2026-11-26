@@ -1,7 +1,7 @@
 {
   "name": "perfect-pascal",
   "displayName": "Perfect Pascal",
-  "description": "Perfect Pascal (ppc): syntax highlighting, errors while typing, hover, go to definition and completion (.pas, and .ppb in the brace syntax)",
+  "description": "Perfect Pascal (ppc): syntax highlighting, errors while typing, hover, go to definition and completion (.pas, and .pps in the brace syntax)",
   "version": "0.1.0",
   "publisher": "ppc",
   "license": "MIT",
@@ -31,10 +31,10 @@
         "id": "perfectpascal-braces",
         "aliases": [
           "Perfect Pascal (braces)",
-          "ppb"
+          "pps"
         ],
         "extensions": [
-          ".ppb"
+          ".pps"
         ],
         "configuration": "./language-configuration-braces.json"
       }
