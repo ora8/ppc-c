@@ -1,0 +1,29 @@
+program BracesSemicolons;
+// the brace syntax: the ";" before the body "{" of a routine can be left out (also after its last directive)
+type
+  TShape = class {
+    S: Real;
+    constructor Create(AS: Real);
+    func Area: Real; virtual; const;
+    proc Grow; virtual;
+  }
+  TSquare = class(TShape) {
+    func Area: Real; override; const;
+  }
+constructor TShape.Create(AS: Real) { inherited Create; S := AS; }
+func TShape.Area: Real; const { Result := 0; }
+proc TShape.Grow { S := S * 2; }
+func TSquare.Area: Real; override; const { Result := S * S; }
+func Twice(x: Integer): Integer { Result := 2 * x; }
+proc Hello(name: String);
+val greeting := 'Hello, ';
+{
+  WriteLn(greeting, name);
+}
+func Old(x: Integer): Integer; { Result := x + 1; }
+vao q: TShape := TSquare.Create(3);
+{
+  Hello('you');
+  q.Grow;
+  WriteLn(q.Area:0:1, ' ', Twice(4), ' ', Old(1));
+}

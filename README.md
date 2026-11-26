@@ -199,14 +199,14 @@ type
     func Area: Real; virtual; const;
   }
 
-func TShape.Area: Real; const; { Result := 0; }
+func TShape.Area: Real; const { Result := 0; }
 
-proc Greet(name: String);
+proc Greet(name: String)
 {
   WriteLn('Hello, ', name, '!');
 }
 
-func Fib(n: Integer): Integer;
+func Fib(n: Integer): Integer
 {
   if n < 2 then Result := n else Result := Fib(n - 1) + Fib(n - 2);
 }
@@ -225,7 +225,7 @@ val c: TColor := Green;
 
 | Pascal syntax (`.pas`) | brace syntax (`.ppb`) |
 |---|---|
-| `function F: Integer;` / `procedure P;` | `func F: Integer;` / `proc P;` |
+| `function F: Integer;` / `procedure P;` | `func F: Integer;` / `proc P;` (before the body `{`: `func F: Integer { … }`) |
 | `begin … end` | `{ … }` |
 | `record … end`, `class(TBase) … end`, `interface … end` | `record { … }`, `class(TBase) { … }`, `interface { … }` |
 | `case x of … end` | `case x of { … }` |
@@ -233,7 +233,12 @@ val c: TColor := Green;
 | `module M; … implementation … end.` | `module M; … implementation …` (ends with the file) |
 | comments `{* *}`, `(* *)`, `//` | the same comments; `{ }` without `*` is a block |
 
-* A `;` after a `}` can be left out (`proc P; { … }` and `{ … } WriteLn(1)`).
+* A `;` after a `}` can be left out (`{ … } WriteLn(1)`, and after a routine's body).
+* The `;` at the end of a routine header – or after its last directive – can be left out when the
+  body `{` follows directly: `func Twice(x: Integer): Integer { … }`,
+  `func TSquare.Area: Real; override; const { … }`. It is still needed before local declarations
+  (`proc P; val x := 1; { … }`) and in declarations without a body (in a class, in the interface
+  section of a module, `forward`).
 * `begin`, `end`, `function` and `procedure` are errors in a `.ppb` file (`in the brace syntax
   (.ppb) 'begin' is written '{'`); `func` and `proc` are ordinary names in a `.pas` file.
 * `import M` looks for `M.pas`, then `M.ppb`.

@@ -386,6 +386,11 @@ static void parse_directives(int *virt, int *abs, int *fwd, int *cnst, int *auto
             *cnst = 1;
             continue;
         }
+        if (CUR.br && is_kw("const") && T.items[P + 1].kind == TK_KW && STREQ(T.items[P + 1].s, "begin")) {
+            next(); /* the brace syntax: func Len: Real; const { ... } */
+            *cnst = 1;
+            break;
+        }
         if (!is_directive()) break;
         const char *d = CUR.s;
         next();
@@ -398,6 +403,7 @@ static void parse_directives(int *virt, int *abs, int *fwd, int *cnst, int *auto
             if (!autog) error_at(pos(), "'auto' belongs to the declaration in the class or record ('function Clone: T; const; auto;')");
             *autog = 1;
         }
+        if (CUR.br && is_kw("begin")) break; /* the brace syntax: '; ' before the body may be left out */
         expect_sym(";");
     }
 }
@@ -874,7 +880,7 @@ static RoutineDecl *parse_routine(void) {
         d->ret_borrowed = accept_borrowed();
         d->ret = parse_type();
     }
-    expect_sym(";");
+    if (!(CUR.br && is_kw("begin"))) expect_sym(";"); /* the brace syntax: func F: Integer { ... } */
     int virt = 0, abs = 0;
     parse_directives(&virt, &abs, &d->forward, &d->is_const, NULL);
     d->is_overload = last_overload;
