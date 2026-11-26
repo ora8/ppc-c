@@ -1,0 +1,33 @@
+single big circle 9.0
+single circle 2.0
+flat rect, height 7
+rect 3x4
+single empty
+two empties
+two circles 3.5
+pair ending empty
+something else
+box with zero
+box with negative -3
+box with 8
+empty box
+red paint rose
+sky paint
+paint 1 leaf
+something else
+rect 99x0
+-1: nothing
+0: found empty
+1: found circle 1.5
+2: found circle 3.0
+exactly five
+division by zero
+a circle figure at 1
+1.5 2.0 5.0 3.0 4.0 0.0 0.0 -1.0
+none
+empty
+circle 1.5
+three
+1
+if: circle 4.5
+if: flat 99

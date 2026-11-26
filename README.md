@@ -1837,6 +1837,44 @@ val area := case f of TCircle(c): 3 * c.R * c.R; TSquare(q): q.S * q.S else 0 en
   pattern name is still used. A fresh object (`case Make(1) of …`) belongs to the `case` and is
   freed when it ends.
 
+### Nested patterns
+
+Patterns can contain patterns: a field of a variant can be tested with a variant, a constant,
+`some`/`none`, `ok`/`error` or a class, at any depth:
+
+```pascal
+case it of
+  Single(Circle(r)) when r > 5: WriteLn('big circle');
+  Single(Rect(0, h)): WriteLn('flat, height ', h);     { a constant: W must be 0 }
+  Pair(Empty, Empty): WriteLn('two empties');
+  Box(some n): WriteLn('box with ', n);
+  Box(none): WriteLn('empty box');
+  Paint(Red, n): WriteLn('red ', n);                    { an enumeration value }
+else WriteLn('other');
+end;
+
+case Find(k) of
+  some Circle(r): ...;      { an optional value that holds a Circle }
+  some Empty: ...;
+  some _: ...;
+  none: ...;
+end;
+
+case f of some TCircle(c): ... end;    { an optional object of class TCircle }
+if Find(3) is some Circle(r) then ...;
+```
+
+* A name in a pattern is a **test** when it is a variant of the field's enumeration with data, a
+  value of the field's enumeration (or `True`/`False`), or a class (for an object); otherwise it is a
+  new name. Numbers, characters and strings are compared with `=`.
+* An arm with a nested test counts like an arm with `when`: it does not handle its variant
+  completely, so a `case` without `else` still needs an arm for it (`Single(s)`).
+* An arm after one that already handles its variant completely is never reached and is an error.
+* Names after `some`, `ok` and `error` are read-only (`var` is not possible there); elsewhere
+  `var x` gives a changeable name. A name can only be used once in a pattern.
+* Several labels can share an arm when they only test (`Pair(Empty, Empty), Nothing:`), not when
+  they name something or unpack with `some`/`ok`/`error`.
+
 ## Loops over collections: `for val x in …`
 
 `for val x in c do …` runs through the elements of an array (fixed or dynamic), a string (the
@@ -1942,7 +1980,7 @@ once (in every kind of loop); borrows of them are invalid afterwards.
 * Procedures/functions, nested to any depth (access to outer variables through static links),
   `var`, `out`, `vao` and `T const` parameters, `forward`, recursion, `Result`/function name,
   `Exit(value)`
-* Statements: `:=`, `if`, `case` (also with strings and ranges, guards with `when`, type patterns, and as an expression), `while`, `repeat`,
+* Statements: `:=`, `if`, `case` (also with strings and ranges, guards with `when`, type patterns, nested patterns, and as an expression), `while`, `repeat`,
   `for … to/downto`, `for val/var x in …`, `loop` (endless loop), `Break`, `Continue`, `Exit`
 * Expressions: arithmetic, `div`, `mod`, `shl`, `shr`, `and`/`or`/`xor`/`not` (short-circuit for
   Boolean), comparisons, string concatenation, `in [a, b..c]`, type casts `Integer(x)`,

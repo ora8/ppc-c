@@ -176,6 +176,8 @@ static void subst_binds(Expr *e, Ident *nm, Expr **repl, int n);
 static Expr *field_tpl(Expr *base, const char *field, Pos p);
 static Expr *as_tpl(Expr *base, Ident cls, Pos p);
 static void class_case(Stmt *s);
+static void pattern_case(Stmt *s, int from_if);
+static int arm_nested(CaseArm *arm, Type *t);
 static void class_selector_check(Expr *sel);
 static Struct *class_pattern(Expr *l, Type *selt, Ident *cls, Expr **bind);
 static void class_reach(Struct *ps, Struct **done, int nd, int guarded, Pos p, const char *name);
@@ -3711,6 +3713,328 @@ static void class_case(Stmt *s) {
     stmt(s);
 }
 
+/* ---- nested patterns: a pattern is compiled into tests (joined with 'and') and names ----
+   The names are templates (the place they refer to: a field, 'x as T', a hidden name of 'is some');
+   'some p', 'ok p', 'error p' unpack into a hidden name with 'is some' inside the condition. */
+typedef struct {
+    Expr *cond;
+    int ntest;              /* number of tests: 1 = only the top-level one */
+    int unpack;             /* 'some p' / 'ok p' / 'error p' (they bind names, also hidden ones) */
+    VEC(Ident) nm;          /* names that refer to templates */
+    VEC(Expr *) tpl;
+    VEC(int) var;           /* 'var x': a changeable name */
+    VEC(const char *) all;  /* every name of the pattern (also those bound by 'is some') */
+} PatOut;
+static int pat_hidden;
+static void pat_and(PatOut *o, Expr *x) {
+    o->cond = o->cond ? mk_bin(OP_AND, o->cond, x, x->pos) : x;
+    o->ntest++;
+}
+static void pat_name(PatOut *o, Ident id) {
+    for (int i = 0; i < o->all.len; i++)
+        if (STREQ(o->all.items[i], id.name)) error_at(id.pos, "the name '%s' is used twice in the pattern", id.name);
+    vpush(o->all, id.name);
+}
+/* a name in a pattern that is a test, not a new name: a variant (without fields) of an enumeration
+   with data, a value of an enumeration (or True/False), a class for an object */
+static int pat_test_name(Ident id, Type *t) {
+    if (!t) return 0;
+    if (t->kind == T_RECORD && t->st->is_sum) {
+        for (int i = 0; i < t->st->variants.len; i++)
+            if (STREQ(t->st->variants.items[i].name, id.name)) return 1;
+        return 0;
+    }
+    Look L = lookup(id.name);
+    if (L.kind != LK_SYM) return 0;
+    if ((t->kind == T_ENUM || t->kind == T_BOOL) && L.sym->kind == SY_CONST && L.sym->cval && same_type(L.sym->cval->type, t)) return 1;
+    if (t->kind == T_CLASS && !t->nilable && L.sym->kind == SY_TYPE && L.sym->type->kind == T_CLASS) return 1;
+    return 0;
+}
+static int pat_has_var(Expr *e) {
+    if (!e) return 0;
+    if (e->pat_var) return 1;
+    if (pat_has_var(e->a)) return 1;
+    for (int i = 0; i < e->args.len; i++)
+        if (pat_has_var(e->args.items[i])) return 1;
+    return 0;
+}
+static Struct *pat_class(Ident cid, Type *t) {
+    Look L = lookup(cid.name);
+    if (L.kind != LK_SYM || L.sym->kind != SY_TYPE || L.sym->type->kind != T_CLASS)
+        error_at(cid.pos, "\"%s\" is not a class (a pattern on \"%s\" tests the class of the object)", cid.name, type_name(t));
+    Struct *ps = L.sym->type->st, *ss = t->st;
+    if (!ps->is_iface && !ss->is_iface && !struct_descends(ps, ss) && !struct_descends(ss, ps))
+        error_at(cid.pos, "\"%s\" is not a descendant of \"%s\": this pattern can never match", cid.name, ss->name);
+    return ps;
+}
+static void pat_compile(Expr *pat, Expr *subj, Type *t, PatOut *o) {
+    int sum = t->kind == T_RECORD && t->st->is_sum, cls = t->kind == T_CLASS && !t->nilable;
+    switch (pat->kind) {
+    case E_IDENT: {
+        if (pat->targs.len) error_at(pat->pos, "a name or a pattern expected");
+        if (STREQ(pat->id.name, "_")) return;
+        if (!pat->pat_var && pat_test_name(pat->id, t)) {
+            if (sum) pat_and(o, tag_is(clone_expr(subj), find_variant(t->st, pat->id), pat->pos));
+            else if (cls) {
+                pat_class(pat->id, t);
+                Expr *is = new_expr(E_IS, pat->pos);
+                is->a = clone_expr(subj);
+                is->id = pat->id;
+                pat_and(o, is);
+            } else
+                pat_and(o, mk_bin(OP_EQ, clone_expr(subj), clone_expr(pat), pat->pos));
+            return;
+        }
+        pat_name(o, pat->id);
+        vpush(o->nm, pat->id);
+        vpush(o->tpl, clone_expr(subj));
+        vpush(o->var, pat->pat_var);
+        return;
+    }
+    case E_CALL: {
+        if (pat->a->kind != E_IDENT || pat->a->targs.len) error_at(pat->pos, "a pattern expected");
+        if (sum) {
+            Struct *st = t->st;
+            int vi = find_variant(st, pat->a->id);
+            VariantInfo *v = &st->variants.items[vi];
+            if (pat->args.len != v->n)
+                error_at(pat->pos, "\"%s\" has %d field%s: %s", v->name, v->n, v->n == 1 ? "" : "s", variant_sig(st, vi));
+            pat_and(o, tag_is(clone_expr(subj), vi, pat->pos));
+            for (int b = 0; b < pat->args.len; b++) {
+                Field *f = st->fields.items[v->first + b];
+                pat_compile(pat->args.items[b], field_tpl(subj, f->name, pat->args.items[b]->pos), f->type, o);
+            }
+            return;
+        }
+        if (cls) {
+            Ident cid = pat->a->id;
+            pat_class(cid, t);
+            if (pat->args.len != 1) error_at(pat->pos, "a type pattern names the object once: '%s(x)'", cid.name);
+            Expr *x = pat->args.items[0];
+            if (x->kind != E_IDENT || x->targs.len) error_at(x->pos, "a name expected in a type pattern ('%s(x)' or '%s(_)')", cid.name, cid.name);
+            Expr *is = new_expr(E_IS, pat->pos);
+            is->a = clone_expr(subj);
+            is->id = cid;
+            pat_and(o, is);
+            if (STREQ(x->id.name, "_")) return;
+            pat_name(o, x->id);
+            vpush(o->nm, x->id);
+            vpush(o->tpl, as_tpl(subj, cid, x->pos));
+            vpush(o->var, x->pat_var);
+            return;
+        }
+        error_at(pat->pos, "the pattern '%s(...)' needs an enumeration with data or an object, not \"%s\"", pat->a->id.name, type_name(t));
+    }
+    case E_SOMEPAT: {
+        const char *kw = pat->op == 0 ? "some" : pat->op == 1 ? "ok" : "error";
+        if (pat->op == 0 && !is_optional(t)) error_at(pat->pos, "'some' needs an optional value, not \"%s\"", type_name(t));
+        if (pat->op && t->kind != T_RES) error_at(pat->pos, "'%s' needs a result, not \"%s\"", kw, type_name(t));
+        Type *pt = pat->op == 0 ? unwrapped(t) : pat->op == 1 ? t->base : t->err;
+        Expr *is = new_expr(E_ISSOME, pat->pos);
+        is->op = pat->op;
+        is->a = clone_expr(subj);
+        o->unpack++;
+        if (pat->op == 1 && !pt) {
+            if (pat->a || pat->has_id) error_at(pat->pos, "\"%s\" has no value: write 'ok' without a name", type_name(t));
+            pat_and(o, is);
+            return;
+        }
+        if (pat->has_id && !pat->a && !pat_test_name(pat->id, pt)) { /* some x: unpacked directly into x */
+            pat_name(o, pat->id);
+            is->id = pat->id;
+            is->has_id = 1;
+            pat_and(o, is);
+            return;
+        }
+        Expr *inner = pat->a;
+        if (!inner && pat->has_id) {
+            inner = new_expr(E_IDENT, pat->id.pos);
+            inner->id = pat->id;
+        }
+        if (pat_has_var(inner)) error_at(pat->pos, "'var' names are not possible inside '%s': its value is read-only", kw);
+        char *hn = sfmt("__pat%d", ++pat_hidden);
+        is->id = (Ident){hn, pat->pos};
+        is->has_id = 1;
+        pat_and(o, is);
+        if (inner) pat_compile(inner, mk_ident(hn, pat->pos), pt, o);
+        return;
+    }
+    case E_NIL:
+        if (!is_optional(t)) error_at(pat->pos, "'none' needs an optional value, not \"%s\"", type_name(t));
+        pat_and(o, mk_bin(OP_EQ, clone_expr(subj), new_expr(E_NIL, pat->pos), pat->pos));
+        return;
+    case E_INT: case E_REAL: case E_STR: case E_UNARY:
+        if (!is_ordinal(t) && t->kind != T_REAL && t->kind != T_STR)
+            error_at(pat->pos, "a constant in a pattern needs a number, character or string, not \"%s\"", type_name(t));
+        pat_and(o, mk_bin(OP_EQ, clone_expr(subj), pat, pat->pos));
+        return;
+    default: error_at(pat->pos, "a pattern expected (a name, '_', a constant, a variant, a class, some/none/ok/error)");
+    }
+}
+
+/* the top level of a label: which case it handles (slot: variant / 0 = some|ok, 1 = none|error; class: *ps) */
+static int pat_top(Expr *l, Type *t, Struct **ps) {
+    *ps = NULL;
+    if (t->kind == T_RECORD && t->st->is_sum) {
+        Ident id;
+        if (l->kind == E_CALL && l->a->kind == E_IDENT) id = l->a->id;
+        else if (l->kind == E_IDENT) id = l->id;
+        else error_at(l->pos, "a variant of \"%s\" expected (%s)", t->st->name, variant_list(t->st));
+        return find_variant(t->st, id);
+    }
+    if (is_optional(t)) {
+        if (l->kind == E_SOMEPAT && l->op == 0) return 0;
+        if (l->kind == E_NIL) return 1;
+        error_at(l->pos, "optional case arms are 'some x:' and 'none:'");
+    }
+    if (t->kind == T_RES) {
+        if (l->kind == E_SOMEPAT && l->op) return l->op - 1;
+        error_at(l->pos, "result case arms are 'ok v:' and 'error e:'");
+    }
+    Ident cid;
+    if (l->kind == E_CALL && l->a->kind == E_IDENT) cid = l->a->id;
+    else if (l->kind == E_IDENT) cid = l->id;
+    else error_at(l->pos, "a class expected (a type pattern: 'TCircle:' or 'TCircle(c):')");
+    *ps = pat_class(cid, t);
+    return -1;
+}
+/* is an arm more than one test per label (a nested pattern or a constant inside)? */
+static int arm_nested(CaseArm *arm, Type *t) {
+    for (int k = 0; k < arm->lo.len; k++) {
+        Expr *l = arm->lo.items[k];
+        if (l->kind == E_SOMEPAT) {
+            Type *pt = l->op == 0 ? (is_optional(t) ? unwrapped(t) : NULL) : t->kind == T_RES ? (l->op == 1 ? t->base : t->err) : NULL;
+            if (l->a || (l->has_id && pat_test_name(l->id, pt))) return 1;
+        }
+        if (l->kind == E_CALL && t->kind == T_RECORD && t->st->is_sum && l->a->kind == E_IDENT) {
+            Struct *st = t->st;
+            int vi = -1;
+            for (int i = 0; i < st->variants.len; i++)
+                if (STREQ(st->variants.items[i].name, l->a->id.name)) vi = i;
+            if (vi < 0) continue;
+            VariantInfo *v = &st->variants.items[vi];
+            for (int b = 0; b < l->args.len && b < v->n; b++) {
+                Expr *x = l->args.items[b];
+                if (x->kind != E_IDENT || x->targs.len || (!x->pat_var && pat_test_name(x->id, st->fields.items[v->first + b]->type))) return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+/* a case statement with nested patterns (also 'if x is P then'):
+     begin var __s := x; if <tests of P1> then begin <names of P1> A end else if ... end */
+static void pattern_case(Stmt *s, int from_if) {
+    Pos p = s->pos;
+    Type *t = s->a->type;
+    int sum = t->kind == T_RECORD && t->st->is_sum, opt = is_optional(t), res = t->kind == T_RES, cls = t->kind == T_CLASS && !opt;
+    if (cls) class_selector_check(s->a);
+    int any_var = 0;
+    for (int i = 0; i < s->arms.len; i++)
+        for (int k = 0; k < s->arms.items[i].lo.len; k++) any_var |= pat_has_var(s->arms.items[i].lo.items[k]);
+    char *hn = sfmt("__sum%d_%d", p.line, p.col);
+    Block *ob = NEW(Block);
+    Decl *d = NEW(Decl);
+    d->kind = D_VAR;
+    VarDecl hv = {0};
+    vpush(hv.names, ((Ident){hn, p}));
+    hv.init = s->a;
+    if (is_lvalue(s->a)) {
+        hv.borrowed = 1;
+        hv.ro = !any_var;
+    } else
+        hv.is_heap = t->kind == T_CLASS || (t->kind == T_OPT && is_ref_type(t->base));
+    vpush(d->vars, hv);
+    vpush(ob->decls, d);
+    Expr *base = mk_ident(hn, p);
+    int nv = sum ? t->st->variants.len : 2;
+    int *seen = (int *)xcalloc(nv + 1, sizeof(int));
+    Struct **done = (Struct **)xcalloc(s->arms.len + 1, sizeof(Struct *));
+    int nd = 0, full = 0;
+    Stmt *chain = NULL, **tail = &chain;
+    for (int i = 0; i < s->arms.len; i++) {
+        CaseArm *arm = &s->arms.items[i];
+        Expr *c = NULL;
+        PatOut o = {0};
+        for (int k = 0; k < arm->lo.len; k++) {
+            Expr *l = arm->lo.items[k];
+            if (arm->hi.items[k]) error_at(l->pos, "patterns cannot be ranges");
+            Struct *ps;
+            int slot = pat_top(l, t, &ps);
+            PatOut li = {0};
+            pat_compile(l, base, t, &li);
+            if (arm->lo.len > 1 && (li.all.len || li.unpack))
+                error_at(l->pos, "an arm with names or with some/ok/error can only have one label");
+            int covers = !arm->guard && li.ntest == 1;
+            if (cls) {
+                class_reach(ps, done, nd, !covers, l->pos, ps->name);
+                if (full) error_at(l->pos, "this arm is never reached: an earlier arm handles every \"%s\"", type_name(t));
+                if (covers) {
+                    done[nd++] = ps;
+                    if (struct_descends(t->st, ps)) full = 1;
+                }
+            } else {
+                if (seen[slot]) error_at(l->pos, "this arm is never reached: an earlier arm already handles %s%s%s", sum ? "variant \"" : "'",
+                                         sum ? t->st->variants.items[slot].name : opt ? (slot ? "none" : "some") : (slot ? "error" : "ok"), sum ? "\"" : "'");
+                if (covers) seen[slot] = 1;
+            }
+            c = c ? mk_bin(OP_OR, c, li.cond, l->pos) : li.cond;
+            if (arm->lo.len == 1) o = li;
+        }
+        if (arm->guard) {
+            subst_binds(arm->guard, o.nm.items, o.tpl.items, o.nm.len);
+            c = mk_bin(OP_AND, c, arm->guard, arm->guard->pos);
+            c->guard = 1;
+        }
+        Stmt *body = arm->body;
+        if (o.nm.len) {
+            Block *ab = NEW(Block);
+            Decl *bd = NEW(Decl);
+            bd->kind = D_VAR;
+            for (int b = 0; b < o.nm.len; b++) {
+                VarDecl bv = {0};
+                vpush(bv.names, o.nm.items[b]);
+                bv.init = o.tpl.items[b];
+                bv.borrowed = 1;
+                bv.ro = !o.var.items[b];
+                vpush(bd->vars, bv);
+            }
+            vpush(ab->decls, bd);
+            vpush(ab->body, arm->body);
+            body = new_stmt(S_BLOCK, arm->body->pos);
+            body->blk = ab;
+        }
+        Stmt *n = new_stmt(S_IF, l_pos(arm));
+        n->a = c;
+        n->s1 = body;
+        *tail = n;
+        tail = &n->s2;
+    }
+    int all = 1;
+    for (int i = 0; i < nv; i++) all &= seen[i];
+    if (cls) all = full;
+    if (s->has_else) {
+        if (all && !from_if && (sum || cls || opt || res))
+            error_at(p, "'else' is unreachable: every case of \"%s\" is handled", type_name(t));
+        Stmt *c = new_stmt(S_COMPOUND, p);
+        c->body = s->else_;
+        *tail = c;
+    } else if (sum && !from_if && !all) {
+        Buf b = {0};
+        int miss = 0;
+        for (int i = 0; i < nv; i++)
+            if (!seen[i]) buf_printf(&b, "%s%s", miss++ ? ", " : "", t->st->variants.items[i].name);
+        error_at(p, "case does not handle the variant%s %s of \"%s\" completely (add %s or an 'else'; an arm with a nested pattern or 'when' does not count)",
+                 miss > 1 ? "s" : "", buf_str(&b), t->st->name, miss > 1 ? "them" : "it");
+    }
+    if (!chain) chain = new_stmt(S_EMPTY, p);
+    vpush(ob->body, chain);
+    Stmt *blk = new_stmt(S_BLOCK, p);
+    blk->blk = ob;
+    *s = *blk;
+    stmt(s);
+}
+
 /* a case expression: a chain of conditional expressions on the selector
      case s of Circle(r) when r > 1: 2 * r; Circle(r): r; Empty: 0.0 end
    ==>  s.#tag = 0 and (s.Radius > 1) ? 2 * s.Radius : s.#tag = 0 ? s.Radius : s.#tag = 1 ? 0.0 : default
@@ -3761,80 +4085,35 @@ static Expr *case_expr(Expr *e) {
         int nb = 0;
         for (int k = 0; k < arm->lo.len; k++) {
             Expr *l = arm->lo.items[k], *ti;
-            if (cls) {
-                if (arm->hi.items[k]) error_at(l->pos, "classes cannot be ranges");
-                Ident cid;
-                Expr *b;
-                Struct *ps = class_pattern(l, t, &cid, &b);
-                class_reach(ps, done, nd, arm->guard != NULL, l->pos, cid.name);
-                if (full) error_at(l->pos, "this arm is never reached: an earlier arm handles every \"%s\"", type_name(t));
-                if (l->kind == E_CALL && arm->lo.len > 1) error_at(l->pos, "an arm with a name can only have one class");
-                if (b) {
-                    if (b->pat_var) error_at(b->pos, "'var' names are not possible in a case expression: it only reads the value");
-                    nm = (Ident *)xcalloc(2, sizeof(Ident));
-                    fld = (Expr **)xcalloc(2, sizeof(Expr *));
-                    nm[0] = b->id;
-                    fld[0] = as_tpl(base, cid, b->pos);
-                    nb = 1;
-                }
-                if (!arm->guard) {
-                    done[nd++] = ps;
-                    if (struct_descends(t->st, ps)) full = 1;
-                }
-                ti = new_expr(E_IS, l->pos);
-                ti->a = clone_expr(base);
-                ti->id = cid;
-            } else if (sum) {
-                Struct *st = t->st;
-                if (arm->hi.items[k]) error_at(l->pos, "variants cannot be ranges");
-                Ident id;
-                ExprVec *binds = NULL;
-                if (l->kind == E_CALL && l->a->kind == E_IDENT) id = l->a->id, binds = &l->args;
-                else if (l->kind == E_IDENT) id = l->id;
-                else error_at(l->pos, "a variant of \"%s\" expected (%s)", st->name, variant_list(st));
-                int vi = find_variant(st, id);
-                if (seen[vi])
-                    error_at(l->pos, arm->guard ? "this arm is never reached: variant \"%s\" is already handled by an arm without 'when'"
-                                                : "variant \"%s\" is handled twice", id.name);
-                if (!arm->guard) seen[vi] = 1;
-                VariantInfo *v = &st->variants.items[vi];
-                if (binds) {
-                    if (arm->lo.len > 1) error_at(l->pos, "an arm with names can only have one variant");
-                    if (binds->len != v->n)
-                        error_at(l->pos, "\"%s\" has %d field%s: %s", v->name, v->n, v->n == 1 ? "" : "s", variant_sig(st, vi));
-                    nm = (Ident *)xcalloc(binds->len + 1, sizeof(Ident));
-                    fld = (Expr **)xcalloc(binds->len + 1, sizeof(Expr *));
-                    for (int b = 0; b < binds->len; b++) {
-                        Expr *x = binds->items[b];
-                        if (x->kind != E_IDENT || x->targs.len) error_at(x->pos, "a name expected in the pattern (or '_')");
-                        if (x->pat_var) error_at(x->pos, "'var' names are not possible in a case expression: it only reads the value");
-                        if (STREQ(x->id.name, "_")) continue;
-                        nm[nb] = x->id;
-                        fld[nb++] = field_tpl(base, st->fields.items[v->first + b]->name, l->pos);
+            if (sum || cls || opt || res) { /* patterns, also nested */
+                if (arm->hi.items[k]) error_at(l->pos, "patterns cannot be ranges");
+                if (pat_has_var(l)) error_at(l->pos, "'var' names are not possible in a case expression: it only reads the value");
+                Struct *ps;
+                int slot = pat_top(l, t, &ps);
+                PatOut li = {0};
+                pat_compile(l, base, t, &li);
+                if (arm->lo.len > 1 && (li.all.len || li.unpack))
+                    error_at(l->pos, "an arm with names or with some/ok/error can only have one label");
+                int covers = !arm->guard && li.ntest == 1;
+                if (cls) {
+                    class_reach(ps, done, nd, !covers, l->pos, ps->name);
+                    if (full) error_at(l->pos, "this arm is never reached: an earlier arm handles every \"%s\"", type_name(t));
+                    if (covers) {
+                        done[nd++] = ps;
+                        if (struct_descends(t->st, ps)) full = 1;
                     }
+                } else {
+                    if (seen[slot])
+                        error_at(l->pos, "this arm is never reached: an earlier arm already handles %s%s%s", sum ? "variant \"" : "'",
+                                 sum ? t->st->variants.items[slot].name : opt ? (slot ? "none" : "some") : (slot ? "error" : "ok"), sum ? "\"" : "'");
+                    if (covers) seen[slot] = 1;
                 }
-                ti = tag_is(clone_expr(base), vi, l->pos);
-            } else if (opt || res) {
-                int slot;
-                if (arm->lo.len != 1 || arm->hi.items[0])
-                    error_at(arm->body->pos, opt ? "optional case arms are 'some x:' or 'none:'" : "result case arms are 'ok v:' and 'error e:'");
-                if (opt && l->kind == E_SOMEPAT && l->op == 0) slot = 0;
-                else if (opt && l->kind == E_NIL) slot = 1;
-                else if (res && l->kind == E_SOMEPAT && l->op) slot = l->op - 1;
-                else error_at(l->pos, opt ? "optional case arms are 'some x:' and 'none:'" : "result case arms are 'ok v:' and 'error e:'");
-                if (seen[slot])
-                    error_at(l->pos, "this arm is never reached: '%s' is already handled%s", opt ? (slot ? "none" : "some") : (slot ? "error" : "ok"),
-                             arm->guard ? " by an arm without 'when'" : "");
-                if (!arm->guard) seen[slot] = 1;
-                if (l->kind == E_NIL)
-                    ti = mk_bin(OP_EQ, clone_expr(base), new_expr(E_NIL, l->pos), l->pos);
-                else {
-                    ti = new_expr(E_ISSOME, l->pos);
-                    ti->op = l->op;
-                    ti->a = clone_expr(base);
-                    if (l->has_id) { ti->id = l->id; ti->has_id = 1; }
-                    else if (l->op == 1 && t->base) { ti->id = (Ident){sfmt("__ok%d_%d", l->pos.line, l->pos.col), l->pos}; ti->has_id = 1; }
+                if (arm->lo.len == 1) {
+                    nm = li.nm.items;
+                    fld = li.tpl.items;
+                    nb = li.nm.len;
                 }
+                ti = li.cond;
             } else if (arm->hi.items[k])
                 ti = mk_bin(OP_AND, mk_bin(OP_GE, clone_expr(base), l, l->pos), mk_bin(OP_LE, clone_expr(base), arm->hi.items[k], l->pos), l->pos);
             else
@@ -5082,6 +5361,7 @@ static int scope_has_frame(void) { return cur ? cur->has_frame : 0; }
 
 /* 'opt is some k': declares k (inside the current scope) and unpacks into it */
 static Expr *bind_some(Expr *e) {
+    if (e->c) error_at(e->pos, "a nested pattern after 'is' can only be the whole condition of an 'if' (or use 'case')");
     e->a = value(e->a);
     Type *t = e->a->type;
     Type *kt;
@@ -5400,11 +5680,34 @@ static void stmt(Stmt *s) {
                     vpush(c->else_, s->s2);
                 }
                 *s = *c;
-                if (sel->type->kind == T_CLASS) class_case(s);
+                if (arm_nested(&s->arms.items[0], sel->type)) pattern_case(s, 1);
+                else if (sel->type->kind == T_CLASS) class_case(s);
                 else sum_case(s, 1);
                 return;
             }
             is->a = sel;
+        }
+        if (s->a->kind == E_ISSOME && s->a->c) { /* if x is some Circle(r) then A else B: a case with one nested pattern */
+            Expr *is = s->a;
+            Expr *sp = new_expr(E_SOMEPAT, is->pos);
+            sp->op = is->op;
+            if (is->c->kind == E_SOMEPAT || is->c->kind == E_CALL || is->c->kind == E_INT || is->c->kind == E_STR || is->c->kind == E_NIL ||
+                is->c->kind == E_UNARY || is->c->kind == E_IDENT)
+                sp->a = is->c;
+            CaseArm arm = {0};
+            vpush(arm.lo, sp);
+            vpush(arm.hi, NULL);
+            arm.body = s->s1;
+            Stmt *c = new_stmt(S_CASE, s->pos);
+            c->a = value(is->a);
+            vpush(c->arms, arm);
+            if (s->s2) {
+                c->has_else = 1;
+                vpush(c->else_, s->s2);
+            }
+            *s = *c;
+            pattern_case(s, 1);
+            return;
         }
         push_scope(); /* bindings of 'is some' are visible in the then-branch */
         s->a = cond_bind(s->a);
@@ -5471,6 +5774,12 @@ static void stmt(Stmt *s) {
     case S_CASE: {
         s->a = value(s->a);
         Type *t = s->a->type;
+        if ((t->kind == T_RECORD && t->st->is_sum) || t->kind == T_CLASS || t->kind == T_OPT || t->kind == T_RES)
+            for (int i = 0; i < s->arms.len; i++)
+                if (arm_nested(&s->arms.items[i], t)) { /* nested patterns: Box(some Circle(r)), Rect(0, h) */
+                    pattern_case(s, 0);
+                    return;
+                }
         if (t->kind == T_RECORD && t->st->is_sum) {
             sum_case(s, 0);
             return;

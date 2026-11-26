@@ -288,6 +288,8 @@ static Expr *parse_simple(void);
 static Expr *parse_postfix(void);
 static Stmt *parse_stmt(void);
 static Stmt *parse_case(Pos p, int expr);
+static Expr *parse_somepat(void);
+static int in_pat;
 static TypeExpr *parse_type(void);
 static TypeExpr *parse_type_core(void);
 static TypeExprVec parse_targs(void);
@@ -1157,7 +1159,15 @@ static Expr *parse_expr(void) {
         e->op = is_kw("some") ? 0 : is_kw("ok") ? 1 : 2;
         next();
         e->a = l;
-        if (e->op != 1 || CUR.kind == TK_IDENT) {
+        if (CUR.kind == TK_IDENT && T.items[P + 1].kind == TK_SYM && STREQ(T.items[P + 1].s, "(")) { /* x is some Circle(r) */
+            in_pat++;
+            e->c = parse_expr();
+            in_pat--;
+        } else if (is_kw("some") || is_kw("ok") || is_kw("error") || is_kw("none") || CUR.kind == TK_INT || CUR.kind == TK_STR) {
+            in_pat++;
+            e->c = is_kw("none") ? (next(), new_expr(E_NIL, pos())) : (CUR.kind == TK_INT || CUR.kind == TK_STR) ? parse_expr() : parse_somepat();
+            in_pat--;
+        } else if (e->op != 1 || CUR.kind == TK_IDENT) {
             e->id = ident();
             e->has_id = 1;
         }
@@ -1169,7 +1179,9 @@ static Expr *parse_expr(void) {
         e->id = ident();
         if (accept_sym("(")) { /* s is Circle(r): a variant pattern */
             e->has_args = 1;
+            in_pat++;
             parse_args(&e->args);
+            in_pat--;
         }
         return e;
     }
@@ -1271,6 +1283,11 @@ static void parse_args(ExprVec *args) {
             if (!accept_sym(",")) break;
             continue;
         }
+        if (in_pat && (is_kw("some") || is_kw("ok") || is_kw("error"))) { /* Box(some Circle(r)) */
+            vpush(*args, parse_somepat());
+            if (!accept_sym(",")) break;
+            continue;
+        }
         Expr *e = parse_expr();
         if (accept_sym(":")) {
             Expr *f = new_expr(E_FMT, p);
@@ -1283,6 +1300,31 @@ static void parse_args(ExprVec *args) {
         if (!accept_sym(",")) break;
     }
     expect_sym(")");
+}
+
+/* patterns: inside case labels (and 'is X(...)') 'some p', 'ok p' and 'error p' are patterns, also in the
+   arguments of a variant: Box(some Circle(r)) */
+static int in_pat;
+static int pat_start(void) {
+    return CUR.kind == TK_IDENT || CUR.kind == TK_INT || CUR.kind == TK_STR || CUR.kind == TK_REAL || is_sym("-") || is_kw("some") ||
+           is_kw("ok") || is_kw("error") || is_kw("none");
+}
+static Expr *parse_somepat(void) {
+    Expr *sp = new_expr(E_SOMEPAT, pos());
+    sp->op = is_kw("some") ? 0 : is_kw("ok") ? 1 : 2;
+    const char *kw = sp->op == 0 ? "some" : sp->op == 1 ? "ok" : "error";
+    next();
+    if (is_kw("var")) error_at(pos(), "'var' names are not possible after '%s': its value is read-only", kw);
+    if (CUR.kind == TK_IDENT && !(T.items[P + 1].kind == TK_SYM && STREQ(T.items[P + 1].s, "("))) {
+        sp->id = ident(); /* a name (or a variant without fields / an enumeration value: decided by the type) */
+        sp->has_id = 1;
+    } else if (pat_start()) {
+        in_pat++;
+        sp->a = (is_kw("some") || is_kw("ok") || is_kw("error")) ? parse_somepat() : parse_expr();
+        in_pat--;
+    } else if (sp->op != 1)
+        error_at(pos(), "a name or a pattern expected after '%s'", kw);
+    return sp;
 }
 
 /* case x of labels [when cond]: arm; ... [else ...] end
@@ -1304,17 +1346,12 @@ static Stmt *parse_case(Pos p, int expr) {
         if (is_kw("end")) break;
         CaseArm arm = {0};
         for (;;) {
-            if (is_kw("some") || is_kw("ok") || is_kw("error")) { /* some x / ok v / error e: unpacking patterns */
-                Expr *sp = new_expr(E_SOMEPAT, pos());
-                sp->op = is_kw("some") ? 0 : is_kw("ok") ? 1 : 2;
-                next();
-                if (sp->op != 1 || CUR.kind == TK_IDENT) {
-                    sp->id = ident();
-                    sp->has_id = 1;
-                }
-                vpush(arm.lo, sp);
-            } else
+            in_pat++;
+            if (is_kw("some") || is_kw("ok") || is_kw("error")) /* some x / ok v / error e: unpacking patterns */
+                vpush(arm.lo, parse_somepat());
+            else
                 vpush(arm.lo, parse_expr());
+            in_pat--;
             vpush(arm.hi, accept_sym("..") ? parse_expr() : NULL);
             if (!accept_sym(",")) break;
         }
