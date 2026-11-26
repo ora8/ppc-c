@@ -14,14 +14,14 @@ val i := 1;
 {
   loop
     {
-      if i * i > g then Exit(i * i);
+      if i * i > g Exit(i * i);
       Inc(i);
     };
 }
 
 func Check(n: Integer): result Integer
 {
-  if n > 3 then Result := error('too big at ' + IntToStr(n)) else Result := n;
+  if n > 3 Result := error('too big at ' + IntToStr(n)); else Result := n;
 }
 
 func Sum: result Integer;
@@ -45,8 +45,8 @@ val
   loop
     {
       Inc(i);
-      if i = 2 then Continue;
-      if i > 4 then Break;
+      if i = 2 Continue;
+      if i > 4 Break;
       Write(i, ' ');
     };
   WriteLn;
@@ -57,7 +57,7 @@ val
     vao k := TK.Create(i);                  {* a new owner in every iteration *}
     {
       Inc(i);
-      if i = 3 then Break;
+      if i = 3 Break;
     };
   WriteLn('raise = ', raise);
 }

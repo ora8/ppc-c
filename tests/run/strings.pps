@@ -49,7 +49,7 @@ vao k := TK.Create('obj');
   Delete(long, 1, 590);
   Insert('<', long, 1);
   WriteLn(long, ' ', Pos('cab', long));
-  if o is some s then WriteLn(s);
+  if o is some s WriteLn(s);
   vao k2 := k.Clone;
   {
     k2.Name[1] := 'O';

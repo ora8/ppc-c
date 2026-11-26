@@ -23,7 +23,7 @@ func Make(n: Integer): TPair
 
 proc Show(p: TPair)              {* borrow, no copy *}
 {
-  if p.L is some k then WriteLn('  ', p.Name, ': ', k.N);
+  if p.L is some k WriteLn('  ', p.Name, ': ', k.N);
 }
 
 proc Local;

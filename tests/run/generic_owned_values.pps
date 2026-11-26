@@ -23,7 +23,7 @@ func MakeOrder(Name: String; n: Integer): TOrder
 proc Show(o: TOrder)
 {
   Write(o.Name);
-  if o.Item is some it then Write('#', it.N);
+  if o.Item is some it Write('#', it.N);
   WriteLn;
 }
 
@@ -52,23 +52,23 @@ val
   {
     st.Push(MakeOrder('s1', 1));
     st.Push(MakeOrder('s2', 2));
-    if st.Peek is some p then Show(p);
-    if st.Pop is some q then Show(q);
+    if st.Peek is some p Show(p);
+    if st.Pop is some q Show(q);
     WriteLn(st.Count);
     m.Put('k1', MakeOrder('m1', 11));
     m.Put('k2', MakeOrder('m2', 12));
     m.Put('k1', MakeOrder('m1b', 13));          {* replaces: frees item 11 *}
-    if m.Get('k1') is some g then Show(g);
-    if m.Get('zz') is some z then Show(z) else WriteLn('no zz');
-    if m.Remove('k2') is some r then Show(r);
+    if m.Get('k1') is some g Show(g);
+    if m.Get('zz') is some z Show(z); else WriteLn('no zz');
+    if m.Remove('k2') is some r Show(r);
     WriteLn(m.Count, ' ', m.Contains('k2'));
     Consume(MakeOrder('c', 21));
-    if Wrap(MakeOrder('w', 22)) is some w then Show(w);
+    if Wrap(MakeOrder('w', 22)) is some w Show(w);
     Keep(o);
     WriteLn('[', o.Name, ']');                  {* moved: empty *}
     lists.Add(words);
     lists.Add(Split('a,b,c', ','));
-    if lists.Get(1) is some ws then WriteLn(Length(ws), ' ', Join(ws, '+'));
+    if lists.Get(1) is some ws WriteLn(Length(ws), ' ', Join(ws, '+'));
     WriteLn(Length(words));
   };
   WriteLn('end');

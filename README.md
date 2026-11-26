@@ -208,7 +208,7 @@ proc Greet(name: String)
 
 func Fib(n: Integer): Integer
 {
-  if n < 2 then Result := n else Result := Fib(n - 1) + Fib(n - 2);
+  if n < 2 Result := n; else Result := Fib(n - 1) + Fib(n - 2);
 }
 
 val c: TColor := Green;
@@ -250,7 +250,7 @@ val c: TColor := Green;
 * `import M` first looks for the file in the importing file's syntax (`M.pps` from a `.pps` file,
   `M.pas` from a `.pas` file), then for the other one.
 * `tools/pas2pps.py file.pas` converts a file to the brace syntax (`file.pps`, comments and layout
-  stay); every test program in `tests/run` exists in both syntaxes, generated with it.
+  stay; `then` is dropped where a statement follows, an `if`'s `else` gets a `;` before it); every test program in `tests/run` exists in both syntaxes, generated with it.
   `tools/pas2pps.pps` is the same converter written in the brace syntax itself
   (`ppc -o pas2pps tools/pas2pps.pps`, then `./pas2pps file.pas`); the test suite checks that both
   give the same files.

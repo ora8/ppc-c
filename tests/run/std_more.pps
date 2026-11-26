@@ -10,7 +10,7 @@ val
   parts := Split('a,b,,c', ',');
   WriteLn(Length(parts), ' ', Join(parts, '|'));
   WriteLn(PadLeft('7', 3, '0'), ' ', PadRight('x', 3, '.'), '| ', IntToHex(255, 4));
-  if TryStrToInt(' 42 ') is some n then WriteLn(n + 1);
+  if TryStrToInt(' 42 ') is some n WriteLn(n + 1);
   WriteLn(TryStrToInt('4x').HasValue, ' ', StrToFloat('2.5') * 2:0:1);
   WriteLn(IsDigit('5'), IsLetter('q'), IsSpace(' '));
   WriteLn(Min(3, 7), ' ', Max('Anna', 'Bert'), ' ', EnsureRange(15, 0, 10), ' ', Pi:0:4);
@@ -19,14 +19,14 @@ val
     ok: WriteLn('written');
     error e: WriteLn(e);
   };
-  if AppendFile('ppc_std_more.tmp', 'three') is error e then WriteLn(e);
+  if AppendFile('ppc_std_more.tmp', 'three') is error e WriteLn(e);
   val rl := ReadLines('ppc_std_more.tmp');
   {
-    if rl is ok ls then WriteLn(Length(ls), ' ', Join(ls, ','));
+    if rl is ok ls WriteLn(Length(ls), ' ', Join(ls, ','));
   };
-  if ReadFile('/nonexistent/x') is error e then WriteLn(e);
+  if ReadFile('/nonexistent/x') is error e WriteLn(e);
   WriteLn(FileExists('ppc_std_more.tmp'));
-  if DeleteFile('ppc_std_more.tmp') is ok then WriteLn('deleted', ' ', FileExists('ppc_std_more.tmp'));
+  if DeleteFile('ppc_std_more.tmp') is ok WriteLn('deleted', ' ', FileExists('ppc_std_more.tmp'));
   val t0 := MilliSeconds;
   {
     Sleep(20);

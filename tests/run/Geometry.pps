@@ -42,5 +42,5 @@ func TotalArea(l: TList<TFigure>): Real
 {
   Result := 0;
   for val i := 0 to l.Count - 1 do
-    if l.Get(i) is some f then Result := Result + f.Area;
+    if l.Get(i) is some f Result := Result + f.Area;
 }

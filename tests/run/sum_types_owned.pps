@@ -11,20 +11,20 @@ constructor TItem.Create(AN: Integer) { N := AN; }
 destructor TItem.Destroy { WriteLn('free ', N); }
 func Half(n: Integer): TMaybe<Integer>
 {
-  if Odd(n) then Result := TMaybe<Integer>.Nothing else Result := TMaybe<Integer>.Just(n div 2);
+  if Odd(n) Result := TMaybe<Integer>.Nothing; else Result := TMaybe<Integer>.Just(n div 2);
 }
 val
   m := Half(10);
   t := Node(TItem.Create(7), 'seven');
   u: TTree := Leaf;
 {
-  if m is Just(v) then WriteLn('half ', v);
+  if m is Just(v) WriteLn('half ', v);
   case Half(3) of {
     Just(v): WriteLn(v);
     Nothing: WriteLn('odd');
   };
-  if t is Node(it, l) then
-    if it is some x then WriteLn(l, ' ', x.N);
+  if t is Node(it, l)
+    if it is some x WriteLn(l, ' ', x.N);
   u := t;
   WriteLn(u is Leaf, ' ', t is Leaf);
   t := Node(TItem.Create(8), 'eight');

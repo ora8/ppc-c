@@ -27,5 +27,5 @@ val
   WriteLn(Names(warm));
   for val k in d do Write(k, ' ');
   WriteLn;
-  if warm * s <> [] then WriteLn('overlap');
+  if warm * s <> [] WriteLn('overlap');
 }

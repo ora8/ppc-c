@@ -51,7 +51,7 @@ constructor TBox<T>.Create { Inc(Made); }
     a.Prefix := '#';
     WriteLn(b.Text, ' ', TSub.Prefix);
     TCounter.Default := TItem.Create(7);
-    if TCounter.Default is some d then WriteLn('default ', d.N);
+    if TCounter.Default is some d WriteLn('default ', d.N);
     WriteLn(TBox<Integer>.Made, ' ', TBox<String>.Made);
     TConfig.Verbose := True;
     WriteLn(TConfig.Verbose);

@@ -13,7 +13,7 @@ proc TFile.Write(s: String) { Inc(Lines); }
 
 func Open(Name: String): result TFile
 {
-  if Name = '' then Result := error('no name')
+  if Name = '' Result := error('no name');
   else Result := ok(TFile.Create(Name));
 }
 
@@ -43,20 +43,20 @@ val
   names: array of String := ('a', '', 'b');
   r := Open('stored');
 {
-  if Open('a.txt') is ok f then f.Write('hello');
-  if Open('') is ok f then WriteLn('no') else WriteLn('failed');
-  if Open('') is error e then WriteLn('error: ', e);
-  if Open('freed.txt') is error e then WriteLn(e) else WriteLn('ok, not taken');
-  if r is ok f then f.Write('stored line');
+  if Open('a.txt') is ok f f.Write('hello');
+  if Open('') is ok f WriteLn('no'); else WriteLn('failed');
+  if Open('') is error e WriteLn('error: ', e);
+  if Open('freed.txt') is error e WriteLn(e); else WriteLn('ok, not taken');
+  if r is ok f f.Write('stored line');
   case Open('case.txt') of {
     ok f: f.Write('in case');
     error e: WriteLn(e);
   };
-  if OpenLog('app') is ok f then WriteLn(f.Name, ' ', f.Lines);
-  if OpenLog('') is error e then WriteLn('log: ', e);
+  if OpenLog('app') is ok f WriteLn(f.Name, ' ', f.Lines);
+  if OpenLog('') is error e WriteLn('log: ', e);
   for val i := 1 to 2 do
-    if Open('loop' + IntToStr(i)) is ok f then f.Write('l');
-  if Count(names) is error e then WriteLn('count: ', e);
+    if Open('loop' + IntToStr(i)) is ok f f.Write('l');
+  if Count(names) is error e WriteLn('count: ', e);
   r := Open('second');
   WriteLn('end');
 }

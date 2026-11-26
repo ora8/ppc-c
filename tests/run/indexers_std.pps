@@ -10,15 +10,15 @@ destructor TItem.Destroy { WriteLn('free ', N); }
   {
     l.Add(TItem.Create(1));
     l.Add(TItem.Create(2));
-    if l[1] is some x then WriteLn('l[1] = ', x.N);
+    if l[1] is some x WriteLn('l[1] = ', x.N);
     l[0] := TItem.Create(10);
-    if l[0] is some x then WriteLn('l[0] = ', x.N);
+    if l[0] is some x WriteLn('l[0] = ', x.N);
     m['a'] := 1;
     m['b'] := 2;
     m['a'] := 3;
-    if m['b'] is some v then WriteLn('m[b] = ', v);
+    if m['b'] is some v WriteLn('m[b] = ', v);
     WriteLn(m['zz'].HasValue, ' ', m.Count, ' ', m['a'].ValueOr(0));
     w.Add('x');
-    if w[0] is some s then WriteLn(s);
+    if w[0] is some s WriteLn(s);
   };
 }

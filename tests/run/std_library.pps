@@ -24,33 +24,33 @@ vao
   WriteLn;
   Sort(names);
   WriteLn(names[0], ' ', names[1], ' ', names[2]);
-  if IndexOf(numbers, 7) is some p then WriteLn('7 an Position ', p);
-  if IndexOf(numbers, 4) = none then WriteLn('4 not found');
+  if IndexOf(numbers, 7) is some p WriteLn('7 an Position ', p);
+  if IndexOf(numbers, 4) = none WriteLn('4 not found');
 
   customers.Add(TCustomer.Create('Anna'));
   customers.Add(TCustomer.Create('Bert'));
   customers.Add(TCustomer.Create('Carla'));
-  if customers.Get(1) is some k then WriteLn('Get(1): ', k.Name);
-  if customers.Extract(0) is some k then WriteLn('Extract(0): ', k.Name);
+  if customers.Get(1) is some k WriteLn('Get(1): ', k.Name);
+  if customers.Extract(0) is some k WriteLn('Extract(0): ', k.Name);
   WriteLn('Count: ', customers.Count);
 
   for val i := 1 to 3 do stack.Push(i * 10);
-  if stack.Peek is some t then WriteLn('Peek: ', t);
-  if stack.Pop is some t then WriteLn('Pop: ', t);
+  if stack.Peek is some t WriteLn('Peek: ', t);
+  if stack.Pop is some t WriteLn('Pop: ', t);
   WriteLn('Stack: ', stack.Count, ' empty: ', stack.IsEmpty);
 
   ages.Put('Bert', 28);
   ages.Put('Anna', 30);
   ages.Put('Carla', 31);
   ages.Put('Anna', 31);
-  if ages.Get('Anna') is some a then WriteLn('Anna: ', a);
+  if ages.Get('Anna') is some a WriteLn('Anna: ', a);
   WriteLn('contains Dora: ', ages.Contains('Dora'), ', Count ', ages.Count);
-  if ages.Remove('Bert') is some a then WriteLn('Bert removed: ', a);
+  if ages.Remove('Bert') is some a WriteLn('Bert removed: ', a);
   WriteLn('Keys[0..1]: ', ages.Keys[0], ' ', ages.Keys[1]);
 
   map.Put(2, TCustomer.Create('Zwei'));
   map.Put(1, TCustomer.Create('Eins'));
   map.Put(2, TCustomer.Create('Zwei fresh'));    {* the old Two is freed *}
-  if map.Get(2) is some k then WriteLn('map[2]: ', k.Name);
+  if map.Get(2) is some k WriteLn('map[2]: ', k.Name);
   WriteLn('End');
 }

@@ -34,7 +34,7 @@ vao l := TList.Create;
     WriteLn('h = ', h.N);
     global := h;
   };
-  if flag then l.Add(b);                {* b moved on one path only *}
+  if flag l.Add(b);                {* b moved on one path only *}
   WriteLn('P end');
 }
 
@@ -43,7 +43,7 @@ vao l := TList.Create;
   P(False);
   vao x := Build(5);
   {
-    if x.Part is some t then WriteLn('Build: ', x.N, ' / ', t.N);
+    if x.Part is some t WriteLn('Build: ', x.N, ' / ', t.N);
   };
-  if global is some g then WriteLn('global: ', g.N);
+  if global is some g WriteLn('global: ', g.N);
 }

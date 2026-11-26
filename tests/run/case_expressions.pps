@@ -28,10 +28,10 @@ func Kind(s: TShape): String
 }
 
 func Divide(a, b: Integer): result Integer
-{ if b = 0 then Result := error('div by zero') else Result := ok(a div b); }
+{ if b = 0 Result := error('div by zero'); else Result := ok(a div b); }
 
 func Find(k: Integer): optional TNode
-{ if k > 0 then Result := TNode.Create(k) else Result := none; }
+{ if k > 0 Result := TNode.Create(k); else Result := none; }
 
 val o: optional Integer := 4;
 val c: TColor := Green;

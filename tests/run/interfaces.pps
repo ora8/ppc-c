@@ -79,8 +79,8 @@ val shapes: array of optional IShape := default;
   shapes[2] := TSquare.Create(3);
   for val s in shapes do Show(s);
   for val s in shapes do
-    if s is ISolid then WriteLn(s.Name, ' is solid')
-    else if s is TCircle then WriteLn(s.Name, ' is a circle');
+    if s is ISolid WriteLn(s.Name, ' is solid');
+    else if s is TCircle WriteLn(s.Name, ' is a circle');
   WriteLn(Total(shapes):0:1);
   vao one: IShape := TRing.Create(5);
   {

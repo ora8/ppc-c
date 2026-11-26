@@ -14,7 +14,7 @@ proc Greet(name: String)
 
 func Fib(n: Integer): Integer
 {
-  if n < 2 then Result := n
+  if n < 2 Result := n;
   else Result := Fib(n - 1) + Fib(n - 2);
 }
 

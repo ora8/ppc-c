@@ -14,13 +14,13 @@ destructor TCounter.Destroy { WriteLn('  freed: Counter ', N); inherited Destroy
 
 func Divide(a, b: Integer): result Integer          {* error: String *}
 {
-  if b = 0 then Result := error('division by 0')
+  if b = 0 Result := error('division by 0');
   else Result := a div b;                               {* Value = ok(...) *}
 }
 
 func Check(n: Integer): result of TError         {* no value, only success or error *}
 {
-  if n > 100 then Result := error(TooBig) else Result := ok;
+  if n > 100 Result := error(TooBig); else Result := ok;
 }
 
 func Compute(a, b, c: Integer): result Integer;
@@ -43,12 +43,12 @@ func Chain(n: Integer): result of TError
 
 func MakePoint(ok_: Boolean): result TPoint
 {
-  if ok_ then Result := (X: 1; Y: 2) else Result := error('no MakePoint');
+  if ok_ Result := (X: 1; Y: 2); else Result := error('no MakePoint');
 }
 
 val r := Divide(10, 2);
 {
-  if r is ok v then WriteLn('10 / 2 = ', v);
+  if r is ok v WriteLn('10 / 2 = ', v);
   case Divide(1, 0) of {
     ok v: WriteLn('Value ', v);
     error e: WriteLn('Error: ', e);
@@ -60,13 +60,13 @@ val r := Divide(10, 2);
   case Compute(100, 0, 2) of { ok v: WriteLn('Compute = ', v); error e: WriteLn('Error: ', e); };
   case Compute(100, 5, 0) of { ok v: WriteLn('Compute = ', v); error e: WriteLn('Error: ', e); };
   WriteLn('-- without a value');
-  if Chain(10) is ok then WriteLn('  ok');
-  if Chain(60) is error f then WriteLn('  Error ', Ord(f));
+  if Chain(10) is ok WriteLn('  ok');
+  if Chain(60) is error f WriteLn('  Error ', Ord(f));
   case Check(500) of {
     ok: WriteLn('  fits');
     error f: WriteLn('  too big: ', f = TooBig);
   };
   WriteLn('-- Record');
-  if MakePoint(True) is ok p then WriteLn('  (', p.X, ',', p.Y, ')');
-  if MakePoint(False) is error e then WriteLn('  ', e);
+  if MakePoint(True) is ok p WriteLn('  (', p.X, ',', p.Y, ')');
+  if MakePoint(False) is error e WriteLn('  ', e);
 }

@@ -20,7 +20,7 @@ proc TNode.Add(vao c: TNode)
 func TNode.Path: String; const
 {
   Result := Name;
-  if Parent is some p then Result := p.Path + '/' + Name;
+  if Parent is some p Result := p.Path + '/' + Name;
 }
 
 {

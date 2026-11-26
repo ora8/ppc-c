@@ -36,12 +36,12 @@ func TBagEnum.MoveNext: Boolean
 {
   Inc(I);
   Result := False;
-  if Bag is some b then Result := I < Length(b.Items);
+  if Bag is some b Result := I < Length(b.Items);
 }
 func TBagEnum.Current: Integer; const
 {
   Result := 0;
-  if Bag is some b then Result := b.Items[I];
+  if Bag is some b Result := b.Items[I];
 }
 proc TBag.Add(x: Integer) { SetLength(Items, Length(Items) + 1); Items[High(Items)] := x; }
 func TBag.GetEnumerator: TBagEnum

@@ -15,7 +15,7 @@ func CountIf(a: array of Integer; Keep: reference to func(x: Integer): Boolean):
 {
   Result := 0;
   for val x in a do
-    if Keep(x) then Inc(Result);
+    if Keep(x) Inc(Result);
 }
 
 func IsEven(x: Integer): Boolean

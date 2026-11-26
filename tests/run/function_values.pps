@@ -20,7 +20,7 @@ func Apply(f: func(x: Integer): Integer; v: Integer): Integer
 
 func Pick(up: Boolean): TCompare
 {
-  if up then Result := func(a, b: Integer): Integer { Result := a - b; }
+  if up Result := func(a, b: Integer): Integer { Result := a - b; }
   else Result := Desc;
 }
 

@@ -29,11 +29,11 @@ proc TZoo<T>.Add(vao t: T) { Inc(Size); Animals[Size] := t; }
 proc TZoo<T>.ShowAll
 {
   for val i := 1 to Size do
-    if Animals[i] is some t then WriteLn('  ', t.Name, ': ', t.Sound);   {* methods of TAnimal are allowed *}
+    if Animals[i] is some t WriteLn('  ', t.Name, ': ', t.Sound);   {* methods of TAnimal are allowed *}
 }
 
 func Max<T: Comparable>(a, b: T): T
-{ if a > b then Result := a else Result := b; }
+{ if a > b Result := a; else Result := b; }
 
 func Equal<T: Equatable>(a, b: T): Boolean
 { Result := a = b; }

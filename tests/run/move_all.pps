@@ -20,7 +20,7 @@ val s := TK.Create(2);
   h.Part := TK.Create(10);
   val a := h;                          {* vao -> val: the heap object moves onto the stack *}
   {
-    if a.Part is some t then WriteLn('a = ', a.N, ' / ', t.N);
+    if a.Part is some t WriteLn('a = ', a.N, ' / ', t.N);
     vao b := a;                         {* val -> vao: onto the heap again *}
     {
       WriteLn('b = ', b.N);

@@ -29,9 +29,9 @@ func MakeOrder(Name: String; n: Integer): TOrder
       l.Add(o);
     };
     WriteLn(l.Count);
-    if l.Get(1) is some x then WriteLn(x.Name);
-    if l.Extract(0) is some y then
-      if y.Item is some it then WriteLn('extracted ', y.Name, ' ', it.N);
+    if l.Get(1) is some x WriteLn(x.Name);
+    if l.Extract(0) is some y
+      if y.Item is some it WriteLn('extracted ', y.Name, ' ', it.N);
     WriteLn(l.Count);
   };
   WriteLn('end');

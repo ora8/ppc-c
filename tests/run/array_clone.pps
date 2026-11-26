@@ -20,7 +20,7 @@ proc Show(Title: String; z: TZoo)
 {
   Write(Title, ': ');
   for val i := 1 to 3 do
-    if z[i] is some t then Write(t.Name, ' ') else Write('- ');
+    if z[i] is some t Write(t.Name, ' '); else Write('- ');
   WriteLn;
 }
 
@@ -41,15 +41,15 @@ val
 
   WriteLn('2. copy with Clone, element by element');
   for val i := 1 to 3 do
-    if b[i] is some t then c[i] := t.Clone;
-  if c[1] is some t then t.Name := 'Leo2';     {* changes only the copy *}
+    if b[i] is some t c[i] := t.Clone;
+  if c[1] is some t t.Name := 'Leo2';     {* changes only the copy *}
   Show('b', b);
   Show('c', c);
 
   WriteLn('3. copy of the whole array with a.Clone');
   val d := b.Clone;
   {
-    if d[2] is some t then t.Name := 'Mia2';
+    if d[2] is some t t.Name := 'Mia2';
     Show('b', b);
     Show('d', d);
   };

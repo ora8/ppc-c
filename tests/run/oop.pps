@@ -68,7 +68,7 @@ constructor TAnimal.Create(AName: String const)
 { inherited Create; FName := AName; FLegs := 4; }
 destructor TAnimal.Destroy
 { WriteLn('  ', FName, ' is freed'); inherited Destroy; }
-proc TAnimal.SetLegs(V: Integer) { if V >= 0 then FLegs := V; }
+proc TAnimal.SetLegs(V: Integer) { if V >= 0 FLegs := V; }
 proc TAnimal.Speak { WriteLn(FName, ' (', ClassName, ', ', Legs, ' legs) says ', Sound); }
 func TDog.Sound: String { Result := 'Wuff'; }
 constructor TCat.Create(AName: String const)
@@ -124,14 +124,14 @@ vao
   cat.Legs := 3;
   cat.Speak;
   a := cat;
-  if a is some x then
+  if a is some x
     WriteLn('a is TCat: ', x is TCat, ', a is TDog: ', x is TDog, ', lives: ', (x as TCat).Lives);
   a := none;
   pets[1] := dog;
   pets[2] := cat;
   for i := 1 to 2 do {
     a := pets[i];
-    if a is some x then Write(x.Name, ' ');
+    if a is some x Write(x.Name, ' ');
   };
   WriteLn;
 

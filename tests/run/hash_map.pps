@@ -4,7 +4,7 @@ type
   TItem = class { N: Integer; constructor Create(AN: Integer); destructor Destroy; override; }
   TPoint = record { X, Y: Integer; }
 constructor TItem.Create(AN: Integer) { N := AN; }
-destructor TItem.Destroy { if N < 3 then WriteLn('free ', N); }
+destructor TItem.Destroy { if N < 3 WriteLn('free ', N); }
 func Pt(x, y: Integer): TPoint { Result.X := x; Result.Y := y; }
 val total := 0;
 {
@@ -15,13 +15,13 @@ val total := 0;
     ages['Anna'] := 30;
     ages['Bert'] := 41;
     ages['Anna'] := 31;
-    if ages['Anna'] is some a then WriteLn('Anna ', a);
+    if ages['Anna'] is some a WriteLn('Anna ', a);
     WriteLn(ages.Count, ' ', ages.Contains('Bert'), ' ', ages.Contains('Cleo'));
-    if ages.Remove('Bert') is some b then WriteLn('removed ', b);
+    if ages.Remove('Bert') is some b WriteLn('removed ', b);
     WriteLn(ages.Count, ' ', ages['Bert'].HasValue);
     for val i := 1 to 10000 do ages.Put('k' + IntToStr(i), i);
     for val i := 1 to 10000 do
-      if ages['k' + IntToStr(i)] is some v then total := total + v;
+      if ages['k' + IntToStr(i)] is some v total := total + v;
     val keys := ages.KeyList;
     {
       WriteLn(ages.Count, ' ', total, ' ', Length(keys));
@@ -29,10 +29,10 @@ val total := 0;
     objs.Put(1, TItem.Create(1));
     objs.Put(2, TItem.Create(2));
     objs[1] := TItem.Create(10);
-    if objs[2] is some o then WriteLn('obj ', o.N);
+    if objs[2] is some o WriteLn('obj ', o.N);
     grid[Pt(1, 2)] := 'a';
     grid[Pt(2, 1)] := 'b';
-    if grid[Pt(2, 1)] is some g then WriteLn('grid ', g);
+    if grid[Pt(2, 1)] is some g WriteLn('grid ', g);
     WriteLn(Hash(42) = Hash(42), ' ', Hash('ab') <> Hash('ba'));
   };
   WriteLn('end');

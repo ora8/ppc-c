@@ -21,7 +21,7 @@ func Both<T>(vao x, y: T): TPair<T>
 proc SwapFirst<T>(var a: array of optional T);
 val h: optional T := none;
 {
-  if Length(a) < 2 then Exit;
+  if Length(a) < 2 Exit;
   h := Take(a[0]);
   a[0] := Take(a[1]);
   a[1] := h;
@@ -41,18 +41,18 @@ val
   items[0] := TItem.Create(1);
   items[1] := TItem.Create(2);
   SwapFirst(items);
-  if items[0] is some k then WriteLn(k.N);
+  if items[0] is some k WriteLn(k.N);
   SetLength(nums, 2);
   nums[0] := 10;
   nums[1] := 20;
   SwapFirst(nums);
-  if nums[0] is some n then WriteLn(n);
+  if nums[0] is some n WriteLn(n);
   val p := Both(TItem.Create(3), TItem.Create(4));
   {
-    if p.B is some b then WriteLn(b.N);
+    if p.B is some b WriteLn(b.N);
   };
   val q := Twice(7);
   {
-    if q.A is some a then WriteLn(a);
+    if q.A is some a WriteLn(a);
   };
 }

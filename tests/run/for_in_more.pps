@@ -22,6 +22,6 @@ val
   };
   for val i in d do
     for val j in d do
-      if i < j then Write(i, j, ' ');
+      if i < j Write(i, j, ' ');
   WriteLn;
 }

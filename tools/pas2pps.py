@@ -11,6 +11,8 @@ The conversion works on tokens; comments, strings and the layout stay as they ar
 * record, class(...), = interface(...) and case ... of get an opening {
 * the program's final 'end.' becomes '}', a module's final 'end.' is dropped
 * the ';' after a routine header (or its last directive) is dropped when the body follows
+* 'then' is dropped when a statement starts after it, an 'else' of an 'if' gets a ';' before it
+  (if n < 2 Result := n; else Result := 0;)
 """
 import re
 import sys
@@ -21,6 +23,7 @@ procedure program property record repeat set shl shr then to type unit until use
 loop val vao default result ok error module import""".split())
 DIRECTIVES = {"virtual", "override", "abstract", "forward", "overload", "auto", "reintroduce", "static", "inline"}
 ROUTINE = {"function", "procedure", "constructor", "destructor", "operator"}
+STMT_KW = {"begin", "if", "while", "for", "case", "repeat", "loop", "try", "inherited", "val", "var", "vao", "const"}
 
 
 class Tok:
@@ -136,12 +139,24 @@ def convert(src):
     is_module = len(t) > 0 and kw(0, "module")
     pending_case = []  # paren depth of open 'case' selectors
     opens = []  # what each open '{' belongs to: body (of a routine), block, type, case
+    ifs = []  # nesting levels of the 'if's that may still get an 'else'
     depth = 0
+
+    def level():
+        return depth + len(opens)
+
+    def close_ifs(lv):  # the 'if's at level lv and deeper are complete
+        while ifs and ifs[-1] >= lv:
+            ifs.pop()
+
     for k, tok in enumerate(t):
         if sym(k, "("):
             depth += 1
         elif sym(k, ")"):
             depth -= 1
+            close_ifs(level() + 1)
+        elif sym(k, ";"):
+            close_ifs(level())
         if tok.kind == "id" and tok.text == "operator" and kw(k - 1, "class"):
             header_semicolon(k)  # class operator Add(a, b: TVec): TVec;
             continue
@@ -157,6 +172,7 @@ def convert(src):
             opens.append("block" if any(o in ("block", "body", "case") for o in opens) else "body")
         elif w == "end":
             kind = opens.pop() if opens else None
+            close_ifs(level() + 1)
             if kind in ("body", "type") and sym(k + 1, ";") and k + 2 < len(t):
                 rep[k + 1] = ""  # 'end;' of a routine body or a type: '}' needs no ';'
             if sym(k + 1, ".") and k + 2 == len(t):  # the end of the file
@@ -186,6 +202,19 @@ def convert(src):
             else:
                 after[k] = " {"
             opens.append("type")
+        elif w == "if":
+            ifs.append(level())
+        elif w == "then":
+            n = t[k + 1] if k + 1 < len(t) else None
+            if n is not None and (n.kind == "id" or (n.kind == "kw" and n.text in STMT_KW)):
+                rep[k] = ""  # if n < 2 Result := n
+        elif w == "else":
+            if ifs and ifs[-1] == level():  # the else of an if (not of a case)
+                ifs.pop()
+                if not kw(k - 1, "end") and not sym(k - 1, ";"):
+                    after[k - 1] = after.get(k - 1, "") + ";"
+        elif w == "until":
+            close_ifs(level())
         elif w == "case":
             pending_case.append(depth)
         elif w == "of" and pending_case and pending_case[-1] == depth and not kw(k - 1, "array") and not kw(k - 1, "set") \
@@ -199,6 +228,12 @@ def convert(src):
     for k, tok in enumerate(t):
         out.append(src[pos:tok.start])
         r = rep.get(k)
+        if r == "" and tok.text == "then":  # 'c then x' -> 'c x': the blanks before 'then' go too
+            out[-1] = out[-1].rstrip(" \t")
+            pos = tok.end
+            if k in after:
+                out.append(after[k])
+            continue
         if r is None:
             out.append(tok.text)
         elif r == "" and tok.text == ";" and not src[tok.end:tok.end + 1].isspace() and src[tok.end:tok.end + 1] not in ("", "\n"):

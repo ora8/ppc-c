@@ -20,7 +20,7 @@ val
 
 func Fact(n: Integer): Int64
 {
-  if n <= 1 then Result := 1 else Result := n * Fact(n - 1);
+  if n <= 1 Result := 1; else Result := n * Fact(n - 1);
 }
 
 proc Swap(var a, b: Integer);
@@ -66,7 +66,7 @@ val k: Integer := default;
   s[1] := 'X';
   WriteLn(s, ' pos(de)=', Pos('de', s), ' copy=', Copy(s, 2, 3));
   c := 'q';
-  if c in ['a'..'z'] then WriteLn(c, ' is small, big: ', UpCase(c));
+  if c in ['a'..'z'] WriteLn(c, ' is small, big: ', UpCase(c));
   case sum of {
     1, 2: WriteLn('eins/zwei');
     3..5: WriteLn('three to five');
@@ -79,8 +79,8 @@ val k: Integer := default;
   i := 0;
   loop {
     Inc(i);
-    if i = 3 then Continue;
-    if i > 5 then Break;
+    if i = 3 Continue;
+    if i > 5 Break;
     Write(i, ' ');
   };
   WriteLn;

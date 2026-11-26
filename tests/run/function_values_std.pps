@@ -20,5 +20,5 @@ vao b := TButton.Create;
     WriteLn;
   };
   b.OnClick := proc(n: Integer) { WriteLn('clicked ', n); };
-  if b.OnClick is some h then h(3);
+  if b.OnClick is some h h(3);
 }

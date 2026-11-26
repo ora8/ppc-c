@@ -1079,8 +1079,9 @@ static StmtVec parse_stmt_list(const char *term) {
    when a call, an assignment or a member follows it (if r is ok WriteLn('done')) */
 static int ok_is_statement(void) {
     Token *n = &T.items[P + 1];
-    return n->kind == TK_SYM && (STREQ(n->s, "(") || STREQ(n->s, ":=") || STREQ(n->s, ".") || STREQ(n->s, "[") ||
-                                 STREQ(n->s, "^") || STREQ(n->s, ";"));
+    return (n->kind == TK_SYM && (STREQ(n->s, "(") || STREQ(n->s, ":=") || STREQ(n->s, ".") || STREQ(n->s, "[") ||
+                                  STREQ(n->s, "^") || STREQ(n->s, ";"))) ||
+           n->kind == TK_EOF || (n->kind == TK_KW && (STREQ(n->s, "else") || STREQ(n->s, "end") || STREQ(n->s, "until")));
 }
 
 /* the brace syntax: is 'X(...)' here a call statement (followed by ';', 'else' or '}') and not a

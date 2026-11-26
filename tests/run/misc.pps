@@ -39,7 +39,7 @@ func Describe(d: TDay): String
   else
     Result := 'weekend';
   };
-  if IsWeekend(d) then Result := Result + '!';
+  if IsWeekend(d) Result := Result + '!';
 }
 
 func IsWeekend(d: TDay): Boolean
@@ -51,7 +51,7 @@ func FirstNeg(a: TArr5 const): Integer;
 val i: Integer := default;
 {
   for i := 1 to 5 do
-    if a[i] < 0 then Exit(i);
+    if a[i] < 0 Exit(i);
   Result := -1;
 }
 

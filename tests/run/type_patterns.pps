@@ -51,7 +51,7 @@ func Describe(f: TFigure): String
 
 func Make(k: Integer): TFigure
 {
-  if k = 1 then Result := TCircle.Create(1, 2.5) else Result := TSquare.Create(2, 3);
+  if k = 1 Result := TCircle.Create(1, 2.5); else Result := TSquare.Create(2, 3);
 }
 
 vao a: TFigure := TCircle.Create(1, 20.0);
@@ -66,8 +66,8 @@ vao e: TFigure := TCircle.Create(8, 1.5);
     TCircle(k): WriteLn('made circle ', k.R:0:1);
   else WriteLn('made other');
   };
-  if b is TSquare(q) then WriteLn('b is a square of ', q.S) else WriteLn('b is no square');
-  if a is TSquare(q) then WriteLn('a is a square') else WriteLn('a is no square');
+  if b is TSquare(q) WriteLn('b is a square of ', q.S); else WriteLn('b is no square');
+  if a is TSquare(q) WriteLn('a is a square'); else WriteLn('a is no square');
   WriteLn(Area(a):0:1, ' ', Area(b):0:1, ' ', Area(c):0:1, ' ', Area(d):0:1, ' ', Area(e):0:2);
   WriteLn(Describe(a), ', ', Describe(b), ', ', Describe(c));
   case d of {

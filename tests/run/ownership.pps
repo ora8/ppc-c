@@ -36,7 +36,7 @@ var cur: optional TItem := none;
   Result := none;
   cur := Head;
   while cur is some c do {
-    if c.Value = V then { Result := c; Exit; };
+    if c.Value = V { Result := c; Exit; };
     cur := c.Next;
   };
 }
@@ -44,7 +44,7 @@ var cur: optional TItem := none;
 func TList.PopFront: optional TItem
 {
   Result := Take(Head);
-  if Result is some r then {
+  if Result is some r {
     Head := Take(r.Next);
     Dec(Count);
   };
@@ -96,9 +96,9 @@ var
   list.Push(item);
   PrintList(list);
   found := list.Find(30);
-  if found is some f then WriteLn('found: ', f.Value);
+  if found is some f WriteLn('found: ', f.Value);
   popped := list.PopFront;
-  if popped is some q then WriteLn('taken: ', q.Value);
+  if popped is some q WriteLn('taken: ', q.Value);
   PrintList(list);
 
 

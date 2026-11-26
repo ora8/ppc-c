@@ -5,12 +5,12 @@ import ppc_std;
     ok f: { f.WriteLine('first'); f.Write('sec'); f.WriteLine('ond'); };
     error e: WriteLn(e);
   };
-  if TTextFile.OpenAppend('tf_test.tmp') is ok f then f.WriteLine('third');
-  if TTextFile.OpenRead('tf_test.tmp') is ok f then
+  if TTextFile.OpenAppend('tf_test.tmp') is ok f f.WriteLine('third');
+  if TTextFile.OpenRead('tf_test.tmp') is ok f
     loop
       {
-        if f.ReadLine is some line then WriteLn(f.Name, ': ', line) else Break;
+        if f.ReadLine is some line WriteLn(f.Name, ': ', line); else Break;
       };
-  if TTextFile.OpenRead('/no/such/file') is error e then WriteLn(e);
-  if DeleteFile('tf_test.tmp') is ok then WriteLn('removed');
+  if TTextFile.OpenRead('/no/such/file') is error e WriteLn(e);
+  if DeleteFile('tf_test.tmp') is ok WriteLn('removed');
 }

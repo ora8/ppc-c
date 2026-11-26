@@ -11,5 +11,5 @@ vao figures := TList<TFigure>.Create;
   figures.Add(TCircle.Create(1));
   figures.Add(TCircle.Create(2));
   WriteLn('Area: ', TotalArea(figures):0:2);
-  if figures.Get(0) is some f then WriteLn(f.Name, ' ', f.ClassName);
+  if figures.Get(0) is some f WriteLn(f.Name, ' ', f.ClassName);
 }

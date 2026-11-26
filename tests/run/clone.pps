@@ -43,10 +43,10 @@ vao
   vao dup := anna.Clone;
   {
     dup.Name := 'Anna2';
-    if dup.Address is some a then a.City := 'Basel';
-    if anna.Address is some a then WriteLn('Original: ', a.City);
-    if dup.Boss is some c then WriteLn('Boss of the copy: ', c.Name);
-    if dup.Children[1] is some k then WriteLn('Child of the copy: ', k.Name);
+    if dup.Address is some a a.City := 'Basel';
+    if anna.Address is some a WriteLn('Original: ', a.City);
+    if dup.Boss is some c WriteLn('Boss of the copy: ', c.Name);
+    if dup.Children[1] is some k WriteLn('Child of the copy: ', k.Name);
   };
   WriteLn('-- end of Local');
 }
@@ -62,7 +62,7 @@ vao
     vao k := p.Clone;                       {* whole object, also the TEmployee fields *}
     {
       WriteLn('Class: ', k.ClassName);
-      if k is TEmployee then WriteLn('Nr: ', (k as TEmployee).Nr);
+      if k is TEmployee WriteLn('Nr: ', (k as TEmployee).Nr);
     };
   };
 }
@@ -75,8 +75,8 @@ val
   p.A := TAddress.Create('Chur');
   p.Info := 'x';
   q := p.Clone;
-  if q.A is some a then a.City := 'Thun';
-  if p.A is some a then WriteLn('Record-Original: ', a.City);
+  if q.A is some a a.City := 'Thun';
+  if p.A is some a WriteLn('Record-Original: ', a.City);
 }
 
 {

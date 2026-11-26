@@ -31,8 +31,8 @@ vao
   WriteLn('after m: ', a.Info);            {* m is over, a can be used freely again *}
   var links: optional TNode := a.Left;   {* borrow of a field ... *}
   {
-    if a.Right is some r then r.Increment; {* ... another field may be changed *}
-    if links is some x then { x.Increment; WriteLn('left: ', x.Info); };
-    if a.Right is some r then WriteLn('right: ', r.Info);
+    if a.Right is some r r.Increment; {* ... another field may be changed *}
+    if links is some x { x.Increment; WriteLn('left: ', x.Info); };
+    if a.Right is some r WriteLn('right: ', r.Info);
   };
 }

@@ -14,7 +14,7 @@ proc P(flag: Boolean);
 val k := TK.Create(1);
 {
   k.Part := TK.Create(2);
-  if flag then
+  if flag
   {
     val b := k;                       {* k moves to b *}
     {

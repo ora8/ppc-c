@@ -28,7 +28,7 @@ func TPrinter.Show<T>(x: T): String
 }
 func TPrinter.Pick<T>(a, b: T): T; const
 {
-  if a < b then Result := b else Result := a;
+  if a < b Result := b; else Result := a;
 }
 proc TPrinter.Each<T>(a: array of T; Visit: reference to proc(x: T))
 {

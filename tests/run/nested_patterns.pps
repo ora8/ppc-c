@@ -59,13 +59,13 @@ func Size(it: TItem): Real
 }
 
 func Find(k: Integer): optional TShape
-{ if k > 0 then Result := Circle(k * 1.5) else if k = 0 then Result := Empty else Result := none; }
+{ if k > 0 Result := Circle(k * 1.5); else if k = 0 Result := Empty; else Result := none; }
 
 func Divide(a, b: Integer): result Integer
-{ if b = 0 then Result := error('div by zero') else Result := ok(a div b); }
+{ if b = 0 Result := error('div by zero'); else Result := ok(a div b); }
 
 func Pick(k: Integer): optional TFigure
-{ if k = 1 then Result := TCircle.Create(1) else if k = 2 then Result := TFigure.Create(2) else Result := none; }
+{ if k = 1 Result := TCircle.Create(1); else if k = 2 Result := TFigure.Create(2); else Result := none; }
 
 val it: TItem := Single(Rect(4, 0));
 vao f := Pick(1);
@@ -104,6 +104,6 @@ vao f := Pick(1);
     WriteLn(case Find(k) of { some Circle(r): 'circle ' + FloatToStr(r); some Empty: 'empty'; some _: 'other'; none: 'none' });
   WriteLn(case Divide(9, 3) of { ok 3: 'three'; ok v: IntToStr(v); error e: e });
   WriteLn(case f of { some TCircle(c): c.X; some g: g.X; none: 0 });
-  if Find(3) is some Circle(r) then WriteLn('if: circle ', r:0:1) else WriteLn('if: no circle');
-  if it is Single(Rect(w, 0)) then WriteLn('if: flat ', w) else WriteLn('if: not flat');
+  if Find(3) is some Circle(r) WriteLn('if: circle ', r:0:1); else WriteLn('if: no circle');
+  if it is Single(Rect(w, 0)) WriteLn('if: flat ', w); else WriteLn('if: not flat');
 }

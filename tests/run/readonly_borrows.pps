@@ -21,7 +21,7 @@ func TPerson.BestFriend: var optional TPerson const; const
 proc Show(P: TPerson const)          {* const parameter: the object is read-only *}
 {
   Write(P.Info);
-  if P.BestFriend is some f then Write(', Friend: ', f.Info);
+  if P.BestFriend is some f Write(', Friend: ', f.Info);
   WriteLn;
 }
 
@@ -30,7 +30,7 @@ proc Celebrate(P: TPerson)               {* normal borrow: may change it *}
 
 func Older(A, B: TPerson const): var TPerson const
 {
-  if A.Age >= B.Age then Result := A else Result := B;
+  if A.Age >= B.Age Result := A; else Result := B;
 }
 
 vao

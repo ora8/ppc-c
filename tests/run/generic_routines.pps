@@ -13,7 +13,7 @@ constructor TCustomer.Create(AName: String const) { inherited Create; Name := AN
 
 func Max<T: Comparable>(a, b: T): T
 {
-  if a > b then Result := a else Result := b;
+  if a > b Result := a; else Result := b;
 }
 
 proc Swap<T>(var a, b: T);
@@ -34,7 +34,7 @@ func First<A: Copy; B>(p: TPair<A, B>): A;
 
 func Factorial<T: Numeric>(n: T): T          {* recursive *}
 {
-  if n <= 1 then Result := 1 else Result := n * Factorial(n - 1);
+  if n <= 1 Result := 1; else Result := n * Factorial(n - 1);
 }
 
 func Name<T: TCustomer>(k: T): String

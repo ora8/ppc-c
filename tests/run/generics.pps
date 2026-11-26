@@ -52,8 +52,8 @@ func TCustomerList.Find(N: String const): var optional TCustomer
 {
   Result := none;
   for val i := 1 to Size do
-    if Items[i] is some k then
-      if k.Name = N then Result := k;
+    if Items[i] is some k
+      if k.Name = N Result := k;
 }
 
 val
@@ -66,13 +66,13 @@ vao
   WriteLn(p.First, ' ', p.Second, ' ', p.Text);
   numbers.Add(10);
   numbers.Add(20);
-  if numbers.Get(2) is some z then WriteLn('numbers[2] = ', z, ', Len ', numbers.Len);
+  if numbers.Get(2) is some z WriteLn('numbers[2] = ', z, ', Len ', numbers.Len);
   customers.Add(TCustomer.Create('Anna'));
   customers.Add(TCustomer.Create('Bert'));
-  if customers.Find('Bert') is some k then WriteLn('found: ', k.Name);
+  if customers.Find('Bert') is some k WriteLn('found: ', k.Name);
   WriteLn(customers.ClassName, ' inherits from TList<TCustomer>, Len ', customers.Len);
   k1.Value := 'eins';
   k1.Next := TNode<String>.Create;
-  if k1.Next is some n then n.Value := 'zwei';
+  if k1.Next is some n n.Value := 'zwei';
   WriteLn(k1.Value);
 }
