@@ -1,0 +1,33 @@
+program sum_types_owned;
+type
+  TItem = class {
+    N: Integer;
+    constructor Create(AN: Integer);
+    destructor Destroy; override;
+  }
+  TMaybe<T> = (Just(Value: T), Nothing);
+  TTree = (Leaf, Node(Item: optional TItem; Label: String));
+constructor TItem.Create(AN: Integer) { N := AN; }
+destructor TItem.Destroy { WriteLn('free ', N); }
+func Half(n: Integer): TMaybe<Integer>
+{
+  if Odd(n) then Result := TMaybe<Integer>.Nothing else Result := TMaybe<Integer>.Just(n div 2);
+}
+val
+  m := Half(10);
+  t := Node(TItem.Create(7), 'seven');
+  u: TTree := Leaf;
+{
+  if m is Just(v) then WriteLn('half ', v);
+  case Half(3) of {
+    Just(v): WriteLn(v);
+    Nothing: WriteLn('odd');
+  };
+  if t is Node(it, l) then
+    if it is some x then WriteLn(l, ' ', x.N);
+  u := t;
+  WriteLn(u is Leaf, ' ', t is Leaf);
+  t := Node(TItem.Create(8), 'eight');
+  t := Leaf;
+  WriteLn('end');
+}

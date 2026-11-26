@@ -34,10 +34,12 @@ static void load_module(Ident *name) {
         src = PPC_STD;
         file = "ppc_std.pas";
     } else {
-        file = sfmt("%s/%s.pas", mod_dir, name->name);
+        /* first the file in the syntax of the importing file (M.pps for a .pps file), then the other one */
+        int br = is_brace_file(name->pos.file);
+        file = sfmt("%s/%s.%s", mod_dir, name->name, br ? "pps" : "pas");
         FILE *f = fopen(file, "rb");
-        if (!f) { /* the brace syntax */
-            char *alt = sfmt("%s/%s.pps", mod_dir, name->name);
+        if (!f) {
+            char *alt = sfmt("%s/%s.%s", mod_dir, name->name, br ? "pas" : "pps");
             f = fopen(alt, "rb");
             if (!f) error_at(name->pos, "module '%s' not found (looked for %s and %s)", name->name, file, alt);
             file = alt;

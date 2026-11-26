@@ -1,0 +1,51 @@
+program ConstParams;
+{* 'T const': unchangeable; as a parameter by reference, without a copy *}
+type
+  TVector = record {
+    X, Y: Real;
+    proc Scale(F: Real);
+    func Len: Real; const;
+  }
+  TBig = array[1..1000] of Integer;
+proc TVector.Scale(F: Real) { X := X * F; Y := Y * F; }
+func TVector.Len: Real; const { Result := Sqrt(X * X + Y * Y); }
+
+func Sum(A: TBig const): Integer     {* no copy of 4000 bytes *}
+{
+  Result := 0;
+  for val i := 1 to 1000 do Result := Result + A[i];
+}
+
+proc Show(S: String const; V: TVector const)
+{
+  WriteLn(S, ': ', V.Len:0:1);                {* functions are allowed *}
+}
+
+func Twice(N: Integer const): Integer { Result := N * 2; }
+
+proc P(n: Integer);
+const
+  Max = 100;                    {* compile-time constant *}
+val
+  Square: Integer const := n * n; {* unchangeable, value at run time *}
+  Text: String const := 'n=' + IntToStr(n);
+  v: TVector := default;
+{
+  v.X := 3; v.Y := 4;
+  WriteLn(Max, ' ', Square, ' ', Text);
+  Show('v', v);
+  Show('temporary', v);
+  WriteLn('Twice(Square + 1) = ', Twice(Square + 1));   {* expression as a const argument *}
+  val w: TVector const := v;    {* unchangeable copy in the block *}
+  {
+    WriteLn('w.Len = ', w.Len:0:1);
+  };
+}
+
+val
+  g: TBig := default;
+{
+  for val i := 1 to 1000 do g[i] := i;
+  WriteLn('Sum = ', Sum(g));
+  P(7);
+}

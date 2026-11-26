@@ -1,0 +1,16 @@
+program text_files;
+import ppc_std;
+{
+  case TTextFile.OpenWrite('tf_test.tmp') of {
+    ok f: { f.WriteLine('first'); f.Write('sec'); f.WriteLine('ond'); };
+    error e: WriteLn(e);
+  };
+  if TTextFile.OpenAppend('tf_test.tmp') is ok f then f.WriteLine('third');
+  if TTextFile.OpenRead('tf_test.tmp') is ok f then
+    loop
+      {
+        if f.ReadLine is some line then WriteLn(f.Name, ': ', line) else Break;
+      };
+  if TTextFile.OpenRead('/no/such/file') is error e then WriteLn(e);
+  if DeleteFile('tf_test.tmp') is ok then WriteLn('removed');
+}

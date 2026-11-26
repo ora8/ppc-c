@@ -1,0 +1,20 @@
+program WhileDecl;
+{* while val i := 0; i < n do ...: the variable belongs to the loop (created once) *}
+type TK = class { N: Integer; destructor Destroy; override; }
+destructor TK.Destroy { WriteLn('freed ', N); inherited Destroy; }
+{
+  while val I := 0; I < 3 do
+  {
+    Write(I, ' ');
+    Inc(I);
+  };
+  WriteLn;
+  while vao k := TK.Create; k.N < 2 do Inc(k.N);
+  WriteLn('after the loop');
+  while val s: String := 'a'; Length(s) < 4 do
+    val t := s + 'b';
+    {
+      s := t;
+    };
+  WriteLn('done');
+}

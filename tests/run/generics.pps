@@ -1,0 +1,78 @@
+program Generics;
+{* generic records and classes (stage 1): TPair<A, B>, TList<T>, recursive, inheritance from instances *}
+type
+  TPair<A, B> = record {
+    First: A;
+    Second: B;
+    func Text: String; const;
+  }
+
+  TList<T> = class {
+    Items: array[1..10] of optional T;
+    Size: Integer;
+    proc Add(vao x: T);
+    func Get(i: Integer): var optional T;
+    func Len: Integer; const;
+  }
+
+  TNode<T> = class {                     {* recursive *}
+    Value: T;
+    Next: optional TNode<T>;
+  }
+
+  TCustomer = class {
+    Name: String;
+    constructor Create(AName: String const);
+    destructor Destroy; override;
+  }
+
+  TCustomerList = class(TList<TCustomer>) {
+    func Find(N: String const): var optional TCustomer;
+  }
+
+constructor TCustomer.Create(AName: String const) { inherited Create; Name := AName; }
+destructor TCustomer.Destroy { WriteLn('  freed ', Name); inherited Destroy; }
+
+func TPair<A, B>.Text: String; const
+{ Result := 'MakePair'; }
+
+proc TList<T>.Add(vao x: T)
+{
+  Inc(Size);
+  Items[Size] := x;
+}
+
+func TList<T>.Get(i: Integer): var optional T
+{ Result := Items[i]; }
+
+func TList<T>.Len: Integer; const
+{ Result := Size; }
+
+func TCustomerList.Find(N: String const): var optional TCustomer
+{
+  Result := none;
+  for val i := 1 to Size do
+    if Items[i] is some k then
+      if k.Name = N then Result := k;
+}
+
+val
+  p: TPair<String, Integer> := (First: 'Anna'; Second: 30);
+vao
+  numbers := TList<Integer>.Create;
+  customers := TCustomerList.Create;
+  k1 := TNode<String>.Create;
+{
+  WriteLn(p.First, ' ', p.Second, ' ', p.Text);
+  numbers.Add(10);
+  numbers.Add(20);
+  if numbers.Get(2) is some z then WriteLn('numbers[2] = ', z, ', Len ', numbers.Len);
+  customers.Add(TCustomer.Create('Anna'));
+  customers.Add(TCustomer.Create('Bert'));
+  if customers.Find('Bert') is some k then WriteLn('found: ', k.Name);
+  WriteLn(customers.ClassName, ' inherits from TList<TCustomer>, Len ', customers.Len);
+  k1.Value := 'eins';
+  k1.Next := TNode<String>.Create;
+  if k1.Next is some n then n.Value := 'zwei';
+  WriteLn(k1.Value);
+}

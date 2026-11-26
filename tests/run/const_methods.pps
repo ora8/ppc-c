@@ -1,0 +1,68 @@
+program ConstMethods;
+{* methods with '; const;': do not change Self;
+  and routines without side effects on global variables *}
+type
+  TVector = record {
+    X, Y: Real;
+    proc Scale(F: Real);
+    func Len: Real; const;               {* does not change Self *}
+    func Normalized: TVector; const;
+    proc Show; const;
+  }
+
+  TAccount = class {
+  private
+    FBalance: Integer;
+  public
+    constructor Create(S: Integer);
+    proc Deposit(B: Integer);
+    func Balance: Integer; const;
+    func Description: String; const; virtual;
+  }
+  TSavings = class(TAccount) {
+    func Description: String; const; override; {* the override stays const *}
+  }
+
+proc TVector.Scale(F: Real) { X := X * F; Y := Y * F; }
+func TVector.Len: Real; const { Result := Sqrt(X * X + Y * Y); }
+func TVector.Normalized: TVector; const;
+val l := Len;                                 {* const method calls a const method *}
+{
+  Result.X := X / l;
+  Result.Y := Y / l;
+}
+proc TVector.Show; const { WriteLn('(', X:0:2, ', ', Y:0:2, ') Len ', Len:0:2); }
+
+constructor TAccount.Create(S: Integer) { inherited Create; FBalance := S; }
+proc TAccount.Deposit(B: Integer) { FBalance := FBalance + B; }
+func TAccount.Balance: Integer; const { Result := FBalance; }
+func TAccount.Description: String; const { Result := ClassName + ' ' + IntToStr(Balance); }
+func TSavings.Description: String; const { Result := 'Spar: ' + inherited Description; }
+
+{* free const function: only parameters and local variables, no side effects *}
+func SquareOf(N: Integer): Integer; const { Result := N * N; }
+func SumOfSquares(N: Integer): Integer; const
+{
+  Result := 0;
+  for val i := 1 to N do Result := Result + SquareOf(i);   {* calls only const routines *}
+}
+
+proc Print(V: TVector const)         {* T const: only const methods *}
+{
+  V.Show;
+  V.Normalized.Show;
+}
+
+val
+  v: TVector := default;
+vao
+  k := TSavings.Create(100);
+{
+  v.X := 3; v.Y := 4;
+  Print(v);
+  v.Scale(2);                                {* v itself is not constant *}
+  v.Show;
+  k.Deposit(50);
+  WriteLn(k.Description, ', Balance ', k.Balance);
+  WriteLn('SumOfSquares(4) = ', SumOfSquares(4));
+}

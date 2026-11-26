@@ -1,0 +1,44 @@
+program StackObjects;
+{* stack objects: 'val k := TClass.Create(...)' lives in the stack frame, Destroy at the end of the block *}
+type
+  TFigure = class {
+    X: Integer;
+    constructor Create(AX: Integer);
+    destructor Destroy; override;
+    proc Show; virtual;
+  }
+  TCircle = class(TFigure) {
+    R: Real;
+    Name: optional TFigure;
+    constructor Create(AX: Integer; AR: Real);
+    proc Show; override;
+  }
+constructor TFigure.Create(AX: Integer) { inherited Create; X := AX; }
+destructor TFigure.Destroy { WriteLn('  Destroy ', ClassName, ' ', X); inherited Destroy; }
+proc TFigure.Show { WriteLn('Figure ', X); }
+constructor TCircle.Create(AX: Integer; AR: Real) { inherited Create(AX); R := AR; }
+proc TCircle.Show { WriteLn('Circle ', X, ' r=', R:0:1); }
+
+proc Draw(F: TFigure) { F.Show; }
+
+proc Local;
+val k := TCircle.Create(1, 2.5);
+{
+  Draw(k);
+  k.Name := TFigure.Create(99);           {* owning field of a stack object *}
+  var f: TFigure := k;
+  { f.X := 5; };
+  k.Show;
+}
+
+val g: TFigure := TFigure.Create(7);
+{
+  Local;
+  for val i := 1 to 2 do
+    val t := TFigure.Create(i * 10);
+    {
+      t.Show;
+    };
+  g.Show;
+  WriteLn('End');
+}

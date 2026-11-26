@@ -1,0 +1,75 @@
+program generic_owned_values;
+import ppc_std;
+type
+  TItem = class {
+    N: Integer;
+    constructor Create(AN: Integer);
+    destructor Destroy; override;
+  }
+  TWords = array of String;
+  TOrder = record {
+    Name: String;
+    Item: optional TItem;
+  }
+constructor TItem.Create(AN: Integer) { N := AN; }
+destructor TItem.Destroy { WriteLn('free item ', N); }
+
+func MakeOrder(Name: String; n: Integer): TOrder
+{
+  Result.Name := Name;
+  Result.Item := TItem.Create(n);
+}
+
+proc Show(o: TOrder)
+{
+  Write(o.Name);
+  if o.Item is some it then Write('#', it.N);
+  WriteLn;
+}
+
+proc Consume<T>(vao x: T)
+{
+  WriteLn('consumed');
+}
+
+func Wrap<T>(vao x: T): optional T
+{
+  Result := x;
+}
+
+proc Keep(vao o: TOrder)
+{
+  Show(o);
+}
+
+val
+  o := MakeOrder('own', 7);
+  words: array of String := ('x', 'y');
+{
+  vao st := TStack<TOrder>.Create;
+  vao m := TMap<String, TOrder>.Create;
+  vao lists := TList<TWords>.Create;
+  {
+    st.Push(MakeOrder('s1', 1));
+    st.Push(MakeOrder('s2', 2));
+    if st.Peek is some p then Show(p);
+    if st.Pop is some q then Show(q);
+    WriteLn(st.Count);
+    m.Put('k1', MakeOrder('m1', 11));
+    m.Put('k2', MakeOrder('m2', 12));
+    m.Put('k1', MakeOrder('m1b', 13));          {* replaces: frees item 11 *}
+    if m.Get('k1') is some g then Show(g);
+    if m.Get('zz') is some z then Show(z) else WriteLn('no zz');
+    if m.Remove('k2') is some r then Show(r);
+    WriteLn(m.Count, ' ', m.Contains('k2'));
+    Consume(MakeOrder('c', 21));
+    if Wrap(MakeOrder('w', 22)) is some w then Show(w);
+    Keep(o);
+    WriteLn('[', o.Name, ']');                  {* moved: empty *}
+    lists.Add(words);
+    lists.Add(Split('a,b,c', ','));
+    if lists.Get(1) is some ws then WriteLn(Length(ws), ' ', Join(ws, '+'));
+    WriteLn(Length(words));
+  };
+  WriteLn('end');
+}

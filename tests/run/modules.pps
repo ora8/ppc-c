@@ -1,0 +1,15 @@
+program Module;
+{* modules of our own: 'import Geometry' loads Geometry.pas from the same directory *}
+import ppc_std, Geometry;
+
+val
+  a: TPoint := (X: 0; Y: 0);
+  b: TPoint := (X: 3; Y: 4);
+vao figures := TList<TFigure>.Create;
+{
+  WriteLn('Distance: ', a.Distance(b):0:1);
+  figures.Add(TCircle.Create(1));
+  figures.Add(TCircle.Create(2));
+  WriteLn('Area: ', TotalArea(figures):0:2);
+  if figures.Get(0) is some f then WriteLn(f.Name, ' ', f.ClassName);
+}

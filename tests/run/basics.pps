@@ -1,0 +1,92 @@
+program Basics;
+const
+  N = 10;
+  Greeting = 'Hello';
+  Primes: array[1..5] of Integer = (2, 3, 5, 7, 11);
+type
+  TColor = (Red, Green, Blue);
+  TPoint = record {
+    X, Y: Integer;
+  }
+val
+  i, sum: Integer := default;
+  r: Real := default;
+  s: String := default;
+  c: Char := default;
+  col: TColor := default;
+  p: TPoint := default;
+  a: array[0..N - 1] of Integer := default;
+  m: array[1..3, 1..3] of Integer := default;
+
+func Fact(n: Integer): Int64
+{
+  if n <= 1 then Result := 1 else Result := n * Fact(n - 1);
+}
+
+proc Swap(var a, b: Integer);
+val t: Integer := default;
+{
+  t := a; a := b; b := t;
+}
+
+func SumTo(n: Integer): Integer;
+val acc: Integer := default;
+  proc Add(k: Integer)
+  {
+    acc := acc + k;
+  }
+val k: Integer := default;
+{
+  acc := 0;
+  for k := 1 to n do Add(k);
+  SumTo := acc;
+}
+
+{
+  sum := 0;
+  for i := 1 to N do sum := sum + i;
+  WriteLn('Sum 1..', N, ' = ', sum);
+  WriteLn(Greeting + ', Welt!', ' Len=', Length(Greeting));
+  WriteLn('10! = ', Fact(10));
+  r := 22 / 7;
+  WriteLn('r = ', r:0:4);
+  WriteLn(r);
+  i := 3; sum := 4; Swap(i, sum);
+  WriteLn('swap: ', i, ' ', sum);
+  for col := Red to Blue do Write(col, ' ');
+  WriteLn;
+  p.X := 3; p.Y := 4;
+  WriteLn('MakePoint (', p.X, ',', p.Y, ')');
+  for i := 0 to N - 1 do a[i] := i * i;
+  WriteLn('a[7] = ', a[7]);
+  for i := 1 to 3 do m[i, i] := i;
+  WriteLn('m[2,2] = ', m[2][2]);
+  s := 'abc';
+  s := s + 'def';
+  s[1] := 'X';
+  WriteLn(s, ' pos(de)=', Pos('de', s), ' copy=', Copy(s, 2, 3));
+  c := 'q';
+  if c in ['a'..'z'] then WriteLn(c, ' is small, big: ', UpCase(c));
+  case sum of {
+    1, 2: WriteLn('eins/zwei');
+    3..5: WriteLn('three to five');
+  else
+    WriteLn('otherwise');
+  };
+  i := 0;
+  repeat Inc(i, 2) until i >= 7;
+  WriteLn('repeat: ', i);
+  i := 0;
+  loop {
+    Inc(i);
+    if i = 3 then Continue;
+    if i > 5 then Break;
+    Write(i, ' ');
+  };
+  WriteLn;
+  WriteLn('SumTo(100) = ', SumTo(100));
+  for i := 1 to 5 do Write(Primes[i], ' ');
+  WriteLn;
+  WriteLn('17 div 5 = ', 17 div 5, ', 17 mod 5 = ', 17 mod 5, ', odd(7)=', Odd(7));
+  WriteLn(IntToStr(42) + '!', ' ', 1 shl 10, ' ', High(Integer));
+}

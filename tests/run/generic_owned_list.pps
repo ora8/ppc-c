@@ -1,0 +1,38 @@
+program generic_owned_list;
+import ppc_std;
+type
+  TItem = class {
+    N: Integer;
+    constructor Create(AN: Integer);
+    destructor Destroy; override;
+  }
+  TOrder = record {
+    Name: String;
+    Item: optional TItem;
+  }
+constructor TItem.Create(AN: Integer) { N := AN; }
+destructor TItem.Destroy { WriteLn('free item ', N); }
+
+func MakeOrder(Name: String; n: Integer): TOrder
+{
+  Result.Name := Name;
+  Result.Item := TItem.Create(n);
+}
+
+{
+  vao l := TList<TOrder>.Create;
+  {
+    l.Add(MakeOrder('a', 1));
+    l.Add(MakeOrder('b', 2));
+    val o := MakeOrder('c', 3);
+    {
+      l.Add(o);
+    };
+    WriteLn(l.Count);
+    if l.Get(1) is some x then WriteLn(x.Name);
+    if l.Extract(0) is some y then
+      if y.Item is some it then WriteLn('extracted ', y.Name, ' ', it.N);
+    WriteLn(l.Count);
+  };
+  WriteLn('end');
+}

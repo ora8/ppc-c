@@ -1,0 +1,58 @@
+program generic_borrow_ok;
+{* generic bodies that are correct for objects and for values *}
+type
+  TItem = class {
+    N: Integer;
+    constructor Create(AN: Integer);
+  }
+  TPair<T> = record {
+    A, B: optional T;
+  }
+constructor TItem.Create(AN: Integer) { N := AN; }
+
+proc Use<T>(vao x: T) { }
+
+func Both<T>(vao x, y: T): TPair<T>
+{
+  Result.A := x;
+  Result.B := y;
+}
+
+proc SwapFirst<T>(var a: array of optional T);
+val h: optional T := none;
+{
+  if Length(a) < 2 then Exit;
+  h := Take(a[0]);
+  a[0] := Take(a[1]);
+  a[1] := h;
+}
+
+func Twice<T: Copy>(x: T): TPair<T>
+{
+  Result.A := x;
+  Result.B := x;
+}
+
+val
+  items: array of optional TItem := default;
+  nums: array of optional Integer := default;
+{
+  SetLength(items, 2);
+  items[0] := TItem.Create(1);
+  items[1] := TItem.Create(2);
+  SwapFirst(items);
+  if items[0] is some k then WriteLn(k.N);
+  SetLength(nums, 2);
+  nums[0] := 10;
+  nums[1] := 20;
+  SwapFirst(nums);
+  if nums[0] is some n then WriteLn(n);
+  val p := Both(TItem.Create(3), TItem.Create(4));
+  {
+    if p.B is some b then WriteLn(b.N);
+  };
+  val q := Twice(7);
+  {
+    if q.A is some a then WriteLn(a);
+  };
+}

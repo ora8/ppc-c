@@ -1,0 +1,31 @@
+program sets;
+type
+  TColor = (Red, Green, Blue, Yellow);
+  TColors = set of TColor;
+  TDigits = set of 0..9;
+  TLetters = set of Char;
+func Names(s: TColors): String
+{
+  Result := '';
+  for val c in s do Result := Result + Format('%s ', [c]);
+}
+val
+  warm: TColors := [Red, Yellow];
+  all: TColors := [Red..Yellow];
+  none_: TColors := [];
+  d: TDigits := [1, 3, 5..7];
+  vowels: TLetters := ['a', 'e', 'i', 'o', 'u'];
+  s := [Green, Blue];
+  ch := 'e';
+  n := 6;
+{
+  WriteLn(Names(warm), '| ', Names(all - warm), '| ', Names(warm + s), '| ', Names(all * s));
+  WriteLn(Red in warm, ' ', Green in warm, ' ', ch in vowels, ' ', 'x' in vowels, ' ', n in d, ' ', 4 in d);
+  WriteLn(warm <= all, ' ', all <= warm, ' ', all >= s, ' ', warm = [Yellow, Red], ' ', warm <> s, ' ', none_ = []);
+  Include(warm, Green);
+  Exclude(warm, Red);
+  WriteLn(Names(warm));
+  for val k in d do Write(k, ' ');
+  WriteLn;
+  if warm * s <> [] then WriteLn('overlap');
+}

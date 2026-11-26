@@ -1,0 +1,31 @@
+program StackMove;
+{* val b := k: a stack object is moved (copied byte for byte), k is dead afterwards *}
+type
+  TK = class {
+    N: Integer;
+    Part: optional TK;
+    constructor Create(AN: Integer);
+    destructor Destroy; override;
+  }
+constructor TK.Create(AN: Integer) { inherited Create; N := AN; }
+destructor TK.Destroy { WriteLn('  Destroy ', N); inherited Destroy; }
+
+proc P(flag: Boolean);
+val k := TK.Create(1);
+{
+  k.Part := TK.Create(2);
+  if flag then
+  {
+    val b := k;                       {* k moves to b *}
+    {
+      b.N := 10;
+      WriteLn('b = ', b.N);
+    };                              {* b (with Part) is destroyed here *}
+  };
+  WriteLn('P end');
+}                                  {* k only if it was not moved *}
+
+{
+  P(True);
+  P(False);
+}

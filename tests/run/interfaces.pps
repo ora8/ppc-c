@@ -1,0 +1,90 @@
+program interfaces;
+type
+  IShape = interface {
+    func Area: Real; const;
+    func Name: String; const;
+  }
+  IScalable = interface {
+    proc Scale(f: Real);
+  }
+  ISolid = interface(IShape) {
+    func Volume(h: Real): Real; const;
+  }
+  TCircle = class(IShape, IScalable) {
+    R: Real;
+    constructor Create(AR: Real);
+    func Area: Real; const;
+    func Name: String; const; virtual;
+    proc Scale(f: Real);
+    destructor Destroy; override;
+  }
+  TRing = class(TCircle) {
+    func Name: String; const; override;
+  }
+  TSquare = class(TObject, ISolid, IScalable) {
+    S: Real;
+    constructor Create(AS: Real);
+    func Area: Real; const;
+    func Name: String; const;
+    func Volume(h: Real): Real; const;
+    proc Scale(f: Real);
+  }
+constructor TCircle.Create(AR: Real) { R := AR; }
+func TCircle.Area: Real; const { Result := 3 * R * R; }
+func TCircle.Name: String; const { Result := 'circle'; }
+proc TCircle.Scale(f: Real) { R := R * f; }
+destructor TCircle.Destroy { WriteLn('free ', Name); }
+func TRing.Name: String; const { Result := 'ring'; }
+constructor TSquare.Create(AS: Real) { S := AS; }
+func TSquare.Area: Real; const { Result := S * S; }
+func TSquare.Name: String; const { Result := 'square'; }
+func TSquare.Volume(h: Real): Real; const { Result := S * S * h; }
+proc TSquare.Scale(f: Real) { S := S * f; }
+
+proc Show(s: IShape const)
+{
+  WriteLn(s.Name, ' ', s.Area:0:1, ' (', s.ClassName, ')');
+}
+
+proc Grow(var g: IScalable) { g.Scale(2); }
+
+func Total<T: IShape>(a: array of optional T): Real
+{
+  Result := 0;
+  for val x in a do Result := Result + x.Area;
+}
+
+val shapes: array of optional IShape := default;
+{
+  vao c := TCircle.Create(1);
+  vao q := TSquare.Create(2);
+  {
+    Show(c);
+    Show(q);
+    var g: IScalable := c;
+    {
+      g.Scale(3);
+    };
+    Show(c);
+    var sol: ISolid := q;
+    {
+      WriteLn(sol.Volume(10):0:1);
+      Show(sol);
+    };
+    WriteLn(c is IScalable, ' ', c is ISolid);
+  };
+  SetLength(shapes, 3);
+  shapes[0] := TCircle.Create(1);
+  shapes[1] := TRing.Create(2);
+  shapes[2] := TSquare.Create(3);
+  for val s in shapes do Show(s);
+  for val s in shapes do
+    if s is ISolid then WriteLn(s.Name, ' is solid')
+    else if s is TCircle then WriteLn(s.Name, ' is a circle');
+  WriteLn(Total(shapes):0:1);
+  vao one: IShape := TRing.Create(5);
+  {
+    Show(one);
+  };
+  WriteLn('end');
+}

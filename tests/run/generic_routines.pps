@@ -1,0 +1,60 @@
+program GenericRoutines;
+{* generic functions and procedures (stage 2): type from the arguments or written out *}
+type
+  TCustomer = class {
+    Name: String;
+    constructor Create(AName: String const);
+  }
+  TPair<A, B> = record {
+    First: A;
+    Second: B;
+  }
+constructor TCustomer.Create(AName: String const) { inherited Create; Name := AName; }
+
+func Max<T: Comparable>(a, b: T): T
+{
+  if a > b then Result := a else Result := b;
+}
+
+proc Swap<T>(var a, b: T);
+val h: T := a;
+{
+  a := b;
+  b := h;
+}
+
+func MakePair<A: Copy; B: Copy>(x: A; y: B): TPair<A, B>;
+{
+  Result.First := x;
+  Result.Second := y;
+}
+
+func First<A: Copy; B>(p: TPair<A, B>): A;
+{ Result := p.First; }
+
+func Factorial<T: Numeric>(n: T): T          {* recursive *}
+{
+  if n <= 1 then Result := 1 else Result := n * Factorial(n - 1);
+}
+
+func Name<T: TCustomer>(k: T): String
+{ Result := k.Name; }
+
+val
+  i := 3;
+  j := 9;
+  s := 'Anna';
+  t := 'Bert';
+vao k := TCustomer.Create('Carla');
+{
+  WriteLn(Max(3, 7), ' ', Max('Anna', 'Bert'), ' ', Max(2.5, 1.0):0:1);
+  WriteLn(Max(3, 7.5):0:1, ' ', Max<Real>(1, 2):0:1);
+  Swap(i, j);
+  Swap(s, t);
+  WriteLn(i, ' ', j, ' ', s, ' ', t);
+  val p := MakePair('x', 42);
+  {
+    WriteLn(p.First, ' ', p.Second, ' ', First(p));
+  };
+  WriteLn(Factorial(10), ' ', Name(k));
+}

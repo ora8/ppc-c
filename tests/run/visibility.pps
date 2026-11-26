@@ -1,0 +1,48 @@
+program visibility;
+type
+  TBase = class {
+  private
+    FSecret: Integer;
+    proc Hidden;
+  protected
+    FShared: Integer;
+    proc Helper;
+  public
+    constructor Create;
+    func Secret: Integer; const;
+    property Shared: Integer read FShared;
+  }
+  TChild = class(TBase) {
+  public
+    proc Work;
+  }
+  TPoint = record {
+  private
+    FX: Integer;
+  public
+    proc SetX(v: Integer);
+    func X: Integer; const;
+  }
+constructor TBase.Create { FSecret := 42; FShared := 1; Hidden; }
+proc TBase.Hidden { Inc(FSecret); }
+proc TBase.Helper { Inc(FShared); }
+func TBase.Secret: Integer; const { Result := FSecret; }
+proc TChild.Work;
+  proc Inner { Helper; }
+{
+  Inc(FShared);
+  Inner;
+  Helper;
+}
+proc TPoint.SetX(v: Integer) { FX := v; }
+func TPoint.X: Integer; const { Result := FX; }
+val p: TPoint := default;
+{
+  vao c := TChild.Create;
+  {
+    c.Work;
+    WriteLn(c.Secret, ' ', c.Shared);
+  };
+  p.SetX(5);
+  WriteLn(p.X);
+}

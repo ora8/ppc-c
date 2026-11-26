@@ -1,0 +1,46 @@
+program class_references;
+type
+  TShape = class {
+    Size: Integer;
+    constructor Create(ASize: Integer); virtual;
+    func Area: Integer; virtual;
+    class func Kind: String;
+  }
+  TShapeClass = class of TShape;
+  TSquare = class(TShape) {
+    constructor Create(ASize: Integer); override;
+    func Area: Integer; override;
+  }
+  TCircle = class(TShape) {
+    func Area: Integer; override;
+  }
+constructor TShape.Create(ASize: Integer) { Size := ASize; }
+func TShape.Area: Integer { Result := 0; }
+class func TShape.Kind: String { Result := 'shape'; }
+constructor TSquare.Create(ASize: Integer) { inherited Create(ASize); WriteLn('square ', ASize, ' created'); }
+func TSquare.Area: Integer { Result := Size * Size; }
+func TCircle.Area: Integer { Result := 3 * Size * Size; }
+
+func Make(c: TShapeClass; n: Integer): TShape
+{
+  Result := c.Create(n);
+}
+
+val
+  kinds: array of TShapeClass := (TSquare, TCircle, TShape);
+  c: TShapeClass := TCircle;
+{
+  for val k in kinds do
+  {
+    vao s := Make(k, 2);
+    {
+      WriteLn(k.ClassName, ' ', s.ClassName, ' ', s.Area, ' ', s.ClassType = k, ' ', s is TCircle);
+    };
+  };
+  vao x := c.Create(3);
+  {
+    WriteLn(x.Area, ' ', x is c, ' ', c.Kind, ' ', c = TCircle, ' ', c <> TSquare);
+    c := x.ClassType;
+    WriteLn(c.ClassName);
+  };
+}

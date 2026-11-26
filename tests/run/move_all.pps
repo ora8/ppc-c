@@ -1,0 +1,43 @@
+program MoveAll;
+{* moving objects between val (stack), vao (heap) and var (borrow) *}
+type
+  TK = class {
+    N: Integer;
+    Part: optional TK;
+    constructor Create(AN: Integer);
+    destructor Destroy; override;
+    func Clone: TK; const; auto;
+  }
+  TL = class(TK) { }
+constructor TK.Create(AN: Integer) { inherited Create; N := AN; }
+destructor TK.Destroy { WriteLn('  Destroy ', N); inherited Destroy; }
+func Make(n: Integer): TK { Result := TK.Create(n); }
+
+proc ShowAll;
+vao h := TK.Create(1);
+val s := TK.Create(2);
+{
+  h.Part := TK.Create(10);
+  val a := h;                          {* vao -> val: the heap object moves onto the stack *}
+  {
+    if a.Part is some t then WriteLn('a = ', a.N, ' / ', t.N);
+    vao b := a;                         {* val -> vao: onto the heap again *}
+    {
+      WriteLn('b = ', b.N);
+    };
+  };
+  val c := Make(3);                    {* function result directly onto the stack *}
+  val d := c;                          {* val -> val *}
+  var r: TK := d;                      {* val -> var: borrow *}
+  {
+    WriteLn('r = ', r.N, ', s = ', s.N);
+    val e := r.Clone;                  {* var -> val: only as a copy *}
+    {
+      WriteLn('e = ', e.N);
+    };
+  };
+}
+
+{
+  ShowAll;
+}

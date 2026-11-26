@@ -1,0 +1,35 @@
+program ObjectCreation;
+{* objects are only created in the initializer: 'vao x := TFoo.Create(...)' *}
+type
+  TFoo = class {
+    V: Integer;
+    constructor Create(AV: Integer);
+    constructor Empty;
+    destructor Destroy; override;
+  }
+constructor TFoo.Create(AV: Integer) { inherited Create; V := AV; }
+constructor TFoo.Empty { inherited Create; V := -1; }
+destructor TFoo.Destroy { WriteLn('  Destroy ', V); inherited Destroy; }
+
+proc P(n: Integer);
+vao
+  s := TFoo.Create(n);          {* owns the object *}
+  t := TFoo.Empty;               {* another constructor, without parentheses *}
+  h := TFoo.Create(n * 10);
+  I: Integer := n + 1;          {* owned heap value *}
+{
+  WriteLn('P: s.V = ', s.V, ', t.V = ', t.V, ', h.V = ', h.V, ', I = ', I);
+}                            {* s, t, h and I are freed here *}
+
+val
+  a := 3;
+{
+  P(2);
+  a := 7;
+  vao
+    b := TFoo.Create(a);          {* a has the value 7 here *}
+  {
+    a := 100;
+    WriteLn('Block: b.V = ', b.V);
+  };
+}

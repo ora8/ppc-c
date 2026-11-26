@@ -1,0 +1,49 @@
+program StackToHeap;
+{* moving a stack object to the heap: vao h := k, Result := k, vao parameter (like Box::new) *}
+type
+  TK = class {
+    N: Integer;
+    Part: optional TK;
+    constructor Create(AN: Integer);
+    destructor Destroy; override;
+  }
+  TList = class {
+    Head: optional TK;
+    proc Add(vao k: TK);
+  }
+constructor TK.Create(AN: Integer) { inherited Create; N := AN; }
+destructor TK.Destroy { WriteLn('  Destroy ', N); inherited Destroy; }
+proc TList.Add(vao k: TK) { k.Part := Take(Head); Head := k; }
+
+vao global: optional TK := none;
+
+func Build(n: Integer): TK;
+val k := TK.Create(n);                 {* build it on the stack ... *}
+{
+  k.Part := TK.Create(n + 100);
+  Result := k;                          {* ... and move it to the heap *}
+}
+
+proc P(flag: Boolean);
+val a := TK.Create(1);
+val b := TK.Create(2);
+vao l := TList.Create;
+{
+  vao h := a;                           {* a moves to the heap *}
+  {
+    WriteLn('h = ', h.N);
+    global := h;
+  };
+  if flag then l.Add(b);                {* b moved on one path only *}
+  WriteLn('P end');
+}
+
+{
+  P(True);
+  P(False);
+  vao x := Build(5);
+  {
+    if x.Part is some t then WriteLn('Build: ', x.N, ' / ', t.N);
+  };
+  if global is some g then WriteLn('global: ', g.N);
+}

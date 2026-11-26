@@ -1,0 +1,37 @@
+program indexers;
+type
+  TGrid = class {
+    Cells: array of Integer;
+    W: Integer;
+    constructor Create(AW, AH: Integer);
+    func GetCell(x, y: Integer): Integer; const;
+    proc SetCell(x, y: Integer; v: Integer);
+    property Cell[x, y: Integer]: Integer read GetCell write SetCell; default;
+    func Sum: Integer; const;
+  }
+  TNames = record {
+    List: array of String;
+    func Get(i: Integer): String; const;
+    property Name[i: Integer]: String read Get;
+  }
+constructor TGrid.Create(AW, AH: Integer) { W := AW; SetLength(Cells, AW * AH); }
+func TGrid.GetCell(x, y: Integer): Integer; const { Result := Cells[y * W + x]; }
+proc TGrid.SetCell(x, y: Integer; v: Integer) { Cells[y * W + x] := v; }
+func TGrid.Sum: Integer; const
+{
+  Result := 0;
+  for val y := 0 to 1 do
+    for val x := 0 to W - 1 do Result := Result + Cell[x, y];
+}
+func TNames.Get(i: Integer): String; const { Result := List[i]; }
+val n: TNames := (List: ('anna', 'bert'));
+{
+  vao g := TGrid.Create(3, 2);
+  {
+    g[0, 0] := 5;
+    g.Cell[2, 1] := 7;
+    g[1, 1] := g[0, 0] + 1;
+    WriteLn(g[0, 0], ' ', g.Cell[2, 1], ' ', g[1, 1], ' ', g.Sum);
+  };
+  WriteLn(n.Name[1]);
+}

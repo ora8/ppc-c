@@ -1,0 +1,47 @@
+program Inference;
+type
+  TFoo = class {
+    V: Integer;
+    constructor Create(AV: Integer);
+    destructor Destroy; override;
+  }
+constructor TFoo.Create(AV: Integer) { inherited Create; V := AV; }
+destructor TFoo.Destroy { WriteLn('  Destroy TFoo ', V); inherited Destroy; }
+
+proc Demo;
+vao
+  I := 5;                     {* owned heap value, type Integer from the initializer *}
+val
+  N := 3.5;                   {* value, type Real *}
+  S := 'Hello';               {* type String *}
+{
+  I := I * 2;
+  WriteLn('I = ', I, ', N = ', N:0:1, ', S = ', S);
+}
+
+val
+  i := 0;
+{
+  Demo;
+  {
+    WriteLn('without declarations: a normal begin block');
+  };
+  val
+    j: Integer := default;
+    k := 10;
+    vao s := TFoo.Create(1);                  {* owner in the block *}
+  vao
+    h := TFoo.Create(2);
+  {
+    j := i + k;
+
+    WriteLn('in the block: j = ', j, ', s.V = ', s.V, ', h.V = ', h.V);
+  };                        {* s and h are freed here *}
+  WriteLn('after the block');
+  while i < 2 do
+    val q := i * 100;
+    {
+      WriteLn('loop: q = ', q);
+      Inc(i);
+    };
+}

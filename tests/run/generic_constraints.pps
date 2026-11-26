@@ -1,0 +1,60 @@
+program GenericConstraints;
+{* constraints (stage 3): Comparable, Equatable, Clone, class, base class *}
+type
+  TAnimal = class {
+    Name: String;
+    constructor Create(AName: String const);
+    func Clone: TAnimal; const; auto;
+    func Sound: String; virtual;
+  }
+  TDog = class(TAnimal) {
+    func Sound: String; override;
+  }
+  TPair<K: Comparable; V> = record {
+    Keys: K;
+    Value: V;
+  }
+  TZoo<T: TAnimal> = class {
+    Animals: array[1..5] of optional T;
+    Size: Integer;
+    proc Add(vao t: T);
+    proc ShowAll;
+  }
+
+constructor TAnimal.Create(AName: String const) { inherited Create; Name := AName; }
+func TAnimal.Sound: String { Result := '...'; }
+func TDog.Sound: String { Result := 'Wuff'; }
+
+proc TZoo<T>.Add(vao t: T) { Inc(Size); Animals[Size] := t; }
+proc TZoo<T>.ShowAll
+{
+  for val i := 1 to Size do
+    if Animals[i] is some t then WriteLn('  ', t.Name, ': ', t.Sound);   {* methods of TAnimal are allowed *}
+}
+
+func Max<T: Comparable>(a, b: T): T
+{ if a > b then Result := a else Result := b; }
+
+func Equal<T: Equatable>(a, b: T): Boolean
+{ Result := a = b; }
+
+func CloneOf<T: Clone>(x: T): T
+{ Result := x.Clone; }
+
+func Name<T: class>(x: T): String
+{ Result := x.ClassName; }
+
+val p: TPair<String, Integer> := (Keys: 'a'; Value: 1);
+vao zoo := TZoo<TDog>.Create;
+vao t := TAnimal.Create('Mia');
+{
+  WriteLn(Max(3, 9), ' ', Max('x', 'y'), ' ', Equal(2, 2), ' ', Equal('a', 'b'));
+  zoo.Add(TDog.Create('Rex'));
+  zoo.ShowAll;
+  vao k := CloneOf(t);
+  {
+    k.Name := 'Mia2';
+    WriteLn(t.Name, ' ', k.Name, ' ', Name(k));
+  };
+  WriteLn(p.Keys, ' ', p.Value);
+}

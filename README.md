@@ -241,7 +241,10 @@ val c: TColor := Green;
   section of a module, `forward`).
 * `begin`, `end`, `function` and `procedure` are errors in a `.pps` file (`in the brace syntax
   (.pps) 'begin' is written '{'`); `func` and `proc` are ordinary names in a `.pas` file.
-* `import M` looks for `M.pas`, then `M.pps`.
+* `import M` first looks for the file in the importing file's syntax (`M.pps` from a `.pps` file,
+  `M.pas` from a `.pas` file), then for the other one.
+* `tools/pas2pps.py file.pas` converts a file to the brace syntax (`file.pps`, comments and layout
+  stay); every test program in `tests/run` exists in both syntaxes, generated with it.
 * Messages, hover and completion use the words of the file's syntax; the VS Code extension
   highlights `.pps` files as *Perfect Pascal (braces)*.
 

@@ -1,0 +1,27 @@
+program for_in_more;
+import ppc_std;
+type TItem = class { N: Integer; }
+func Total<T: Numeric>(a: array of T): T
+{
+  Result := 0;
+  for val x in a do Result := Result + x;
+}
+val
+  s := 'abc';
+  d: array of Integer := (1, 2, 3);
+{
+  for var c in s do c := UpCase(c);
+  WriteLn(s);
+  WriteLn(Total(d));
+  vao l := TList<TItem>.Create;
+  {
+    l.Add(TItem.Create); l.Add(TItem.Create);
+    for var it in l do it.N := 4;
+    for val it in l do Write(it.N, ' ');
+    WriteLn;
+  };
+  for val i in d do
+    for val j in d do
+      if i < j then Write(i, j, ' ');
+  WriteLn;
+}

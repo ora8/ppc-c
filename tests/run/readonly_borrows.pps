@@ -1,0 +1,57 @@
+program ReadonlyBorrows;
+{* read-only object borrows: 'T const' (like &T in Rust, const T& in C++) *}
+type
+  TPerson = class {
+    Name: String;
+    Age: Integer;
+    Friend: optional TPerson;               {* owns the Friend *}
+    constructor Create(AName: String const; AAge: Integer);
+    proc Birthday;                   {* changes the object *}
+    func Info: String; const;           {* only reads *}
+    func BestFriend: var optional TPerson const; const;
+  }
+
+constructor TPerson.Create(AName: String const; AAge: Integer)
+{ inherited Create; Name := AName; Age := AAge; }
+proc TPerson.Birthday { Inc(Age); }
+func TPerson.Info: String; const { Result := Name + ' (' + IntToStr(Age) + ')'; }
+func TPerson.BestFriend: var optional TPerson const; const
+{ Result := Friend; }                {* Friend is only readable here *}
+
+proc Show(P: TPerson const)          {* const parameter: the object is read-only *}
+{
+  Write(P.Info);
+  if P.BestFriend is some f then Write(', Friend: ', f.Info);
+  WriteLn;
+}
+
+proc Celebrate(P: TPerson)               {* normal borrow: may change it *}
+{ P.Birthday; }
+
+func Older(A, B: TPerson const): var TPerson const
+{
+  if A.Age >= B.Age then Result := A else Result := B;
+}
+
+vao
+  anna := TPerson.Create('Anna', 30);
+  bert := TPerson.Create('Bert', 28);
+{
+  anna.Friend := TPerson.Create('Carla', 31);
+  Show(anna);
+  Celebrate(bert);
+  Celebrate(bert);
+  Show(bert);
+  var reader: TPerson const := anna;   {* read-only borrow (changeable -> read-only) *}
+  {
+    WriteLn('reader: ', reader.Info);
+    WriteLn('older: ', Older(anna, bert).Info);
+    var k: TPerson const := bert;                         {* const reference: the object is read-only *}
+    {
+      WriteLn('k: ', k.Info);
+    };
+    WriteLn('reader last: ', reader.Info); {* last use of reader *}
+  };
+  anna.Birthday;                          {* allowed: reader is not used any more afterwards *}
+  WriteLn('anna after Birthday: ', anna.Info);
+}

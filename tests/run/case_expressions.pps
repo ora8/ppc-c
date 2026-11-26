@@ -1,0 +1,53 @@
+program CaseExpressions;
+{* case as an expression: every arm gives a value, the case must handle every case (or have an 'else') *}
+type
+  TShape = (Circle(Radius: Real), Rect(W, H: Real), Named(Name: String; Sides: Integer), Empty);
+  TColor = (Red, Green, Blue);
+  TNode = class { V: Integer; constructor Create(AV: Integer); }
+constructor TNode.Create(AV: Integer) { inherited Create; V := AV; }
+
+func Area(s: TShape): Real
+{
+  Result := case s of {
+    Circle(r): 3.0 * r * r;
+    Rect(w, h): w * h;
+    Named(_, k): k;
+    Empty: 0;
+  };
+}
+
+func Kind(s: TShape): String
+{
+  Result := case s of {
+    Circle(r) when r > 10: 'big circle';
+    Circle: 'circle';
+    Rect(w, h) when w = h: 'square';
+    Named(n, _): 'named ' + n;
+  else 'other'
+  };
+}
+
+func Divide(a, b: Integer): result Integer
+{ if b = 0 then Result := error('div by zero') else Result := ok(a div b); }
+
+func Find(k: Integer): optional TNode
+{ if k > 0 then Result := TNode.Create(k) else Result := none; }
+
+val o: optional Integer := 4;
+val c: TColor := Green;
+vao node := Find(3);
+{
+  WriteLn(Area(Circle(1.0)):0:1, ' ', Area(Rect(2.0, 3.0)):0:1, ' ', Area(Named('x', 5)):0:1, ' ', Area(Empty):0:1);
+  WriteLn(Kind(Circle(20.0)), ', ', Kind(Circle(1.0)), ', ', Kind(Rect(2.0, 2.0)), ', ', Kind(Rect(1.0, 2.0)), ', ', Kind(Named('hex', 6)));
+  WriteLn(case Divide(7, 2) of { ok v: v * 10; error e: -1 });
+  WriteLn(case Divide(7, 0) of { ok v: 'ok ' + IntToStr(v); error e: 'failed: ' + e });
+  WriteLn(case o of { some v when v > 3: 'big'; some v: 'small'; none: 'none' });
+  WriteLn(case node of { some n: n.V; none: 0 });
+  WriteLn(case c of { Red: 'red'; Green, Blue: 'green or blue' else '?' });
+  for val i := 1 to 5 do
+    WriteLn(i, ' ', case i of { 1: 'one'; 2..3 when Odd(i): 'odd'; 2..4: 'small' else 'many' });
+  val name := case c of { Red: 'R' else 'notR' };
+  {
+    WriteLn(name, ' ', Length(name));
+  };
+}

@@ -1,0 +1,19 @@
+program closures_std;
+import ppc_std;
+proc Demo(Limit: Integer; Desc: Boolean);
+val
+  a: array of Integer := (5, 1, 9, 3, 7);
+  Calls := 0;
+{
+  SortBy(a, func(x, y: Integer): Boolean { Inc(Calls); if Desc then Result := x > y else Result := x < y; });
+  for val x in a do Write(x, ' ');
+  WriteLn('(', Calls > 0, ')');
+  val big := Filter(a, func(x: Integer): Boolean { Result := x >= Limit; });
+  {
+    WriteLn(Length(big), ' >= ', Limit);
+  };
+}
+{
+  Demo(5, True);
+  Demo(4, False);
+}

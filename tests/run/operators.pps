@@ -1,0 +1,40 @@
+program operators;
+type
+  TVec = record {
+    X, Y: Real;
+    class operator Add(a, b: TVec): TVec;
+    class operator Subtract(a, b: TVec): TVec;
+    class operator Multiply(a: TVec; f: Real): TVec;
+    class operator Multiply(f: Real; a: TVec): TVec;
+    class operator Negative(a: TVec): TVec;
+    class operator Equal(a, b: TVec): Boolean;
+    func Text: String; const;
+  }
+  TMoney = record {
+    Cents: Int64;
+    class operator Add(a, b: TMoney): TMoney;
+    class operator LessThan(a, b: TMoney): Boolean;
+    class operator GreaterThan(a, b: TMoney): Boolean;
+  }
+func V(x, y: Real): TVec { Result.X := x; Result.Y := y; }
+class operator TVec.Add(a, b: TVec): TVec { Result := V(a.X + b.X, a.Y + b.Y); }
+class operator TVec.Subtract(a, b: TVec): TVec { Result := V(a.X - b.X, a.Y - b.Y); }
+class operator TVec.Multiply(a: TVec; f: Real): TVec { Result := V(a.X * f, a.Y * f); }
+class operator TVec.Multiply(f: Real; a: TVec): TVec { Result := a * f; }
+class operator TVec.Negative(a: TVec): TVec { Result := V(-a.X, -a.Y); }
+class operator TVec.Equal(a, b: TVec): Boolean { Result := (Abs(a.X - b.X) < 0.001) and (Abs(a.Y - b.Y) < 0.001); }
+func TVec.Text: String; const { Result := '(' + FloatToStr(X) + ', ' + FloatToStr(Y) + ')'; }
+class operator TMoney.Add(a, b: TMoney): TMoney { Result.Cents := a.Cents + b.Cents; }
+class operator TMoney.LessThan(a, b: TMoney): Boolean { Result := a.Cents < b.Cents; }
+class operator TMoney.GreaterThan(a, b: TMoney): Boolean { Result := a.Cents > b.Cents; }
+val
+  a := V(1, 2);
+  b := V(3, 4);
+  m: TMoney := (Cents: 150);
+  n: TMoney := (Cents: 99);
+{
+  WriteLn((a + b).Text, ' ', (b - a).Text, ' ', (a * 3).Text, ' ', (2 * b).Text, ' ', (-a).Text);
+  WriteLn((a + b * 2 - a).Text);
+  WriteLn(a + b = V(4, 6), ' ', a <> b, ' ', a = V(1.0001, 2));
+  WriteLn((m + n).Cents, ' ', m < n, ' ', m > n);
+}

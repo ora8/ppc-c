@@ -1,0 +1,84 @@
+program ValVarVao;
+{* Three kinds of variables:
+    val  x := 5;                 value (Integer, String, record, array, optional)
+    val  s := TAccount.Create;   stack object: in the stack frame, Destroy at the end of the block
+    var  r: Integer := x;        reference to another variable, owns nothing
+    vao  o := TAccount.Create;   owns the object: freed at the end of the scope
+  'T const' makes a variable or a parameter unchangeable;
+  a 'T const' parameter is passed by reference, without a copy. *}
+type
+  TAccount = class {
+    Name: String;
+    Balance: Integer;
+    constructor Create(AName: String const; ABalance: Integer);
+    destructor Destroy; override;
+    class func Open(AName: String const): TAccount;   {* without Self *}
+    proc Deposit(Amount: Integer);
+    func Info: String; const;
+  }
+  TPoint = record {
+    X, Y: Integer;
+    class func Origin: TPoint;
+  }
+
+constructor TAccount.Create(AName: String const; ABalance: Integer)
+{ inherited Create; Name := AName; Balance := ABalance; }
+destructor TAccount.Destroy { WriteLn('  freed: ', Name); inherited Destroy; }
+class func TAccount.Open(AName: String const): TAccount
+{ Result := TAccount.Create(AName, 10); }              {* Startguthaben *}
+proc TAccount.Deposit(Amount: Integer) { Balance := Balance + Amount; }
+func TAccount.Info: String; const { Result := Name + ': ' + IntToStr(Balance); }
+class func TPoint.Origin: TPoint { Result := (X: 0; Y: 0); }
+
+proc Show(K: TAccount const)           {* borrow, read-only *}
+{ WriteLn('  ', K.Info); }
+
+proc Duplicate(var N: Integer)        {* var parameter: changes the original *}
+{ N := N * 2; }
+
+proc Local;
+vao
+  k := TAccount.Open('local');            {* belongs to Local *}
+{
+  Show(k);
+}                                        {* k is freed here *}
+
+proc Fast;
+val
+  s := TAccount.Create('stack', 5);           {* stack object: no malloc, no free *}
+{
+  s.Deposit(1);
+  Show(s);                                 {* borrow as with a heap object *}
+}                                        {* s.Destroy runs here *}
+
+val
+  number := 21;
+  p := TPoint.Origin;
+  limit: Integer const := 100;              {* unchangeable *}
+vao
+  anna := TAccount.Create('Anna', 50);
+  bert := TAccount.Open('Bert');
+{
+  WriteLn('--- vao: owner');
+  Local;
+  Fast;
+  anna.Deposit(25);
+  Show(anna);
+  Show(bert);
+
+  WriteLn('--- var: reference without ownership');
+  var
+    r: Integer := number;                     {* r is another name for number *}
+    k: TAccount := anna;                      {* k borrows anna, frees nothing *}
+  {
+    r := r + 1;
+    k.Deposit(5);
+    Duplicate(r);
+  };
+  WriteLn('  number = ', number, ', anna = ', anna.Balance);
+
+  WriteLn('--- const');
+  p.X := limit;
+  WriteLn('  p = (', p.X, ', ', p.Y, '), limit = ', limit);
+  WriteLn('--- end of program');
+}                                        {* anna and bert are freed *}

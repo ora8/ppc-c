@@ -1,0 +1,38 @@
+program AliasingOk;
+{* borrowing rules like in Rust: what is allowed *}
+type
+  TNode = class {
+    Value: Integer;
+    Left, Right: optional TNode;
+    constructor Create(W: Integer);
+    proc Increment;
+    func Info: String; const;
+  }
+constructor TNode.Create(W: Integer) { inherited Create; Value := W; }
+proc TNode.Increment { Inc(Value); }
+func TNode.Info: String; const { Result := IntToStr(Value); }
+
+vao
+  a := TNode.Create(1);
+{
+  a.Left := TNode.Create(10);
+  a.Right := TNode.Create(20);
+  var
+    l1: TNode const := a;      {* several read-only borrows at the same time *}
+    l2: TNode const := a;
+  {
+    WriteLn('two readers: ', l1.Info, ' ', l2.Info, ' ', a.Info);   {* reading is compatible with readers *}
+  };
+  var m: TNode := a;            {* one changeable borrow *}
+  {
+    m.Increment;
+    m.Increment;
+  };
+  WriteLn('after m: ', a.Info);            {* m is over, a can be used freely again *}
+  var links: optional TNode := a.Left;   {* borrow of a field ... *}
+  {
+    if a.Right is some r then r.Increment; {* ... another field may be changed *}
+    if links is some x then { x.Increment; WriteLn('left: ', x.Info); };
+    if a.Right is some r then WriteLn('right: ', r.Info);
+  };
+}

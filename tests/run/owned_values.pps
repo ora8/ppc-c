@@ -1,0 +1,59 @@
+program OwnedValues;
+{* arrays and records that own objects: they are moved instead of copied and
+  freed with all their objects at the end of their scope *}
+type
+  TK = class { N: Integer; constructor Create(AN: Integer); destructor Destroy; override; }
+  TPair = record {
+    Name: String;
+    L, R: optional TK;
+  }
+  TList = array[1..3] of TPair;
+  THolder = class {
+    P: TPair;
+    A: array[1..2] of optional TK;
+  }
+constructor TK.Create(AN: Integer) { inherited Create; N := AN; }
+destructor TK.Destroy { WriteLn('  freed ', N); inherited Destroy; }
+
+func Make(n: Integer): TPair
+{
+  Result.Name := 'p' + IntToStr(n);
+  Result.L := TK.Create(n);
+}
+
+proc Show(p: TPair)              {* borrow, no copy *}
+{
+  if p.L is some k then WriteLn('  ', p.Name, ': ', k.N);
+}
+
+proc Local;
+val
+  a: array[1..2] of optional TK := default;
+  q: TPair := default;
+  z: TPair := default;
+vao
+  b: array[1..2] of optional TK := default;
+  h := THolder.Create;
+{
+  a[1] := TK.Create(1);
+  a[2] := TK.Create(2);
+  b[1] := TK.Create(3);
+  q := Make(4);
+  Show(q);
+  z := q;                               {* Move: q is empty afterwards *}
+  WriteLn('  q empty: ', q.L = none);
+  q := Make(5);
+  q := Make(6);                         {* the old q (5) is freed *}
+  h.P := Make(7);
+  h.A[2] := TK.Create(8);
+  Make(9);                              {* unused: freed at once *}
+  WriteLn('end of Local');
+}
+
+val l: TList := default;
+{
+  Local;
+  l[1] := Make(10);
+  l[2].R := TK.Create(11);
+  WriteLn('end of program');
+}

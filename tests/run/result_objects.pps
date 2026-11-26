@@ -1,0 +1,62 @@
+program result_objects;
+type
+  TFile = class {
+    Name: String;
+    Lines: Integer;
+    constructor Create(AName: String);
+    destructor Destroy; override;
+    proc Write(s: String);
+  }
+constructor TFile.Create(AName: String) { Name := AName; }
+destructor TFile.Destroy { WriteLn('close ', Name, ' (', Lines, ' lines)'); }
+proc TFile.Write(s: String) { Inc(Lines); }
+
+func Open(Name: String): result TFile
+{
+  if Name = '' then Result := error('no name')
+  else Result := ok(TFile.Create(Name));
+}
+
+func OpenLog(Name: String): result TFile
+{
+  vao f := try Open(Name + '.log');
+  {
+    f.Write('header');
+    Result := ok(f);
+  };
+}
+
+func Count(Names: array of String): result Integer
+{
+  Result := ok(0);
+  for val n in Names do
+  {
+    vao f := try Open(n);
+    {
+      f.Write('x');
+    };
+    Result := ok(Result.ValueOr(0) + 1);
+  };
+}
+
+val
+  names: array of String := ('a', '', 'b');
+  r := Open('stored');
+{
+  if Open('a.txt') is ok f then f.Write('hello');
+  if Open('') is ok f then WriteLn('no') else WriteLn('failed');
+  if Open('') is error e then WriteLn('error: ', e);
+  if Open('freed.txt') is error e then WriteLn(e) else WriteLn('ok, not taken');
+  if r is ok f then f.Write('stored line');
+  case Open('case.txt') of {
+    ok f: f.Write('in case');
+    error e: WriteLn(e);
+  };
+  if OpenLog('app') is ok f then WriteLn(f.Name, ' ', f.Lines);
+  if OpenLog('') is error e then WriteLn('log: ', e);
+  for val i := 1 to 2 do
+    if Open('loop' + IntToStr(i)) is ok f then f.Write('l');
+  if Count(names) is error e then WriteLn('count: ', e);
+  r := Open('second');
+  WriteLn('end');
+}

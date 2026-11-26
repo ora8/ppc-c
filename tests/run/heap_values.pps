@@ -1,0 +1,56 @@
+program HeapValues;
+{* values on the heap: declared with 'vao', used in the code like a normal value and
+  freed automatically at the end of the scope (like Box<T> in Rust) *}
+type
+  TVector = record {
+    X, Y: Real;
+    proc Scale(F: Real);
+  }
+  TField = array[1..5] of Integer;
+
+proc TVector.Scale(F: Real) { X := X * F; Y := Y * F; }
+
+proc Duplicate(var N: Integer) { N := N * 2; }
+func SquareOf(N: Integer): Integer { Result := N * N; }
+
+proc Local;
+vao
+  Counter: Integer := 100;                   {* heap value in a procedure *}
+{
+  Inc(Counter);
+  WriteLn('local: ', Counter);
+}                                         {* Counter is freed here *}
+
+proc Early;
+vao
+  Buffer: TField := default;
+{
+  Buffer[1] := 7;
+  WriteLn('early: ', Buffer[1]);
+  Buffer.Free;                               {* optional: free it already here *}
+  Buffer := (1, 2, 3, 4, 5);                 {* a whole new value: creates a new cell *}
+  WriteLn('again: ', Buffer[1], ' ', Buffer[5]);
+}
+
+vao
+  I: Integer := 20;
+  S: String := 'Hello';
+  V: TVector := (X: 3; Y: 4);
+  F: TField := default;
+{
+  I := I + 1;
+  Duplicate(I);                   {* var parameter: reference to the heap value *}
+  WriteLn('I = ', I, ', SquareOf = ', SquareOf(I));
+
+  S := S + ' Welt';
+  WriteLn('S = ', S, ' (', Length(S), ' characters)');
+
+  V.Scale(2);                  {* method of a record on the heap *}
+  WriteLn('V = (', V.X:0:1, ', ', V.Y:0:1, ')');
+
+  for val k := 1 to 5 do F[k] := k * k;
+  WriteLn('F[5] = ', F[5]);
+
+  Local;
+  Early;
+}                              {* I, S, V and F are freed here *}

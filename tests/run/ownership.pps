@@ -1,0 +1,108 @@
+program Ownership;
+type
+  TItem = class {
+    Value: Integer;
+    Next: optional TItem;         {* owns the next element (none at the end) *}
+    constructor Create(V: Integer);
+    destructor Destroy; override;
+  }
+  TList = class {
+    Head: optional TItem;
+    Count: Integer;
+    proc Push(vao Item: TItem);   {* takes over the ownership *}
+    func Find(V: Integer): var optional TItem;
+    func PopFront: optional TItem;    {* gives the ownership to the caller *}
+    destructor Destroy; override;
+  }
+
+constructor TItem.Create(V: Integer)
+{ inherited Create; Value := V; }
+
+destructor TItem.Destroy
+{
+  inherited Destroy;             {* Next (and with it the whole chain) is freed automatically *}
+}
+
+proc TList.Push(vao Item: TItem)
+{
+  Item.Next := Take(Head);       {* Head -> none, ownership moves to Item.Next *}
+  Head := Item;                  {* move of the parameter into the field *}
+  Inc(Count);
+}
+
+func TList.Find(V: Integer): var optional TItem;
+var cur: optional TItem := none;
+{
+  Result := none;
+  cur := Head;
+  while cur is some c do {
+    if c.Value = V then { Result := c; Exit; };
+    cur := c.Next;
+  };
+}
+
+func TList.PopFront: optional TItem
+{
+  Result := Take(Head);
+  if Result is some r then {
+    Head := Take(r.Next);
+    Dec(Count);
+  };
+}
+
+destructor TList.Destroy
+{
+  inherited Destroy;
+}
+
+proc PrintList(L: TList);   {* value parameter = borrow *}
+var it: optional TItem := none;
+{
+  it := L.Head;
+  while it is some x do { Write(x.Value, ' '); it := x.Next; };
+  WriteLn('(', L.Count, ' Items)');
+}
+
+type
+  TVec = class {
+    X, Y: Real;
+    constructor Create(AX, AY: Real);
+    func Len: Real;
+  }
+constructor TVec.Create(AX, AY: Real) { inherited Create; X := AX; Y := AY; }
+func TVec.Len: Real { Result := Sqrt(X * X + Y * Y); }
+
+proc Scale(V: TVec; F: Real)   {* a borrow is enough to change the fields *}
+{ V.X := V.X * F; V.Y := V.Y * F; }
+
+vao
+  list: TList := TList.Create;                   {* owners *}
+  item: TItem := TItem.Create(99);
+  popped: optional TItem := none;
+var
+  found: optional TItem := none;
+val
+  i: Integer := default;
+vao
+  v := TVec.Create(3, 4);
+var
+  pv: TVec := v;
+{
+
+  for i := 1 to 5 do list.Push(TItem.Create(i * 10));
+
+  list.Push(item);               {* item is moved afterwards *}
+  item := TItem.Create(7);       {* assigning again is allowed *}
+  list.Push(item);
+  PrintList(list);
+  found := list.Find(30);
+  if found is some f then WriteLn('found: ', f.Value);
+  popped := list.PopFront;
+  if popped is some q then WriteLn('taken: ', q.Value);
+  PrintList(list);
+
+
+                         {* borrow of v *}
+  Scale(pv, 2);
+  WriteLn('Len: ', pv.Len:0:1);
+}

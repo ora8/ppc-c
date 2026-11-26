@@ -1,0 +1,41 @@
+program for_in;
+import ppc_std;
+type
+  TItem = class {
+    Name: String;
+    constructor Create(AName: String);
+  }
+  TPoint = record { X, Y: Integer; }
+constructor TItem.Create(AName: String)
+{
+  Name := AName;
+}
+val
+  a: array[1..4] of Integer := (3, 1, 4, 1);
+  d: array of String := ('red', 'green', 'blue');
+  s := 'abc';
+  pts: array[0..1] of TPoint := default;
+  sum := 0;
+{
+  for val x in a do sum := sum + x;
+  WriteLn(sum);
+  for var x in a do x := x * 10;
+  for val x in a do Write(x, ' ');
+  WriteLn;
+  for val w in d do Write(w, ';');
+  WriteLn;
+  for val c in s do Write(c, '-');
+  WriteLn;
+  for var p in pts do p.X := 7;
+  WriteLn(pts[1].X);
+  vao l := TList<TItem>.Create;
+  vao n := TList<Integer>.Create;
+  {
+  l.Add(TItem.Create('one'));
+  l.Add(TItem.Create('two'));
+  for val it in l do WriteLn(it.Name);
+  n.Add(5); n.Add(6);
+  for val k in n do Write(k, ' ');
+  WriteLn;
+  };
+}

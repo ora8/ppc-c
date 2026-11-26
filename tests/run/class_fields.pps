@@ -1,0 +1,60 @@
+program class_fields;
+type
+  TItem = class {
+    N: Integer;
+    constructor Create(AN: Integer);
+    destructor Destroy; override;
+  }
+  TCounter = class {
+  private
+    class var FCreated: Integer;
+  public
+    class var Prefix: String;
+    class var Default: optional TItem;
+  var                                  {* ends the class var section *}
+    Id: Integer;
+    constructor Create;
+    class func Created: Integer;
+    func Text: String; const;
+  }
+  TSub = class(TCounter) {
+    func Twice: Integer; const;
+  }
+  TBox<T> = class {
+    class var Made: Integer;
+    constructor Create;
+  }
+  TConfig = record {
+    class var Verbose: Boolean;
+    X: Integer;
+  }
+constructor TItem.Create(AN: Integer) { N := AN; }
+destructor TItem.Destroy { WriteLn('free item ', N); }
+constructor TCounter.Create
+{
+  Inc(FCreated);
+  Id := FCreated;
+}
+class func TCounter.Created: Integer { Result := FCreated; }
+func TCounter.Text: String; const { Result := Prefix + IntToStr(Id); }
+func TSub.Twice: Integer; const { Result := Created * 2; }
+constructor TBox<T>.Create { Inc(Made); }
+{
+  TCounter.Prefix := 'no ';
+  vao a := TCounter.Create;
+  vao b := TSub.Create;
+  vao x := TBox<Integer>.Create;
+  vao y := TBox<Integer>.Create;
+  vao z := TBox<String>.Create;
+  {
+    WriteLn(a.Text, ' ', b.Text, ' ', TCounter.Created, ' ', b.Twice);
+    a.Prefix := '#';
+    WriteLn(b.Text, ' ', TSub.Prefix);
+    TCounter.Default := TItem.Create(7);
+    if TCounter.Default is some d then WriteLn('default ', d.N);
+    WriteLn(TBox<Integer>.Made, ' ', TBox<String>.Made);
+    TConfig.Verbose := True;
+    WriteLn(TConfig.Verbose);
+  };
+  WriteLn('end');
+}

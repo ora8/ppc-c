@@ -1,0 +1,139 @@
+program OOP;
+type
+  {* ---- a class hierarchy, objects belong to a vao variable ---- *}
+  TShape = class {
+    X, Y: Integer;
+    constructor Create(AX, AY: Integer);
+    func Area: Real; virtual;
+    func Name: String; virtual;
+    proc Describe;
+    destructor Destroy; override;
+  }
+  TCircle = class(TShape) {
+    R: Real;
+    constructor Create(AX, AY: Integer; AR: Real);
+    func Area: Real; override;
+    func Name: String; override;
+  }
+  TRect = class(TShape) {
+    W, H: Integer;
+    constructor Create(AX, AY, AW, AH: Integer);
+    func Area: Real; override;
+    func Name: String; override;
+  }
+
+  TAnimal = class {
+  private
+    FName: String;
+    FLegs: Integer;
+    proc SetLegs(V: Integer);
+  public
+    constructor Create(AName: String const);
+    destructor Destroy; override;
+    func Sound: String; virtual; abstract;
+    proc Speak;
+    property Name: String read FName;
+    property Legs: Integer read FLegs write SetLegs;
+  }
+  TDog = class(TAnimal) {
+    func Sound: String; override;
+  }
+  TCat = class(TAnimal) {
+    Lives: Integer;
+    constructor Create(AName: String const);
+    func Sound: String; override;
+  }
+
+constructor TShape.Create(AX, AY: Integer)
+{ inherited Create; X := AX; Y := AY; }
+func TShape.Area: Real { Result := 0; }
+func TShape.Name: String { Result := 'Shape'; }
+proc TShape.Describe
+{
+  WriteLn(Name, ' at (', X, ',', Y, ') Area=', Area:0:2);
+}
+destructor TShape.Destroy { WriteLn('  Destroy ', Name); inherited Destroy; }
+
+constructor TCircle.Create(AX, AY: Integer; AR: Real)
+{ inherited Create(AX, AY); R := AR; }
+func TCircle.Area: Real { Result := Pi * R * R; }
+func TCircle.Name: String { Result := 'Circle'; }
+
+constructor TRect.Create(AX, AY, AW, AH: Integer)
+{ inherited Create(AX, AY); W := AW; H := AH; }
+func TRect.Area: Real { Result := W * H; }
+func TRect.Name: String { Result := 'Rectangle(' + inherited Name + ')'; }
+
+constructor TAnimal.Create(AName: String const)
+{ inherited Create; FName := AName; FLegs := 4; }
+destructor TAnimal.Destroy
+{ WriteLn('  ', FName, ' is freed'); inherited Destroy; }
+proc TAnimal.SetLegs(V: Integer) { if V >= 0 then FLegs := V; }
+proc TAnimal.Speak { WriteLn(FName, ' (', ClassName, ', ', Legs, ' legs) says ', Sound); }
+func TDog.Sound: String { Result := 'Wuff'; }
+constructor TCat.Create(AName: String const)
+{ inherited Create(AName); Lives := 7; }
+func TCat.Sound: String { Result := 'Miau'; }
+
+proc ShowShape(S: TShape)       {* only borrows the object *}
+{ S.Describe; }
+
+proc Shift(S: TShape; DX: Integer)
+{ S.X := S.X + DX; }
+
+proc LocalFigures;
+vao
+  r := TRect.Create(0, 0, 3, 4);                          {* owns r: freed at the end of the procedure *}
+{
+
+  ShowShape(r);
+}                                 {* r is freed automatically here *}
+
+vao
+  c := TCircle.Create(1, 2, 1.5);                        {* global owner *}
+val
+  pets: array[1..2] of optional TAnimal := default;
+var
+  a: optional TAnimal := none;
+val
+  i: Integer := default;
+vao
+  h: TShape := TRect.Create(5, 5, 2, 2);                         {* owners *}
+  dog: TDog := TDog.Create('Bello');
+  cat: TCat := TCat.Create('Minka');
+{
+  WriteLn('--- objects ---');
+
+  c.Describe;
+  ShowShape(c);
+  Shift(c, 10);                 {* value parameter = reference: the original is changed *}
+  c.Describe;
+  LocalFigures;
+  WriteLn('c is TShape: ', c is TShape, ', c is TRect: ', c is TRect, ', class: ', c.ClassName);
+
+  WriteLn('--- freed early ---');
+
+  h.Describe;
+  ShowShape(h);
+  h.Free;
+
+  WriteLn('--- classes ---');
+
+
+  dog.Speak;
+  cat.Legs := 3;
+  cat.Speak;
+  a := cat;
+  if a is some x then
+    WriteLn('a is TCat: ', x is TCat, ', a is TDog: ', x is TDog, ', lives: ', (x as TCat).Lives);
+  a := none;
+  pets[1] := dog;
+  pets[2] := cat;
+  for i := 1 to 2 do {
+    a := pets[i];
+    if a is some x then Write(x.Name, ' ');
+  };
+  WriteLn;
+
+  WriteLn('End');
+}

@@ -1,0 +1,65 @@
+program closures;
+type
+  TCounter = class {
+    Count: Integer;
+    Step: Integer;
+    proc Run(n: Integer);
+  }
+
+proc ForEach(a: array of Integer; Visit: reference to proc(x: Integer))
+{
+  for val x in a do Visit(x);
+}
+
+func CountIf(a: array of Integer; Keep: reference to func(x: Integer): Boolean): Integer
+{
+  Result := 0;
+  for val x in a do
+    if Keep(x) then Inc(Result);
+}
+
+func IsEven(x: Integer): Boolean
+{
+  Result := not Odd(x);
+}
+
+proc TCounter.Run(n: Integer);
+val a: array of Integer := default;
+{
+  SetLength(a, n);
+  for val i := 0 to n - 1 do a[i] := i + 1;
+  ForEach(a, proc(x: Integer) { Count := Count + x * Step; });
+}
+
+proc Demo(Limit: Integer);
+val
+  a: array of Integer := (1, 5, 8, 12, 3);
+  Sum := 0;
+  Prefix := 'item ';
+  proc Show(x: Integer)
+  {
+    WriteLn(Prefix, x);
+  }
+{
+  ForEach(a, proc(x: Integer) { Sum := Sum + x; });
+  WriteLn('sum ', Sum);
+  WriteLn('above ', Limit, ': ', CountIf(a, func(x: Integer): Boolean { Result := x > Limit; }));
+  WriteLn('even: ', CountIf(a, IsEven));
+  ForEach(a, Show);
+  val Twice: reference to func(x: Integer): Integer := func(x: Integer): Integer { Result := x * 2 + Sum; };
+  {
+    WriteLn(Twice(1));
+    Sum := 100;
+    WriteLn(Twice(1));
+  };
+}
+
+{
+  Demo(4);
+  vao c := TCounter.Create;
+  {
+    c.Step := 10;
+    c.Run(3);
+    WriteLn(c.Count);
+  };
+}

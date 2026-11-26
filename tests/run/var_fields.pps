@@ -1,0 +1,46 @@
+program var_fields;
+type
+  TNode = class {
+    Name: String;
+    Parent: var optional TNode;          {* reference without ownership *}
+    Kids: array of optional TNode;       {* owned *}
+    constructor Create(AName: String);
+    destructor Destroy; override;
+    proc Add(vao c: TNode);
+    func Path: String; const;
+  }
+constructor TNode.Create(AName: String) { Name := AName; }
+destructor TNode.Destroy { WriteLn('free ', Name); }
+proc TNode.Add(vao c: TNode)
+{
+  c.Parent := Self;                      {* c ends up inside Self *}
+  SetLength(Kids, Length(Kids) + 1);
+  Kids[High(Kids)] := c;
+}
+func TNode.Path: String; const
+{
+  Result := Name;
+  if Parent is some p then Result := p.Path + '/' + Name;
+}
+
+{
+  vao root := TNode.Create('root');
+  vao a := TNode.Create('a');
+  vao b := TNode.Create('b');
+  {
+    root.Add(TNode.Create('x'));
+    a.Parent := root;                    {* a is declared after root: freed first *}
+    b.Parent := a;
+    WriteLn(b.Path);
+    b.Parent := root;                    {* b no longer refers to a *}
+    root.Add(a);                         {* a moves into root, which it refers to *}
+    WriteLn(b.Path);
+    for val k in root.Kids do WriteLn(k.Path);
+    vao c := TNode.Create('c');
+    {
+      c.Parent := root;
+      WriteLn(c.Path);
+    };
+  };
+  WriteLn('end');
+}

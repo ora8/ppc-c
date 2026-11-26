@@ -1,0 +1,69 @@
+program overloads;
+type
+  TShape = class {
+    constructor Create; overload;
+    constructor Create(AName: String); overload;
+    func Describe: String; overload; virtual;
+    func Describe(Prefix: String): String; overload;
+    Name: String;
+  }
+  TCircle = class(TShape) {
+    R: Real;
+    func Describe: String; override;
+    func Describe(Times: Integer): String; overload;
+  }
+  TVec = record {
+    X, Y: Real;
+    proc Add(d: Real); overload;
+    proc Add(v: TVec); overload;
+  }
+func DupeStr(s: String; n: Integer): String
+{ Result := ''; for val i := 1 to n do Result := Result + s; }
+constructor TShape.Create { Name := 'shape'; }
+constructor TShape.Create(AName: String) { Name := AName; }
+func TShape.Describe: String { Result := 'a ' + Name; }
+func TShape.Describe(Prefix: String): String { Result := Prefix + Describe; }
+func TCircle.Describe: String { Result := 'circle ' + Name; }
+func TCircle.Describe(Times: Integer): String { Result := DupeStr(Describe, Times); }
+proc TVec.Add(d: Real) { X := X + d; Y := Y + d; }
+proc TVec.Add(v: TVec) { X := X + v.X; Y := Y + v.Y; }
+
+func Show(i: Integer): String; overload; forward;
+func Show(s: String): String; overload
+{ Result := 'string ' + s; }
+func Show(r: Real): String; overload
+{ Result := 'real ' + FloatToStr(r); }
+func Show(i: Integer): String
+{ Result := 'integer ' + IntToStr(i); }
+func Show(a, b: Integer): String; overload
+{ Result := 'two ' + IntToStr(a + b); }
+func Show: String; overload
+{ Result := 'nothing'; }
+proc Bump(var i: Integer); overload { Inc(i); }
+proc Bump(var s: String); overload { s := s + '+'; }
+
+val
+  i := 41;
+  s := 'xy';
+  v: TVec := (X: 1; Y: 2);
+  w: TVec := (X: 10; Y: 20);
+{
+  WriteLn(Show(5));
+  WriteLn(Show('hi'));
+  WriteLn(Show(2.5));
+  WriteLn(Show('c'));
+  WriteLn(Show(1, 2));
+  WriteLn(Show);
+  Bump(i); Bump(s);
+  WriteLn(i, ' ', s);
+  v.Add(1);
+  v.Add(w);
+  WriteLn(v.X:0:0, ' ', v.Y:0:0);
+  vao a := TShape.Create;
+  vao b := TShape.Create('box');
+  vao c := TCircle.Create('ring');
+  {
+    WriteLn(a.Describe, ' / ', b.Describe('-> '));
+    WriteLn(c.Describe, ' / ', c.Describe('* '), ' / ', c.Describe(2));
+  };
+}

@@ -1,0 +1,70 @@
+program RecordMethods;
+{* records with methods: value types with behaviour, without class and heap *}
+type
+  TVector = record {
+    X, Y: Real;
+    proc Put(AX, AY: Real);
+    proc Scale(F: Real);                 {* changes the record itself *}
+    func Len: Real;
+    func Plus(B: TVector const): TVector;    {* returns a new value *}
+    func AsText: String;
+    property Width: Real read X write X;
+  }
+
+  TRectangle = record {
+    Corner, Magnitude: TVector;                       {* Records in Records *}
+    func Area: Real;
+    func Contains(P: TVector const): Boolean;
+  }
+
+proc TVector.Put(AX, AY: Real) { X := AX; Y := AY; }
+proc TVector.Scale(F: Real) { X := X * F; Y := Y * F; }
+func TVector.Len: Real { Result := Sqrt(Sqr(X) + Sqr(Y)); }
+func TVector.Plus(B: TVector const): TVector
+{ Result.Put(X + B.X, Y + B.Y); }
+func TVector.AsText: String;
+val sx, sy: String := default;
+{
+  Str(X:0:1, sx); Str(Y:0:1, sy);
+  Result := '(' + sx + ', ' + sy + ')';
+}
+
+func TRectangle.Area: Real { Result := Magnitude.X * Magnitude.Y; }
+func TRectangle.Contains(P: TVector const): Boolean
+{
+  Result := (P.X >= Corner.X) and (P.X <= Corner.X + Magnitude.X) and
+            (P.Y >= Corner.Y) and (P.Y <= Corner.Y + Magnitude.Y);
+}
+
+func vec(AX, AY: Real): TVector          {* "constructor" as a function *}
+{ Result.Put(AX, AY); }
+
+val
+  a, b, c: TVector := default;
+  r: TRectangle := default;
+  points: array[1..3] of TVector := default;
+  i: Integer := default;
+{
+  a.Put(3, 4);
+  WriteLn('a = ', a.AsText, ', Len ', a.Len:0:1);
+  b := a;                                         {* CopyOf *}
+  b.Scale(2);
+  WriteLn('a = ', a.AsText, ', b = ', b.AsText, '  (b is a copy)');
+  c := a.Plus(b);
+  WriteLn('a + b = ', c.AsText);
+  WriteLn('Len of vec(6, 8): ', vec(6, 8).Len:0:1);   {* method on a result value *}
+  WriteLn('a.Plus(b).Plus(a) = ', a.Plus(b).Plus(a).AsText);
+  a.Width := 10;
+  WriteLn('after a.Width := 10: ', a.AsText, ', Width ', a.Width:0:1);
+
+  r.Corner.Put(0, 0);
+  r.Magnitude.Put(4, 3);
+  WriteLn('Area ', r.Area:0:1, ', contains (2,2): ', r.Contains(vec(2, 2)), ', contains (5,1): ', r.Contains(vec(5, 1)));
+
+  for i := 1 to 3 do points[i].Put(i, i * i);
+  for i := 1 to 3 do points[i].Scale(10);
+  for i := 1 to 3 do Write(points[i].AsText, ' ');
+  WriteLn;
+  r.Magnitude.Scale(2);
+  WriteLn('with with: ', r.Magnitude.AsText);
+}

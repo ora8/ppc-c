@@ -1,0 +1,40 @@
+program interfaces_generic;
+type
+  ILess<T> = interface {
+    func Less(a, b: T): Boolean; const;
+  }
+  TByLength = class(ILess<String>) {
+    func Less(a, b: String): Boolean; const;
+  }
+  TDown = class(ILess<Integer>) {
+    func Less(a, b: Integer): Boolean; const;
+  }
+func TByLength.Less(a, b: String): Boolean; const { Result := Length(a) < Length(b); }
+func TDown.Less(a, b: Integer): Boolean; const { Result := a > b; }
+proc SortWith<T: Copy>(var a: array of T; c: ILess<T> const)
+{
+  for val i := 1 to High(a) do
+    val j := i;
+    {
+      while (j > 0) and c.Less(a[j], a[j - 1]) do
+      {
+        val h: T := a[j];
+        { a[j] := a[j - 1]; a[j - 1] := h; };
+        Dec(j);
+      };
+    };
+}
+val
+  w: array of String := ('ccc', 'a', 'bb');
+  n: array of Integer := (1, 3, 2);
+{
+  vao bl := TByLength.Create;
+  vao d := TDown.Create;
+  {
+    SortWith(w, bl);
+    SortWith(n, d);
+  };
+  for val x in w do Write(x, ' ');
+  for val x in n do Write(x, ' ');
+  WriteLn;
+}
