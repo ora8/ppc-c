@@ -103,6 +103,8 @@ static Expr *set_binary(Expr *e);
 static Expr *set_literal(Expr *e, Type *to);
 static Type *set_of_elems(Expr *e);
 static int hashable(Type *t);
+static Routine *user_method(Type *t, const char *name, int nparams);
+static Expr *user_method_call(Routine *m, Expr *self, Expr *arg, Pos p);
 static Expr *cast_expr(Type *t, ExprVec *args, Pos p);
 static void operator_rules(Struct *s, MethodDecl *md);
 static void operator_check(Struct *s, Routine *r);
@@ -199,6 +201,7 @@ static Expr *param_binary(Expr *e);
 static Expr *ex(Expr *e);
 static Type *resolve_type(TypeExpr *te);
 static void decls(Block *b, int has_frame);
+static void check_implements(Struct *c, Struct *i, Pos p);
 static const char *export_type_problem(Type *t, int is_result);
 static int c_ident(const char *s);
 static void stmts(StmtVec *v);
@@ -580,6 +583,9 @@ static Expr *coerce(Expr *e, Type *to, const char *ctx) {
         if (to->kind == T_PROC && !to->closure && e->type->kind == T_PROC && e->type->closure)
             error_at(e->pos, "this %s uses variables of the routine around it (a closure) and cannot be stored as \"%s\" in %s; declare the parameter or variable 'reference to %s'",
                      e->kind == E_LAMBDA ? "lambda" : "routine", type_name(to), ctx, type_name(to));
+        if (to->kind == T_CLASS && to->st->is_iface && e->type->kind == T_RECORD && struct_descends(e->type->st, to->st))
+            error_at(e->pos, "the record \"%s\" cannot be a value of interface \"%s\" in %s (that would need a copy on the heap): use it "
+                             "in a generic routine with 'T: %s'", type_name(e->type), type_name(to), ctx, type_name(to));
         if (to->kind == T_CLASS && to->st->is_iface && e->type->kind == T_CLASS && !e->type->st->is_iface)
             error_at(e->pos, "\"%s\" does not implement the interface \"%s\" in %s (declare it: '%s = class(..., %s)')",
                      type_name(e->type), type_name(to), ctx, e->type->st->name, to->st->name);
@@ -973,6 +979,7 @@ static void require_nilable(Type *t, Pos p, const char *where) {
     if (t->kind == T_PROC)
         error_at(p, "%s of type \"%s\" must be declared 'optional %s' (this storage starts out empty)", where, type_name(t),
                  type_name(t));
+    if (archetype_mode && t->kind == T_CLASS && t->st->is_iface) return; /* T: IShape stands for T: checked for each instance (a record too) */
     if (g_nil_check && is_ref_type(t) && !t->nilable && t->kind != T_PARAM) /* T: checked for each instance */
         error_at(p, "%s of type \"%s\" must be declared 'optional %s' (this storage starts out empty)", where, type_name(t),
                  type_name(t));
@@ -1122,6 +1129,16 @@ static void define_record(Struct *s, TypeExpr *te) {
         if (md->is_operator) operator_check(s, r);
         vpush(s->methods, r);
     }
+    for (int i = 0; sd && i < sd->ifaces.len; i++) { /* record(IShape): checked like a class (used through generics: T: IShape) */
+        TypeExpr *ite = sd->ifaces.items[i];
+        Type *it = resolve_type(ite);
+        if (it->kind != T_CLASS || !it->st->is_iface)
+            error_at(ite->pos, "\"%s\" is not an interface (a record lists the interfaces it implements: record(IShape))", type_name(it));
+        for (int k = 0; k < s->ifaces.len; k++)
+            if (s->ifaces.items[k] == it->st) error_at(ite->pos, "interface \"%s\" is listed twice", it->st->name);
+        vpush(s->ifaces, it->st);
+    }
+    for (int i = 0; i < s->ifaces.len; i++) check_implements(s, s->ifaces.items[i], s->pos);
     for (int i = 0; sd && i < sd->props.len; i++) {
         PropDecl *pd = &sd->props.items[i];
         Prop *pr = NEW(Prop);
@@ -1928,10 +1945,11 @@ static int satisfies(Type *t, const char *c) {
     if (STREQ(c, "Copy")) return t->kind != T_CLASS && !is_ref_type(t) && !has_owned(t);
     if (STREQ(c, "Clone")) return has_clone(t);
     if (STREQ(c, "Equatable")) return is_ordinal(t) || t->kind == T_REAL || t->kind == T_STR || t->kind == T_CLASS || (is_aggregate(t) && equatable(t));
-    if (STREQ(c, "Comparable")) return is_ordinal(t) || t->kind == T_REAL || t->kind == T_STR;
+    if (STREQ(c, "Comparable")) return is_ordinal(t) || t->kind == T_REAL || t->kind == T_STR || user_method(t, "CompareTo", 1);
     if (STREQ(c, "Hashable")) return hashable(t);
-    Look L = lookup(c); /* a class: the type argument must be it or a descendant */
+    Look L = lookup(c); /* a class: the type argument must be it or a descendant; an interface: implemented (also by a record) */
     if (L.kind != LK_SYM || L.sym->kind != SY_TYPE) return 0;
+    if (t->kind == T_RECORD && L.sym->type->kind == T_CLASS && L.sym->type->st->is_iface) return struct_descends(t->st, L.sym->type->st);
     return t->kind == T_CLASS && struct_descends(t->st, L.sym->type->st);
 }
 static void check_constraints(Generic *g, Type **args, Pos p) {
@@ -2272,7 +2290,8 @@ static void define_struct(Struct *s, StructDecl *sd) {
         TypeExpr *te = sd->ifaces.items[i];
         Type *it = resolve_type(te);
         if (it->kind != T_CLASS || !it->st->is_iface)
-            error_at(te->pos, "\"%s\" is not an interface (a class has one parent class, then interfaces: class(TBase, IShape))",
+            error_at(te->pos, s->kind == SK_RECORD ? "\"%s\" is not an interface (a record lists the interfaces it implements: record(IShape))"
+                                                   : "\"%s\" is not an interface (a class has one parent class, then interfaces: class(TBase, IShape))",
                      type_name(it));
         for (int k = 0; k < s->ifaces.len; k++)
             if (s->ifaces.items[k] == it->st) error_at(te->pos, "interface \"%s\" is listed twice", it->st->name);
@@ -3085,6 +3104,29 @@ static Expr *ex(Expr *e) {
         int op = e->op;
         if (ta->kind == T_PARAM || tb->kind == T_PARAM) return param_binary(e);
         if (ta->kind == T_SET || tb->kind == T_SET || (e->a->kind == E_SET && e->b->kind == E_SET)) return set_binary(e);
+        if (op >= OP_EQ && op <= OP_GE && (ta->kind == T_RECORD || ta->kind == T_CLASS) && !ta->nilable && tb->kind == ta->kind && !tb->nilable &&
+            ta->st == tb->st) { /* Equals / CompareTo: '=' and '<' of own types (also in generic code: T: Equatable / Comparable) */
+            Routine *eq = user_method(ta, "Equals", 1), *cmp = user_method(ta, "CompareTo", 1);
+            if ((op == OP_EQ || op == OP_NE) && eq) {
+                Expr *c = user_method_call(eq, e->a, e->b, e->pos);
+                if (op == OP_EQ) return c;
+                Expr *n = new_expr(E_UNARY, e->pos);
+                n->op = OP_NOT;
+                n->a = c;
+                n->type = t_bool;
+                return n;
+            }
+            if (cmp) { /* a < b  ==>  a.CompareTo(b) < 0 */
+                Expr *c = user_method_call(cmp, e->a, e->b, e->pos);
+                Expr *z = lit_int(0, c->type, e->pos);
+                Expr *r = new_expr(E_BINARY, e->pos);
+                r->op = op;
+                r->a = c;
+                r->b = z;
+                r->type = t_bool;
+                return r;
+            }
+        }
         if (ta->kind == T_RECORD || tb->kind == T_RECORD) { /* class operator Add(a, b: TVec): TVec ... */
             Expr *r = user_operator(e, op, e->a, e->b);
             if (r) return r;
@@ -3400,7 +3442,28 @@ static Expr *set_binary(Expr *e) {
     }
 }
 /* keys of hash maps: values (no objects) whose parts can be hashed */
+/* a method that makes a type Equatable / Comparable / Hashable: 'function Equals(other: T): Boolean; const;',
+   'function CompareTo(other: T): Integer; const;', 'function Hash: Integer; const;' (records and classes) */
+static Routine *user_method(Type *t, const char *name, int nparams) {
+    if (!t || (t->kind != T_RECORD && t->kind != T_CLASS) || t->st->is_sum || t->st->is_iface) return NULL;
+    Field *f;
+    Routine *m;
+    Prop *pr;
+    if (!find_member(t->st, name, &f, &m, &pr) || !m || m->is_classm || m->kind != RK_FUNC || m->params.len != nparams) return NULL;
+    if (nparams && !(m->params.items[0].type->kind == t->kind && m->params.items[0].type->st == t->st)) return NULL;
+    if (STREQ(name, "Equals") && m->ret->kind != T_BOOL) return NULL;
+    if ((STREQ(name, "CompareTo") || STREQ(name, "Hash")) && !is_int(m->ret)) return NULL;
+    return m;
+}
+static Expr *user_method_call(Routine *m, Expr *self, Expr *arg, Pos p) {
+    if (!m->is_constm) error_at(p, "\"%s.%s\" is used by '=', '<' or Hash: declare it 'const' (it must not change the value)", m->owner->name, m->name);
+    ExprVec args = {0};
+    if (arg) vpush(args, arg);
+    return make_call(m, self, &args, m->slot >= 0 ? CM_VIRTUAL : CM_STATIC, NULL, p);
+}
+
 static int hashable(Type *t) {
+    if (user_method(t, "Hash", 0) && (t->kind == T_RECORD || user_method(t, "Equals", 1) || user_method(t, "CompareTo", 1))) return 1;
     switch (t->kind) {
     case T_INT: case T_BOOL: case T_CHAR: case T_REAL: case T_STR: case T_ENUM: case T_SET: return 1;
     case T_ARRAY: return hashable(t->base);
@@ -5183,8 +5246,9 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
         if (t->kind == T_PARAM) {
             if (!(t->ik & (PC_HASH | PC_CMP | PC_NUM))) error_at(x->pos, "Hash needs the constraint '%s: Hashable'", type_name(t));
         } else if (!hashable(t))
-            error_at(x->pos, "\"%s\" cannot be hashed (numbers, Char, Boolean, enumerations, strings, sets and records or arrays of them can)",
-                     type_name(t));
+            error_at(x->pos, "\"%s\" cannot be hashed (numbers, Char, Boolean, enumerations, strings, sets and records or arrays of them can; "
+                             "or give it 'function Hash: Integer; const;'%s)", type_name(t), t->kind == T_CLASS ? " and 'Equals'" : "");
+        if (user_method(t, "Hash", 0)) return coerce(user_method_call(user_method(t, "Hash", 0), x, NULL, x->pos), t_i64, nm);
         vpush(e->args, x);
         e->type = t_i64;
         return e;

@@ -395,6 +395,29 @@ if s is ISolid then ...                      {* run-time test; also 'as' *}
 * A call through an interface looks up the class's table for that interface (a short search in
   the VMT); calls on the class type itself stay direct.
 
+**Records implement interfaces too:** `TSquare = record(IShape) … end` (in `.pps`:
+`record(IShape) { … }`). Such a record satisfies the constraint `T: IShape`, so generic routines
+work with records and classes alike – resolved at compile time, without copies on the heap:
+
+```pascal
+type
+  TSquare = record(IShape)
+    Side: Real;
+    function Area: Real; const;
+    function Name: String; const;
+  end;
+
+function Describe<T: IShape>(x: T): String;
+begin
+  Result := x.Name + ' with area ' + FloatToStr(x.Area);
+end;
+
+WriteLn(Describe(sq), ' ', Describe(circle));      {* a record and an object *}
+```
+
+A record cannot be a value of the interface itself (`var s: IShape := sq` is an error: it would
+need a copy on the heap); the methods are checked like those of a class.
+
 ### Class references: `class of T` and virtual constructors
 
 ```pascal
@@ -1109,10 +1132,32 @@ type
 | `TBase` (a class name) | `TBase` and its descendants |
 | `Copy` | values without objects (numbers, strings, enumerations, simple records/arrays) |
 | `Clone` | classes and records with `Clone`, arrays of them |
-| `Equatable` (`=`, `<>`) | numbers, Char, Boolean, strings, enumerations, classes (same object) |
-| `Comparable` (`<`, `>` …) | numbers, Char, Boolean, strings, enumerations |
+| `Equatable` (`=`, `<>`) | numbers, Char, Boolean, strings, enumerations, classes (same object), types with `Equals` |
+| `Comparable` (`<`, `>` …) | numbers, Char, Boolean, strings, enumerations, types with `CompareTo` |
 | `Numeric` (`+`, `-`, `*`, number literals, comparisons) | integer types, Real |
-| `Hashable` (`=`, `<>`, `Hash(x)`) | numbers, Char, Boolean, enumerations, strings, sets, records and fixed arrays of them |
+| `Hashable` (`=`, `<>`, `Hash(x)`) | numbers, Char, Boolean, enumerations, strings, sets, records and fixed arrays of them, types with `Hash` |
+| `IShape` (an interface name) | classes and records that implement it |
+
+**Own types** become `Equatable`, `Comparable` and `Hashable` with methods (records and classes):
+
+```pascal
+type
+  TPoint = record
+    X, Y: Integer;
+    function Hash: Integer; const;                       {* Hash(p); with Equals: a THashMap key *}
+    function Equals(other: TPoint): Boolean; const;      {* p = q, p <> q *}
+  end;
+  TVersion = record
+    Major, Minor: Integer;
+    function CompareTo(other: TVersion): Integer; const; {* < 0, 0, > 0: v < w, Sort, Max … *}
+  end;
+```
+
+* `=` and `<>` call `Equals` (or `CompareTo(...) = 0`), `<` `<=` `>` `>=` call `CompareTo`, `Hash(x)`
+  calls `Hash` – everywhere, also in generic code (`THashMap<TPoint, String>`, `Sort`, `Max`).
+* For a class, `=` with `Equals` compares values instead of the identity of the objects; a hashable
+  class also needs `Equals` (or `CompareTo`). Hash map keys are values: records are the usual keys.
+* The methods must be `const`.
 
 If a type does not fit, the compiler reports it at the call or the instance:
 `"TK" does not satisfy 'T: Comparable' (required by Max<T>)`.

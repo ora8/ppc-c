@@ -513,6 +513,15 @@ static StructDecl *parse_struct(int kind) {
             vpush(sd->ifaces, t);
         }
         expect_sym(")");
+    } else if (kind == SK_RECORD && accept_sym("(")) { /* record(IShape, IOther): the interfaces it implements */
+        for (;;) {
+            TypeExpr *t = new_te(TE_NAMED, pos());
+            t->name = ident();
+            if (is_sym("<")) t->targs = parse_targs();
+            vpush(sd->ifaces, t);
+            if (!accept_sym(",")) break;
+        }
+        expect_sym(")");
     }
     expect_open();
     for (;;) {

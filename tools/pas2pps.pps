@@ -289,7 +289,7 @@ val pos: Integer := 1;
               Replace(k, '}');
           }
           'record': {
-            After[k] := ' {';
+            OpenAfterParents(k);   // record(IShape): after the interfaces
             opens[nOpen] := opType;
             Inc(nOpen);
           }

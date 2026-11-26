@@ -151,7 +151,10 @@ def convert(src):
             else:
                 rep[k] = "}"
         elif w == "record":
-            after[k] = " {"
+            if sym(k + 1, "("):  # record(IShape): after the interfaces
+                after[skip_parens(k + 1) - 1] = " {"
+            else:
+                after[k] = " {"
             opens.append("type")
         elif w == "class":
             # a class type only after '=' (TA = class ...); otherwise 'class function', 'class var', 'T: class'

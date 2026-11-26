@@ -1,0 +1,43 @@
+program RecordInterfaces;
+{* records implement interfaces: record(IShape); generic routines with T: IShape take records and classes *}
+type
+  IShape = interface {
+    function Area: Real; const;
+    function Name: String; const;
+  }
+  TSquare = record(IShape) {
+    Side: Real;
+    function Area: Real; const;
+    function Name: String; const;
+  }
+  TCircle = class(TObject, IShape) {
+    R: Real;
+    constructor Create(AR: Real);
+    function Area: Real; const;
+    function Name: String; const;
+  }
+function TSquare.Area: Real; const; { Result := Side * Side; }
+function TSquare.Name: String; const; { Result := 'square'; }
+constructor TCircle.Create(AR: Real); { inherited Create; R := AR; }
+function TCircle.Area: Real; const; { Result := 3 * R * R; }
+function TCircle.Name: String; const; { Result := 'circle'; }
+
+function Describe<T: IShape>(x: T): String;
+{
+  Result := x.Name + ' with area ' + FloatToStr(x.Area);
+}
+
+function Total<T: IShape>(a: array of T): Real;
+{
+  Result := 0;
+  for val i := 0 to High(a) do Result := Result + a[i].Area;
+}
+
+val sq: TSquare := (Side: 3);
+val squares: array of TSquare := ((Side: 1), (Side: 2));
+vao c := TCircle.Create(1);
+{
+  WriteLn(Describe(sq));
+  WriteLn(Describe(c));
+  WriteLn(Total(squares):0:1);
+}

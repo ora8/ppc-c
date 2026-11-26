@@ -1,0 +1,56 @@
+program OwnTraits;
+{* own types become Hashable, Equatable and Comparable with Hash, Equals and CompareTo (records and classes) *}
+import std;
+type
+  TPoint = record {
+    X, Y: Integer;
+    function Hash: Integer; const;
+    function Equals(other: TPoint): Boolean; const;
+  }
+  TVersion = record {
+    Major, Minor: Integer;
+    function CompareTo(other: TVersion): Integer; const;
+  }
+  TMoney = class {
+    Cents: Int64;
+    constructor Create(ACents: Int64);
+    function Equals(other: TMoney): Boolean; const;
+    function CompareTo(other: TMoney): Integer; const;
+  }
+
+function TPoint.Hash: Integer; const; { Result := X * 31 + Y; }
+function TPoint.Equals(other: TPoint): Boolean; const; { Result := (X = other.X) and (Y = other.Y); }
+function TVersion.CompareTo(other: TVersion): Integer; const;
+{
+  if Major <> other.Major Result := Major - other.Major; else Result := Minor - other.Minor;
+}
+constructor TMoney.Create(ACents: Int64); { inherited Create; Cents := ACents; }
+function TMoney.Equals(other: TMoney): Boolean; const; { Result := Cents = other.Cents; }
+function TMoney.CompareTo(other: TMoney): Integer; const;
+{
+  if Cents < other.Cents Result := -1; else if Cents > other.Cents Result := 1; else Result := 0;
+}
+
+function Smaller<T: Comparable>(a, b: T): Boolean;
+{
+  Result := a < b;
+}
+
+vao names := THashMap<TPoint, String>.Create;
+val vs: array of TVersion := ((Major: 2; Minor: 1), (Major: 1; Minor: 9), (Major: 2; Minor: 0));
+val p: TPoint := (X: 1; Y: 2);
+val q: TPoint := (X: 1; Y: 2);
+vao a := TMoney.Create(500);
+vao b := TMoney.Create(500);
+vao c := TMoney.Create(700);
+{
+  names.Put(p, 'home');
+  names.Put((X: 3; Y: 4), 'work');
+  if names.Get(q) is some n WriteLn('(1,2) is ', n);       {* a different but equal key *}
+  WriteLn('count ', names.Count, ', equal points: ', p = q, ', hash ', Hash(p));
+  Sort(vs);
+  for val v in vs do Write(v.Major, '.', v.Minor, ' ');
+  WriteLn;
+  WriteLn('newest: ', Max(vs[0], vs[2]).Major, '.', Max(vs[0], vs[2]).Minor);
+  WriteLn('money equal: ', a = b, ', different: ', a <> c, ', smaller: ', a < c, ' ', Smaller(c, a));
+}
