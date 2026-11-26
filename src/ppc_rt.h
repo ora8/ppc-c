@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/wait.h>
 #include <string.h>
 #include <time.h>
 #include <errno.h>
@@ -24,6 +25,11 @@ static void __rt_error(int code, const char *msg) {
     fflush(stdout);
     fprintf(stderr, "Runtime error %d: %s\n", code, msg);
     exit(code);
+}
+static void __ppc_assert_failed(const char *file, int line, int col, PStr msg) { /* Assert(False, ...) */
+    fflush(stdout);
+    fprintf(stderr, "Runtime error 227: assertion failed at %s(%d,%d)%s%.*s\n", file, line, col, msg.len ? ": " : "", (int)msg.len, (const char *)msg.p);
+    exit(227);
 }
 static void *__ppc_alloc(size_t n) {
     void *p = calloc(1, n ? n : 1);
@@ -462,6 +468,48 @@ static void __std_seterr(const char *what, PStr name) {
     free(n);
 }
 static PStr __std_ioerror(void) { return __pstr_mem(__std_err, (int64_t)strlen(__std_err)); }
+
+/* ---- standard input and other programs ---- */
+static uint8_t __std_eof(void) { int c = getchar(); if (c == EOF) return 1; ungetc(c, stdin); return 0; }
+static PStr __std_readall(void) { /* the rest of standard input */
+    size_t cap = 4096, len = 0, k;
+    char *buf = (char *)malloc(cap);
+    while ((k = fread(buf + len, 1, cap - len, stdin)) > 0) {
+        len += k;
+        if (len == cap) buf = (char *)realloc(buf, cap *= 2);
+    }
+    PStr r = __pstr_mem(buf, (int64_t)len);
+    free(buf);
+    return r;
+}
+static int32_t __std_runcommand(PStr cmd) { /* the exit code of the command (run by the shell), -1 if it could not run */
+    fflush(stdout);
+    char *c = __cz(cmd);
+    int st = system(c);
+    free(c);
+    if (st == -1) return -1;
+    return WIFEXITED(st) ? WEXITSTATUS(st) : 128 + (WIFSIGNALED(st) ? WTERMSIG(st) : 0);
+}
+static PStr __std_cmdoutput(PStr cmd) { /* the standard output of the command; __std_err when it failed */
+    __std_err[0] = 0;
+    fflush(stdout);
+    char *c = __cz(cmd);
+    FILE *p = popen(c, "r");
+    if (!p) { __std_seterr("cannot run", cmd); free(c); return __pstr_lit("", 0); }
+    size_t cap = 4096, len = 0, k;
+    char *buf = (char *)malloc(cap);
+    while ((k = fread(buf + len, 1, cap - len, p)) > 0) {
+        len += k;
+        if (len == cap) buf = (char *)realloc(buf, cap *= 2);
+    }
+    int st = pclose(p);
+    int code = st == -1 ? -1 : WIFEXITED(st) ? WEXITSTATUS(st) : 128 + (WIFSIGNALED(st) ? WTERMSIG(st) : 0);
+    if (code != 0) snprintf(__std_err, sizeof __std_err, "the command '%s' ended with exit code %d", c, code);
+    free(c);
+    PStr r = __pstr_mem(buf, (int64_t)len);
+    free(buf);
+    return r;
+}
 static PStr __std_readfile(PStr name) {
     __std_err[0] = 0;
     char *n = __cz(name);

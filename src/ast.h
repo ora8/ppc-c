@@ -311,6 +311,7 @@ struct Type {
     int nilable; /* optional class type: may be none (represented as NULL) */
     int readonly; /* class type 'const T': the object can only be read through this reference */
     int closure;  /* T_PROC 'reference to ...': may be a closure (refers to the frame of a routine) */
+    struct Type *orig; /* T_PARAM 'T const': the placeholder T it was made from */
 };
 
 struct Field {
@@ -470,7 +471,7 @@ enum {
     BI_INC, BI_DEC, BI_ABS, BI_SQR, BI_SQRT, BI_SIN, BI_COS, BI_ARCTAN, BI_EXP, BI_LN, BI_TRUNC,
     BI_ROUND, BI_FRAC, BI_INT, BI_ODD, BI_HIGH, BI_LOW, BI_SIZEOF, BI_COPY, BI_POS, BI_DELETE,
     BI_INSERT, BI_INTTOSTR, BI_STRTOINT, BI_FLOATTOSTR, BI_STR, BI_UPCASE, BI_UPPERCASE,
-    BI_LOWERCASE, BI_CONCAT, BI_HALT, BI_RANDOM, BI_RANDOMIZE, BI_ASSIGNED, BI_NEW, BI_DISPOSE,
+    BI_LOWERCASE, BI_CONCAT, BI_HALT, BI_ASSERT, BI_RANDOM, BI_RANDOMIZE, BI_ASSIGNED, BI_NEW, BI_DISPOSE,
     BI_FREEANDNIL, BI_TAKE, BI_SETLENGTH, BI_CLASSNAME, BI_PI, BI_EXIT, BI_BREAK, BI_CONTINUE,
     BI_HASVALUE, BI_VALUEOR, BI_BOXNEW, BI_BOXFREE, BI_ISOK, BI_ISERROR, BI_ARRCLONE, BI_FORMAT, BI_INCLUDE, BI_EXCLUDE, BI_HASH, BI_CLASSTYPE, BI_REFNAME, BI_TOUCH
 };

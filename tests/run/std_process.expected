@@ -1,0 +1,7 @@
+eof at the start: TRUE
+rest of the input: []
+exit code: 3
+one
+two
+the command 'echo partial; exit 2' ended with exit code 2
+asserts passed

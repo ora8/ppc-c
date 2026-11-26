@@ -40,6 +40,8 @@ type
     procedure Put(i: Integer; vao x: T);           {* replace element i (the old one is freed) *}
     function Extract(i: Integer): optional T;      {* take element i out *}
     procedure Clear;                               {* free all elements *}
+    procedure SortBy(Less: reference to function(x, y: T const): Boolean); {* stable; also for objects *}
+    function Before(i, k: Integer; Less: reference to function(x, y: T const): Boolean): Boolean; const; {* Less(l[i], l[k]) *}
     property Item[i: Integer]: optional T read Get write Put; default; {* l[i], l[i] := x *}
   end;
 
@@ -84,6 +86,7 @@ type
   end;
 
 procedure Sort<T: Comparable>(var a: array of T);
+procedure SortList<T: Comparable>(l: TList<T>);    {* the elements of a list in ascending order *}
 procedure SortBy<T: Copy>(var a: array of T; Less: reference to function(x, y: T): Boolean);
 function IndexOf<T: Equatable>(a: array of T; x: T): optional Integer;
 function Filter<T: Copy>(a: array of T; Keep: reference to function(x: T): Boolean): array of T;
@@ -187,6 +190,10 @@ function DateTimeToStr(t: TDateTime): String;                 {* 2026-11-25 14:0
 {* ---- program ---- *}
 function ParamCount: Integer; external '__std_paramcount';
 function ParamStr(i: Integer): String; external '__std_paramstr'; {* 0: the program *}
+function Eof: Boolean; external '__std_eof';                     {* standard input has no more characters *}
+function ReadAll: String; external '__std_readall';              {* the rest of standard input *}
+function RunCommand(Cmd: String): Integer; external '__std_runcommand'; {* runs Cmd (with the shell): its exit code, -1 if it could not run *}
+function CommandOutput(Cmd: String): result String;              {* what Cmd prints; an error if it cannot run or does not end with 0 *}
 function GetEnv(Name: String): String; external '__std_getenv';   {* '' if not set *}
 
 implementation
@@ -223,6 +230,34 @@ end;
 procedure TList<T>.Clear;
 begin
   SetLength(Items, 0);
+end;
+
+function TList<T>.Before(i, k: Integer; Less: reference to function(x, y: T const): Boolean): Boolean; const;
+begin                                              {* const: both elements are only looked at *}
+  Result := False;
+  if Items[i] is some a then
+    if Items[k] is some b then Result := Less(a, b);
+end;
+
+procedure TList<T>.SortBy(Less: reference to function(x, y: T const): Boolean);
+val t: Integer := 0;
+begin                                              {* insertion sort: stable, moves the elements *}
+  t := Length(Items);
+  SetLength(Items, t + 1);                         {* a free slot: the element being inserted waits there *}
+  for val i := 1 to t - 1 do
+    val j := i;
+    begin
+      Items[t] := Take(Items[i]);
+      loop
+      begin
+        if j = 0 then Break;
+        if not Before(t, j - 1, Less) then Break;
+        Items[j] := Take(Items[j - 1]);
+        Dec(j);
+      end;
+      Items[j] := Take(Items[t]);
+    end;
+  SetLength(Items, t);
 end;
 
 {* ------------------------------------------------------------------ TStack<T> *}
@@ -466,6 +501,16 @@ begin
   SortRange(a, 0, High(a));
 end;
 
+procedure SortList<T: Comparable>(l: TList<T>);
+val a: array of T := default;
+begin                                              {* the values into an array, sorted, back *}
+  SetLength(a, l.Count);
+  for val i := 0 to l.Count - 1 do
+    if l.Items[i] is some x then a[i] := x;
+  Sort(a);
+  for val i := 0 to High(a) do l.Items[i] := a[i];
+end;
+
 procedure SortBy<T: Copy>(var a: array of T; Less: reference to function(x, y: T): Boolean);
 begin                                              {* insertion sort: stable *}
   for val i := 1 to High(a) do
@@ -697,6 +742,13 @@ function __ReadFile(Name: String): String; external '__std_readfile';
 function __WriteFile(Name, Text: String; Append: Boolean): Boolean; external '__std_writefile';
 function __DeleteFile(Name: String): Boolean; external '__std_deletefile';
 function __IOError: String; external '__std_ioerror';
+
+function __CommandOutput(Cmd: String): String; external '__std_cmdoutput';
+function CommandOutput(Cmd: String): result String;
+val t := __CommandOutput(Cmd);
+begin
+  if __IOError <> '' then Result := error(__IOError) else Result := ok(t);
+end;
 
 function ReadFile(Name: String): result String;
 val t := __ReadFile(Name);

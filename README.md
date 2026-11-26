@@ -1359,8 +1359,30 @@ for paths `ExtractFileName('src/main.pas') = 'main.pas'`, `ExtractFileDir` (`'sr
 
 **Program:** `ParamCount`, `ParamStr(i)` (0: the program), `GetEnv(name)` (`''` if not set).
 
-* The C primitives behind these routines are declared `external` in the library; only the
-  standard library may declare external routines.
+**Standard input and other programs:**
+
+```pascal
+while not Eof do begin ReadLn(line); … end;        {* Eof: no more characters on standard input *}
+val text := ReadAll;                               {* the rest of standard input *}
+WriteLn(RunCommand('make test'));                  {* runs it with the shell: its exit code (-1: could not run) *}
+case CommandOutput('git rev-parse HEAD') of        {* what it prints; an error if it fails *}
+  ok hash: WriteLn(hash);
+  error e: WriteLn(e);                             {* the command 'x' ended with exit code 2 *}
+end;
+```
+
+**Sorting lists:** `SortList(l)` sorts a `TList` of comparable elements (numbers, strings, …);
+the method `l.SortBy(Less)` sorts any list – also of objects – with a comparison, stable:
+
+```pascal
+people.SortBy(function(x, y: TPerson const): Boolean begin Result := x.Age < y.Age; end);
+```
+
+**Checks:** `Assert(cond)` and `Assert(cond, 'message')` (a built-in routine) stop the program with
+run-time error 227 when `cond` is false: `Runtime error 227: assertion failed at test.pas(12,3):
+message`.
+
+* The C primitives behind these routines are declared `external` in the library.
 * The containers own their elements; `Extract`, `Pop` and `Remove` pass the ownership to the
   caller (`optional T`), `Get` and `Peek` only borrow.
 * Names of the program hide those of the library; the library itself keeps using its own.

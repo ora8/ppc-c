@@ -905,6 +905,11 @@ static char *gbuiltin(Expr *e) {
         return s;
     }
     case BI_HALT: return sfmt("(fflush(stdout), exit((int)(%s)))", A->len ? G(0) : "0");
+    case BI_ASSERT: {
+        const char *f = POS_FILE(e->pos);
+        return sfmt("((%s) ? (void)0 : __ppc_assert_failed(%s, %d, %d, %s))", G(0), c_strlit(f, (int)strlen(f)), e->pos.line, e->pos.col,
+                    A->len > 1 ? G(1) : "__pstr_lit(\"\", 0)");
+    }
     case BI_RANDOM: return A->len ? sfmt("__random_int(%s)", G(0)) : "__random_real()";
     case BI_RANDOMIZE: return "__randomize()";
     case BI_ASSIGNED: case BI_HASVALUE:
@@ -1349,8 +1354,11 @@ static void gassign(Expr *lhs, Expr *rhs) {
     if (has_str(lhs->type) && !has_owned(lhs->type)) { /* strings: the target gets its own copy, its old value is freed */
         int id = ++tmpc;
         char *ct = ctype(lhs->type);
-        line("{ %s __n%d = %s; %s; %s __o%d = %s; %s = __n%d; %s; }", ct, id, r, agg_copy(lhs->type, sfmt("__n%d", id)), ct, id, l,
-             l, id, agg_drop(lhs->type, sfmt("__o%d", id)));
+        Expr *src = rhs;
+        while (src->kind == E_CONV && src->a) src = src->a;
+        int moved = src->kind == E_BUILTIN && src->bi == BI_TAKE; /* Take(x) hands its strings over: no copy */
+        line("{ %s __n%d = %s; %s; %s __o%d = %s; %s = __n%d; %s; }", ct, id, r, moved ? "(void)0" : agg_copy(lhs->type, sfmt("__n%d", id)),
+             ct, id, l, l, id, agg_drop(lhs->type, sfmt("__o%d", id)));
         return;
     }
     if (has_owned(lhs->type)) { /* a value that owns objects moves: empty the source, free the old value */

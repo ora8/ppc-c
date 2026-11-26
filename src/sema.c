@@ -368,7 +368,8 @@ static int same_type(Type *a, Type *b) {
     case T_RECORD: case T_CLASS: return a->st == b->st;
     case T_ENUM: return a->en == b->en;
     case T_OPT: return same_type(a->base, b->base);
-    case T_PARAM: return 0; /* two placeholders are only the same if they are one object */
+    case T_PARAM: /* two placeholders are only the same if they are one object ('T const' refers to its T) */
+        return a->readonly == b->readonly && (a->orig ? a->orig : a) == (b->orig ? b->orig : b);
     case T_DYN: return same_type(a->base, b->base);
     case T_PROC: return a->closure == b->closure && same_signature(a->proc, b->proc);
     case T_SET: return a->lo == b->lo && a->hi == b->hi && (same_type(a->base, b->base) || (is_int(a->base) && is_int(b->base)));
@@ -400,6 +401,7 @@ static Type *readonly_any(Type *t) {
     Type *r = NEW(Type);
     *r = *t;
     r->readonly = 1;
+    if (t->kind == T_PARAM) r->orig = t->orig ? t->orig : t;
     r->name = sfmt("%s const", type_name(t));
     return r;
 }
@@ -418,6 +420,8 @@ static Type *arith_int(Type *a, Type *b) {
 
 /* 0 = incompatible, 1 = compatible as is, 2 = needs conversion node */
 static int assign_compat(Type *to, Type *from) {
+    if (to->kind == T_PARAM && from->kind == T_PARAM && (to->orig ? to->orig : to) == (from->orig ? from->orig : from))
+        return to->readonly || !from->readonly; /* T to 'T const': fine; 'T const' to T: no */
     if (to->kind == T_CLASSREF && from->kind == T_CLASSREF && struct_descends(from->st, to->st)) return 2; /* TCircle as a TShapeClass */
     if (to->kind == T_PROC && from->kind == T_PROC && to->closure && !from->closure && same_signature(to->proc, from->proc))
         return 2; /* a plain routine is a closure without captures */
@@ -4973,7 +4977,7 @@ static const struct {
     {"High", BI_HIGH}, {"Low", BI_LOW}, {"SizeOf", BI_SIZEOF}, {"Copy", BI_COPY}, {"Pos", BI_POS},
     {"Delete", BI_DELETE}, {"Insert", BI_INSERT}, {"IntToStr", BI_INTTOSTR}, {"StrToInt", BI_STRTOINT},
     {"FloatToStr", BI_FLOATTOSTR}, {"Format", BI_FORMAT}, {"__Touch", BI_TOUCH}, {"Hash", BI_HASH}, {"Include", BI_INCLUDE}, {"Exclude", BI_EXCLUDE}, {"Str", BI_STR}, {"UpCase", BI_UPCASE}, {"UpperCase", BI_UPPERCASE},
-    {"LowerCase", BI_LOWERCASE}, {"Concat", BI_CONCAT}, {"Halt", BI_HALT}, {"Random", BI_RANDOM},
+    {"LowerCase", BI_LOWERCASE}, {"Concat", BI_CONCAT}, {"Halt", BI_HALT}, {"Assert", BI_ASSERT}, {"Random", BI_RANDOM},
     {"Randomize", BI_RANDOMIZE}, {"Assigned", BI_ASSIGNED}, {"New", BI_NEW}, {"Dispose", BI_DISPOSE},
     {"FreeAndNil", BI_FREEANDNIL}, {"Take", BI_TAKE}, {"SetLength", BI_SETLENGTH},
     {"__ClassName", BI_CLASSNAME}, {"Pi", BI_PI}, {"Exit", BI_EXIT}, {"Break", BI_BREAK},
@@ -5260,6 +5264,15 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
         NARGS(0, 1);
         if (n) vpush(e->args, coerce(value(A(0)), t_i64, nm));
         return e;
+    case BI_ASSERT: /* Assert(cond) or Assert(cond, 'message'): run-time error 227 with the position if cond is false */
+        NARGS(1, 2);
+        {
+            Expr *c = value(A(0));
+            if (c->type->kind != T_BOOL) error_at(c->pos, "Assert needs a Boolean condition, got \"%s\"", type_name(c->type));
+            vpush(e->args, c);
+            if (n == 2) vpush(e->args, coerce(value(A(1)), t_str, nm));
+        }
+        return e;
     case BI_RANDOM:
         NARGS(0, 1);
         if (n) {
@@ -5385,6 +5398,8 @@ static Expr *bind_some(Expr *e) {
         if (!is_optional(t)) error_at(e->pos, "\"%s\" is not optional, 'is some' needs an optional value", type_name(t));
         kt = unwrapped(t);
         if (e->ro_bind && kt->kind == T_CLASS) kt = readonly_of(kt);
+        /* unpacked from a read-only place (a const method's field): the content is read-only too */
+        if ((kt->kind == T_CLASS || kt->kind == T_PARAM) && is_lvalue(e->a) && rooted_const(e->a)) kt = readonly_any(kt);
     }
     Var *k = new_var(e->id.name, kt, cur ? VK_LOCAL : VK_GLOBAL, e->id.pos);
     k->cname = sfmt("B%d_%s", k->id, e->id.name);

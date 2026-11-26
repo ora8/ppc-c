@@ -1,0 +1,16 @@
+program StdProcess;
+{* standard input (Eof, ReadAll), other programs (RunCommand, CommandOutput) and Assert *}
+import std;
+{
+  WriteLn('eof at the start: ', Eof);                {* the tests run with standard input from /dev/null *}
+  WriteLn('rest of the input: [', ReadAll, ']');
+  WriteLn('exit code: ', RunCommand('exit 3'));
+  case CommandOutput('echo one; echo two') of {
+    ok text: Write(text);
+    error e: WriteLn(e);
+  };
+  if CommandOutput('echo partial; exit 2') is error e WriteLn(e);
+  Assert(RunCommand('true') = 0, 'true ends with 0');
+  Assert(Length(ReplaceStr('a-b-c', '-', '')) = 3);
+  WriteLn('asserts passed');
+}
