@@ -2140,7 +2140,8 @@ int borrow_check(Program *p) {
     for (int pass = 0; pass < 2; pass++)
     for (int i = 0; i < (pass ? p->routines.len : p->arch_routines.len); i++) {
         Routine *r = pass ? p->routines.items[i] : p->arch_routines.items[i];
-        if (r->prelude || r->is_abstract || r->is_external || r->is_sig || !r->defined) continue;
+        where_flags(r, !pass); /* the generic body of a 'where' method may use what its constraints allow */
+        if (r->prelude || r->is_abstract || r->is_external || r->is_sig || !r->defined || r->not_generated) continue;
         if (pass && r->gen_id && broken[r->gen_id]) continue;
         g_param_owning = !pass;
         arch_note = pass ? "" : sfmt(" (in the generic %s%s%s: a type parameter without 'Copy' may be an object)",

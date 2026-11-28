@@ -1253,6 +1253,36 @@ vao q := TPrinter.Make<TItem>(7);               {* class method *}
 * Generic methods cannot be virtual, abstract, constructors or interface methods, and generic
   types cannot have generic methods yet.
 
+### Methods with a condition: `where`
+
+A method of a generic type can demand more of a type parameter than the type itself: it exists only
+for instances whose type argument satisfies the condition.
+
+```pascal
+type
+  TPair<T> = class
+    A, B: T;
+    function Larger: T; where T: Comparable;      {* only for comparable T *}
+    function Same: Boolean; where T: Equatable;
+    procedure Swap; where T: Copy;
+  end;
+
+function TPair<T>.Larger: T;
+begin
+  if A < B then Result := B else Result := A;    {* '<' is allowed here *}
+end;
+
+ints.Larger;            {* TPair<Integer>: fine *}
+people.Larger;          {* TPair<TPerson>: "TPair<TPerson>.Larger" needs 'T: Comparable' ("TPerson" is not Comparable) *}
+```
+
+* The body is checked with the condition; other methods may call the method only if their type
+  satisfies it too. For an instance without it the method is not generated – the rest of the type
+  can be used as usual (`TList<TPerson>` has no `Sort`, but everything else).
+* `where` takes the built-in constraints (`Copy`, `Clone`, `Equatable`, `Comparable`, `Numeric`,
+  `Hashable`); several are written `where T: Comparable, Copy;`. Such a method cannot be virtual.
+* `TList<T>.Sort` in `std` is one: `nums.Sort` for a list of numbers or strings.
+
 ## Modules: `module` and `import`
 
 A program includes modules with **`import`**. A module is a file of its own that starts with
@@ -1350,7 +1380,7 @@ end.                                                 {* all containers free thei
 
 | Name | Contents |
 |---|---|
-| `TList<T>` | `Add(vao x)`, `Count`, `Get(i)` (borrowed), `Put(i, vao x)` (replace), `Extract(i)` (take out), `Clear`; `l[i]`, `l[i] := x`; index from 0 |
+| `TList<T>` | `Add(vao x)`, `Count`, `Get(i)` (borrowed), `Put(i, vao x)` (replace), `Extract(i)` (take out), `Clear`, `Sort` (`where T: Comparable`), `SortBy(Less)`; `l[i]`, `l[i] := x`; index from 0 |
 | `TStack<T>` | `Push(vao x)`, `Pop` (take out), `Peek` (look), `Count`, `IsEmpty` |
 | `TMap<K: Comparable; V>` | `Put(k, vao v)` (insert/replace), `Get(k)`, `Contains(k)`, `Remove(k)`, `Count`; `m[k]`, `m[k] := v`; sorted by key, binary search |
 | `THashMap<K: Hashable; V>` | the same with hashing: `Put`, `Get`, `Contains`, `Remove`, `Count`, `KeyList`, `Clear`, `m[k]`; O(1) per operation (100 000 keys: 7 ms instead of 3.4 s with `TMap`), no order |
@@ -1436,8 +1466,8 @@ case CommandOutput('git rev-parse HEAD') of        {* what it prints; an error i
 end;
 ```
 
-**Sorting lists:** `SortList(l)` sorts a `TList` of comparable elements (numbers, strings, …);
-the method `l.SortBy(Less)` sorts any list – also of objects – with a comparison, stable:
+**Sorting lists:** `l.Sort` sorts a `TList` of comparable elements (numbers, strings, …; also
+`SortList(l)`); `l.SortBy(Less)` sorts any list – also of objects – with a comparison, stable:
 
 ```pascal
 people.SortBy(function(x, y: TPerson const): Boolean begin Result := x.Age < y.Age; end);

@@ -202,6 +202,9 @@ static Expr *param_binary(Expr *e);
 static Expr *ex(Expr *e);
 static Type *resolve_type(TypeExpr *te);
 static void decls(Block *b, int has_frame);
+static Generic *g_inst_gen; /* the generic type being instantiated */
+static void method_wheres(Routine *r, MethodDecl *md);
+static const char *where_missing(Routine *r);
 static void check_implements(Struct *c, Struct *i, Pos p);
 static const char *export_type_problem(Type *t, int is_result);
 static int c_ident(const char *s);
@@ -1131,6 +1134,7 @@ static void define_record(Struct *s, TypeExpr *te) {
         auto_rules(md, s, r);
         overload_unique(s, r);
         if (md->is_operator) operator_check(s, r);
+        method_wheres(r, md);
         vpush(s->methods, r);
     }
     for (int i = 0; sd && i < sd->ifaces.len; i++) { /* record(IShape): checked like a class (used through generics: T: IShape) */
@@ -1319,11 +1323,24 @@ static Type *instantiate(Generic *g, Type **args, int n, Pos p) {
         vpush(g->keys, key);
         vpush(g->insts, in); /* registered before it is defined: recursive uses (optional TKnoten<T>) find it */
     }
+    Generic *save_gen = g_inst_gen;
+    g_inst_gen = g;
     if (te->kind == TE_RECORD) define_record(st, te);
     else define_struct(st, te->sd);
+    g_inst_gen = save_gen;
     g_err_context = save_ctx;
     leave_generic(ss, sc, sl);
     for (int i = 0; !archetype_mode && i < g->impls.len; i++) {
+        Routine *wm = NULL; /* a 'where' method this instance does not satisfy: no body */
+        for (int k = 0; k < st->methods.len; k++)
+            if (STREQ(st->methods.items[k]->name, g->impls.items[i]->name.name) && st->methods.items[k]->where_types.len &&
+                where_missing(st->methods.items[k]))
+                wm = st->methods.items[k];
+        if (wm) {
+            wm->not_generated = 1;
+            wm->defined = 1;
+            continue;
+        }
         PendingBody pb = {g, in, g->impls.items[i], NULL, NULL, NULL};
         vpush(pending_bodies, pb);
     }
@@ -2340,6 +2357,54 @@ static void check_implements(Struct *c, Struct *i, Pos p) {
         }
 }
 
+/* 'where T: Comparable;' of a method of a generic type: T must be a type parameter of the type; the method
+   exists only for instances whose argument satisfies it (checked at the calls and before its body is made) */
+static int builtin_cons(const char *c);
+static void method_wheres(Routine *r, MethodDecl *md) {
+    for (int w = 0; w < md->where_params.len; w++) {
+        Ident tp = md->where_params.items[w];
+        int ok = 0;
+        for (int i = 0; g_inst_gen && i < g_inst_gen->params.len; i++) ok |= STREQ(g_inst_gen->params.items[i].name, tp.name);
+        if (!ok) error_at(tp.pos, "'where %s': '%s' is not a type parameter of this generic type", tp.name, tp.name);
+        if (md->virt || md->is_abstract) error_at(tp.pos, "a method with 'where' cannot be virtual or abstract");
+        Look L = lookup(tp.name);
+        for (int k = 0; k < md->where_cons.items[w].len; k++) {
+            Ident c = md->where_cons.items[w].items[k];
+            if (!builtin_cons(c.name) || STREQ(c.name, "class"))
+                error_at(c.pos, "'where' takes the built-in constraints Copy, Clone, Equatable, Comparable, Numeric and Hashable (not '%s')", c.name);
+            vpush(r->where_types, L.sym->type);
+            vpush(r->where_cons, c.name);
+            vpush(r->where_names, tp.name);
+        }
+        r->where_pos = tp.pos;
+    }
+}
+static int satisfies(Type *t, const char *c);
+static int where_flag(const char *c) {
+    return STREQ(c, "Copy") ? PC_COPY : STREQ(c, "Clone") ? PC_CLONE : STREQ(c, "Equatable") ? PC_EQ : STREQ(c, "Comparable") ? PC_CMP | PC_EQ
+         : STREQ(c, "Hashable") ? PC_HASH | PC_EQ : PC_NUM | PC_CMP | PC_EQ;
+}
+/* the borrow checker: before each generic body the flags of the previous one are undone, then r's are set */
+static Type *wf_types[64];
+static int wf_saved[64], wf_n;
+void where_flags(Routine *r, int on) {
+    while (wf_n > 0) wf_n--, wf_types[wf_n]->ik = wf_saved[wf_n];
+    for (int w = 0; on && r && w < r->where_types.len && wf_n < 64; w++) {
+        Type *t = r->where_types.items[w];
+        if (t->kind != T_PARAM) continue;
+        wf_types[wf_n] = t, wf_saved[wf_n++] = t->ik;
+        t->ik |= where_flag(r->where_cons.items[w]);
+    }
+}
+/* the first 'where' constraint a method misses (NULL: none) */
+static const char *where_missing(Routine *r) {
+    for (int i = 0; i < r->where_types.len; i++)
+        if (!satisfies(r->where_types.items[i], r->where_cons.items[i]))
+            return sfmt("\"%s.%s\" needs '%s: %s' (\"%s\" is not %s)", r->owner ? r->owner->name : "", r->name, r->where_names.items[i],
+                        r->where_cons.items[i], type_name(r->where_types.items[i]), r->where_cons.items[i]);
+    return NULL;
+}
+
 static void define_struct(Struct *s, StructDecl *sd) {
     if (sd->kind == SK_IFACE) {
         define_iface(s, sd);
@@ -2457,6 +2522,7 @@ static void define_struct(Struct *s, StructDecl *sd) {
             r->slot = s->slots.len - 1;
         }
         if (r->is_abstract) r->defined = 1;
+        method_wheres(r, md);
         vpush(s->methods, r);
     }
     for (int i = 0; i < s->ifaces.len; i++) check_implements(s, s->ifaces.items[i], s->pos);
@@ -2583,6 +2649,10 @@ static Expr *make_call(Routine *rt, Expr *base, ExprVec *args, int mode, Type *n
     ExprVec empty = {0};
     if (!args) args = &empty;
     if (rt->is_overload) rt = pick_overload(rt, base, args, mode, newcls, p);
+    if (rt->where_types.len) { /* a method with 'where T: ...' */
+        const char *why = where_missing(rt);
+        if (why) error_at(p, "%s", why);
+    }
     if (args->len != rt->params.len)
         error_at(p, "wrong number of arguments calling \"%s\" (expected %d, got %d)", rt->name, rt->params.len,
                  args->len);
@@ -6900,7 +6970,20 @@ static void check_generic_alone(Generic *g) {
             RoutineDecl *d = reparse_routine(g->impls.items[i]->toks, g->impls.items[i]->tok_start);
             inst_cls = t->st;
             g_err_context = sfmt("%s.%s", t->st->name, d->name.name);
+            int saved[16] = {0}; /* a 'where' method: its body may use what the constraints allow */
+            for (int a = 0; a < n && a < 16; a++) saved[a] = args[a]->kind == T_PARAM ? args[a]->ik : 0;
+            for (int k = 0; k < t->st->methods.len; k++) {
+                Routine *m = t->st->methods.items[k];
+                if (!STREQ(m->name, d->name.name)) continue;
+                for (int w = 0; w < m->where_types.len; w++) {
+                    Type *wt = m->where_types.items[w];
+                    if (wt->kind != T_PARAM) continue;
+                    wt->ik |= where_flag(m->where_cons.items[w]);
+                }
+            }
             routine_decl(d);
+            for (int a = 0; a < n && a < 16; a++)
+                if (args[a]->kind == T_PARAM) args[a]->ik = saved[a];
             g_err_context = NULL;
             inst_cls = NULL;
             leave_generic(ss, sc, sl);

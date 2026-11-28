@@ -72,6 +72,8 @@ typedef struct {
     IdentVec tparams; /* generic method: function Id<T>(x: T): T */
     ConsVec tcons;
     int is_operator; /* class operator Add(a, b: TVec): TVec */
+    IdentVec where_params; /* 'where T: Comparable;': the method exists only when T satisfies it */
+    ConsVec where_cons;
 } MethodDecl;
 
 typedef struct {
@@ -426,6 +428,11 @@ struct Routine {
     int is_constm; /* '; const;': method does not change Self, routine has no side effects */
     int is_classm; /* class method: no Self, called as TClass.Name(...) */
     int is_auto;   /* generated body (Clone: deep copy) */
+    VEC(Type *) where_types;  /* 'where T: Comparable': the type argument of T ... */
+    VEC(char *) where_cons;   /* ... and the constraint it must satisfy (one entry per constraint) */
+    VEC(char *) where_names;  /* ... and the name of the type parameter (T) */
+    Pos where_pos;
+    int not_generated;        /* a 'where' method of an instance that does not satisfy it: no body */
     int is_external; /* implemented in C by the runtime (cname) */
     char *c_name;    /* c_external: a C function with C types (cname is its wrapper) */
     int is_overload;   /* '; overload;': one of several routines/methods with this name */
@@ -501,7 +508,8 @@ extern int g_def_mode;
 extern int g_impl_mode; /* --implementation: where the routine declared at the place is implemented */
 const char *implementation_text(void);
 extern int g_ref_mode;  /* --references: every use of the name at the place */
-const char *references_text(void);  /* --definition: print where the name at the place is declared */
+const char *references_text(void);
+void where_flags(Routine *r, int on); /* the 'where' constraints of r on its placeholders (on: only those of r) */  /* --definition: print where the name at the place is declared */
 extern Pos g_def_pos;
 const char *hover_text(void);
 extern int g_line_dirs;     /* #line directives: C compiler messages and debuggers show the Pascal source */

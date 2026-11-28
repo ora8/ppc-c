@@ -570,6 +570,17 @@ static StructDecl *parse_struct(int kind) {
             int fwd = 0;
             parse_directives(&m.virt, &m.is_abstract, &fwd, &m.is_const, &m.is_auto);
             m.is_overload = last_overload;
+            while (is_ident("where") && T.items[P + 1].kind == TK_IDENT) { /* where T: Comparable, Copy; */
+                next();
+                Ident tp = ident();
+                expect_sym(":");
+                IdentVec c = {0};
+                do vpush(c, ident());
+                while (accept_sym(","));
+                expect_sym(";");
+                vpush(m.where_params, tp);
+                vpush(m.where_cons, c);
+            }
             m.vis = vis;
             vpush(sd->methods, m);
             continue;

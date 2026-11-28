@@ -2052,12 +2052,12 @@ void codegen(Program *p, FILE *f) {
     /* prototypes and bodies */
     for (int i = 0; i < p->routines.len; i++) {
         Routine *r = p->routines.items[i];
-        if (r->is_abstract || r->is_auto || r->is_sig || r->is_external) continue;
+        if (r->is_abstract || r->is_auto || r->is_sig || r->is_external || r->not_generated) continue;
         buf_printf(&b_protos, "static %s;\n", sig(r, 0));
     }
     for (int i = 0; i < p->routines.len; i++) {
         Routine *r = p->routines.items[i];
-        if (r->is_abstract || r->is_auto || r->is_sig || r->is_external) continue;
+        if (r->is_abstract || r->is_auto || r->is_sig || r->is_external || r->not_generated) continue;
         buf_put(&b_funcs, "static ");
         gen_routine(r);
     }

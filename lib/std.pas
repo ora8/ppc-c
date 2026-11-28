@@ -40,6 +40,7 @@ type
     procedure Put(i: Integer; vao x: T);           {* replace element i (the old one is freed) *}
     function Extract(i: Integer): optional T;      {* take element i out *}
     procedure Clear;                               {* free all elements *}
+    procedure Sort; where T: Comparable;           {* ascending (only for comparable elements) *}
     procedure SortBy(Less: reference to function(x, y: T const): Boolean); {* stable; also for objects *}
     function Before(i, k: Integer; Less: reference to function(x, y: T const): Boolean): Boolean; const; {* Less(l[i], l[k]) *}
     property Item[i: Integer]: optional T read Get write Put; default; {* l[i], l[i] := x *}
@@ -230,6 +231,16 @@ end;
 procedure TList<T>.Clear;
 begin
   SetLength(Items, 0);
+end;
+
+procedure TList<T>.Sort;
+val a: array of T := default;
+begin                                              {* the values into an array, sorted, back *}
+  SetLength(a, Length(Items));
+  for val i := 0 to High(Items) do
+    if Items[i] is some x then a[i] := x;
+  SortRange(a, 0, High(a));                        {* the Sort of arrays (inside the method, Sort is the method) *}
+  for val i := 0 to High(a) do Items[i] := a[i];
 end;
 
 function TList<T>.Before(i, k: Integer; Less: reference to function(x, y: T const): Boolean): Boolean; const;
