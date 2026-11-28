@@ -906,6 +906,11 @@ static RoutineDecl *parse_routine(void) {
             d->external = d->name.name;
         expect_sym(";");
         d->c_external = !g_allow_external;
+        if (is_ident("owned") && T.items[P + 1].kind == TK_SYM && STREQ(T.items[P + 1].s, ";")) { /* external; owned; */
+            next();
+            next();
+            d->ext_owned = 1;
+        }
         if (d->has_cls) error_at(d->pos, "a method cannot be external: declare the C function as a routine and call it from the method");
         return d;
     }

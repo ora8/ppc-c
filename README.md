@@ -1549,8 +1549,9 @@ int32_t count_char(const char *s, char c);
 * At the boundary only values that C understands are possible: integers, `Real` (`double`),
   `Boolean` (`bool`), `Char` (`char`), enumerations (`int32_t` with constants `TColor_Red`, …) and
   records of those, as value or `const` parameters (`T const` is a `const T *`) and results;
-  `String` parameters are C strings (`const char *`). Strings as results, objects, `var` parameters,
-  overloaded and generic routines cannot be exported (yet) – the compiler says why.
+  `String` parameters are C strings (`const char *`). A `String` result is a copy for C (`char *`,
+  the header says so): the caller frees it with `free()`. Objects, `var` parameters, overloaded and
+  generic routines cannot be exported (yet) – the compiler says why.
 * The main block (`begin … end.`) runs when the library is loaded; global objects of the library are
   freed when it is unloaded (also with `dlclose`).
 * Inside, the library is ordinary Perfect Pascal: modules, `std`, the borrow checker, both
@@ -1593,6 +1594,14 @@ ppc --static-libraries=libMathLib.a usemath.pas      # or linked in: no .so need
 
 * The same types as for `exports` are possible (numbers, `Boolean`, `Char`, enumerations, records
   of those; `String` parameters are passed as C strings for the time of the call).
+* A `String` result (a C `char *`) is copied. It belongs to the C side and is not freed – right for
+  functions like `getenv`. If the C function hands the string over (like an export of a Perfect
+  Pascal library), write `owned`: it is freed after copying:
+
+  ```pascal
+  function Greeting(name: String): String; external; owned;
+  function getenv(name: String): String; external;
+  ```
 * The program finds the shared objects at run time in the directories they were linked from (the
   absolute path is recorded in it), wherever it is started.
 * The declaration must match the C function – the compiler cannot check that.
@@ -2184,9 +2193,14 @@ val name := case c of Red: 'R' else 'other' end;
 * All patterns, guards and labels of a `case` statement work the same way.
 * The value must always be defined: a `case` on an enumeration with data, `optional` or `result`
   must handle every case or have an `else`; a `case` on ordinals or strings always needs an `else`.
-* All arms give the same type; Integer and Real arms give Real, Char and String arms give String.
-* The value cannot be an object or a value that owns objects (use a `case` statement), and a
-  computed selector that owns objects must be stored in a variable first.
+* All arms give the same type; Integer and Real arms give Real, Char and String arms give String,
+  objects of different classes their nearest common ancestor, a `none` arm an `optional` type.
+* Objects: every arm makes a new one (a constructor or a function that returns one) or is `none` –
+  the case expression hands it over:
+  `vao f := case kind of 1: TCircle.Create(2) else TSquare.Create(3) end;` (a `TFigure`). To choose
+  one of existing objects, use a `case` statement. Values that own objects (records with objects,
+  dynamic arrays) are not possible; a computed selector that owns objects must be stored in a
+  variable first.
 * Pattern names are read-only (`var n` is not possible), the `case` only reads its value.
 * Only the chosen arm runs: a move in two different arms is fine, after the `case` the moved value
   counts as possibly moved.

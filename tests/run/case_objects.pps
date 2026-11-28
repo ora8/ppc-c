@@ -1,0 +1,38 @@
+program CaseObjects;
+{* case expressions that give objects: every arm makes a new one (or is none); classes give their common ancestor *}
+type
+  TFigure = class {
+    function Name: String; virtual; const;
+    destructor Destroy; override;
+  }
+  TCircle = class(TFigure) { function Name: String; override; const; }
+  TSquare = class(TFigure) { function Name: String; override; const; }
+function TFigure.Name: String; const; { Result := 'figure'; }
+destructor TFigure.Destroy; { WriteLn('  freed ', Name); inherited Destroy; }
+function TCircle.Name: String; const; { Result := 'circle'; }
+function TSquare.Name: String; const; { Result := 'square'; }
+
+function Make(k: Integer): TFigure;
+{
+  Result := case k of { 1: TCircle.Create; 2: TSquare.Create else TFigure.Create };
+}
+
+function Maybe(k: Integer): optional TFigure;
+{
+  Result := case k of { 1: TCircle.Create else none };
+}
+
+{
+  for val k := 1 to 3 do
+    vao f := Make(k);
+    {
+      WriteLn(k, ': ', f.Name);
+    };
+  vao g := case 2 of { 1: TCircle.Create else TSquare.Create };
+  {
+    WriteLn('direct: ', g.Name);
+  };
+  if Maybe(1) is some m WriteLn('maybe: ', m.Name);
+  if Maybe(2) is some m WriteLn('?'); else WriteLn('maybe: none');
+  WriteLn((case 1 of { 1: TCircle.Create else TSquare.Create }).Name);
+}

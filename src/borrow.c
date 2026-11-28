@@ -864,6 +864,28 @@ static Src eval_src(Expr *e, State *s) {
     r.desc = desc_of(e);
     switch (e->kind) {
     case E_NIL: r.kind = SRC_NIL; return r;
+    case E_CASEX: /* a case expression: the new object of one of its arms */
+        if (!e->ival) {
+            use_expr(e, s);
+            return r;
+        }
+        use_expr(e->a, s);
+        return eval_src(e->b, s);
+    case E_COND:
+        if (!is_owning_temp(e->b) && e->b->kind != E_NIL && e->b->kind != E_COND) {
+            use_expr(e, s);
+            return r;
+        }
+        {
+            use_expr(e->a, s);
+            State t = st_copy(s);
+            refine(e->a, 1, &t);
+            refine(e->a, 0, s);
+            Src sb = eval_src(e->b, &t);
+            Src sc = eval_src(e->c, s);
+            st_join(s, &t);
+            return sb.kind == SRC_TEMP ? sb : sc;
+        }
     case E_RCALL: {
         Origins o = {0};
         call_effects(e, s, &o);

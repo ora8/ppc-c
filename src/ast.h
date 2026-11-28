@@ -163,6 +163,7 @@ typedef struct {
     int iface;            /* header in a module's interface section: defined in the implementation */
     char *external;       /* 'external 'c_name'': implemented in C (the runtime, or a C function / shared object) */
     int c_external;       /* a C function of a shared object or C library (not the runtime of std) */
+    int ext_owned;        /* 'external; owned;': the C string result belongs to the caller (freed after it is copied) */
     int is_overload;      /* '; overload;' */
     int has_lambda;       /* its body contains a lambda (that may capture its variables: it needs a frame) */
     int is_operator;      /* class operator TVec.Add(...) */
@@ -435,6 +436,7 @@ struct Routine {
     int not_generated;        /* a 'where' method of an instance that does not satisfy it: no body */
     int is_external; /* implemented in C by the runtime (cname) */
     char *c_name;    /* c_external: a C function with C types (cname is its wrapper) */
+    int c_owned;     /* its String result is freed after it is copied ('owned') */
     int is_overload;   /* '; overload;': one of several routines/methods with this name */
     int captures;      /* lambda nested in a routine: uses its variables through the frame (a closure) */
     int is_operator;   /* class operator: used by +, -, =, ... */

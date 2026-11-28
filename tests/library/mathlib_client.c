@@ -1,5 +1,6 @@
 /* uses the library MathLib (tests/library/mathlib.pas) from C */
 #include <stdio.h>
+#include <stdlib.h>
 #include "MathLib.h"
 
 int main(void) {
@@ -8,6 +9,9 @@ int main(void) {
     printf("Fib(30): %lld\n", (long long)Fib(30));
     printf("CountChar: %d\n", CountChar("banana", 'a'));
     printf("Shout: %d\n", Shout("perfect"));
+    char *g = Greeting("c");
+    printf("Greeting: %s\n", g);
+    free(g);
     TRect r = {{0, 0}, {10, 20}, true};
     TPoint m = Middle(r);
     printf("Middle: %d %d\n", m.X, m.Y);

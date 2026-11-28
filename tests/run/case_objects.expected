@@ -1,0 +1,13 @@
+1: circle
+  freed circle
+2: square
+  freed square
+3: figure
+  freed figure
+direct: square
+  freed square
+maybe: circle
+  freed circle
+maybe: none
+  freed circle
+circle

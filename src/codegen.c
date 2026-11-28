@@ -258,6 +258,8 @@ static void take_temp(Expr *e) {
         error_at(e->pos, "the result of '%s' refers into its container and cannot be taken over: look at it with 'is some x', or take it out (e.g. with Extract or Take)",
                  e->rt->name);
     vpush(taken_temps, e);
+    if (e->kind == E_CASEX) take_temp(e->b); /* a case expression: the new object of the arm that runs */
+    if (e->kind == E_COND) take_temp(e->b), take_temp(e->c);
     if (e->kind == E_LIST || e->kind == E_RECLIT)
         for (int i = 0; i < e->args.len; i++) take_temp(e->args.items[i]);
 }
@@ -1696,11 +1698,13 @@ static void gen_exports(Program *p) {
             }
         }
         if (!r->params.len) buf_put(&ps, "void");
-        const char *rt = r->ret ? ctype(r->ret) : "void";
+        int sret = r->ret && r->ret->kind == T_STR; /* a String result: a malloc'ed C string, the caller frees it */
+        const char *rt = !r->ret ? "void" : sret ? "char *" : ctype(r->ret);
         buf_printf(&b_funcs, "__attribute__((visibility(\"default\"))) %s %s(%s) {\n", rt, p->exports.items[i].cname, buf_str(&ps));
         buf_put(&b_funcs, "  size_t __sm = __ppc_mark();\n");
         buf_put(&b_funcs, buf_str(&pre));
-        if (r->ret) buf_printf(&b_funcs, "  %s __r = %s(%s);\n", rt, r->cname, buf_str(&args));
+        if (sret) buf_printf(&b_funcs, "  char *__r = __cz(%s(%s));\n", r->cname, buf_str(&args));
+        else if (r->ret) buf_printf(&b_funcs, "  %s __r = %s(%s);\n", rt, r->cname, buf_str(&args));
         else buf_printf(&b_funcs, "  %s(%s);\n", r->cname, buf_str(&args));
         buf_put(&b_funcs, "  __ppc_release(__sm);\n  fflush(stdout);\n");
         if (r->ret) buf_put(&b_funcs, "  return __r;\n");
@@ -1745,7 +1749,8 @@ void codegen_header(Program *p, FILE *f) {
     hdr_done.len = 0;
     for (int i = 0; i < p->exports.len; i++) {
         Routine *r = p->exports.items[i].rt;
-        buf_printf(&fns, "%s %s(", r->ret ? hdr_type(r->ret, &types) : "void", p->exports.items[i].cname);
+        if (r->ret && r->ret->kind == T_STR) buf_printf(&fns, "/* the result is a copy: free() it */\n");
+        buf_printf(&fns, "%s %s(", !r->ret ? "void" : r->ret->kind == T_STR ? "char *" : hdr_type(r->ret, &types), p->exports.items[i].cname);
         for (int k = 0; k < r->params.len; k++) {
             Param *pm = &r->params.items[k];
             const char *t = hdr_type(pm->type, &types);
@@ -2042,11 +2047,15 @@ void codegen(Program *p, FILE *f) {
                 buf_printf(&args, "%sp%d", sep, k);
             }
         }
+        int sret = r->ret && r->ret->kind == T_STR; /* a C string result: copied (it belongs to the C side) */
         const char *rt = r->ret ? ctype(r->ret) : "void";
-        buf_printf(&b_protos, "extern %s %s(%s);\n", rt, r->c_name, r->params.len ? buf_str(&cps) : "void");
+        buf_printf(&b_protos, "extern %s %s(%s);\n", sret ? "char *" : rt, r->c_name, r->params.len ? buf_str(&cps) : "void");
         buf_printf(&b_protos, "static %s %s(%s);\n", rt, r->cname, r->params.len ? buf_str(&ps) : "void");
         buf_printf(&b_funcs, "static %s %s(%s) {\n%s", rt, r->cname, r->params.len ? buf_str(&ps) : "void", buf_str(&pre));
-        if (r->ret) buf_printf(&b_funcs, "  %s __r = %s(%s);\n%s  return __r;\n}\n", rt, r->c_name, buf_str(&args), buf_str(&post));
+        if (sret)
+            buf_printf(&b_funcs, "  char *__c = %s(%s);\n  PStr __r = __c ? __pstr_mem(__c, (int64_t)strlen(__c)) : __pstr_lit(\"\", 0);\n%s%s  return __r;\n}\n",
+                       r->c_name, buf_str(&args), buf_str(&post), r->c_owned ? "  free(__c);\n" : "");
+        else if (r->ret) buf_printf(&b_funcs, "  %s __r = %s(%s);\n%s  return __r;\n}\n", rt, r->c_name, buf_str(&args), buf_str(&post));
         else buf_printf(&b_funcs, "  %s(%s);\n%s}\n", r->c_name, buf_str(&args), buf_str(&post));
     }
     /* prototypes and bodies */

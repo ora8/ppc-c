@@ -46,6 +46,11 @@ function Shout(s: String): Integer;    {* the library can print and use std *}
   Result := words.Count;
 }
 
+function Greeting(name: String): String;   {* a String result: C gets a copy and frees it *}
+{
+  Result := 'Hello, ' + UpperCase(name) + '!';
+}
+
 function Middle(r: TRect): TPoint;   {* records by value *}
 {
   Result.X := (r.TopLeft.X + r.BottomRight.X) div 2;
@@ -78,7 +83,7 @@ procedure Hello;
 }
 
 exports
-  Add, Area name 'mathlib_area', Fib, CountChar, Shout, Middle, Width, Next, IsEven, Calls, Hello;
+  Add, Area name 'mathlib_area', Fib, CountChar, Shout, Greeting, Middle, Width, Next, IsEven, Calls, Hello;
 
 {
   WriteLn('MathLib loaded');

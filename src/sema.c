@@ -336,6 +336,7 @@ int has_owned(Type *t) {
 /* an expression that yields a freshly owned object nobody holds yet */
 int is_owning_temp(Expr *e) {
     while (e->kind == E_CONV || e->kind == E_CAST || e->kind == E_AS) e = e->a;
+    if (e->kind == E_CASEX) return e->ival; /* a case expression whose arms make new objects */
     if (e->kind == E_TRY) return is_ref_type(e->type); /* 'try Open(...)': the object of a fresh result */
     if (e->kind == E_RCALL) {
         Routine *r = e->rt;
@@ -4391,10 +4392,51 @@ static Expr *case_expr(Expr *e) {
         if (!rt) rt = v->type;
         else if (is_int(rt) && v->type->kind == T_REAL) rt = t_real;
         else if (rt->kind == T_CHAR && v->type->kind == T_STR) rt = t_str;
+        else if (rt->kind == T_CLASS && v->type->kind == T_CLASS && !rt->st->is_iface && !v->type->st->is_iface) {
+            /* objects of different classes: their nearest common ancestor (optional if one arm is) */
+            Struct *c = rt->st;
+            while (c && !struct_descends(v->type->st, c)) c = c->parent;
+            int nil = rt->nilable || v->type->nilable;
+            if (c && (c != rt->st || nil != rt->nilable)) {
+                rt = c->type;
+                if (nil) { /* optional TFigure */
+                    Type *o = NEW(Type);
+                    *o = *rt;
+                    o->nilable = 1;
+                    o->name = sfmt("optional %s", type_name(rt));
+                    rt = o;
+                }
+            }
+        }
     }
     if (!rt) error_at(p, "the type of the case expression cannot be determined from its values");
-    if (is_owning_type(rt) || has_owned(rt) || (rt->kind == T_OPT && is_ref_type(rt->base)))
-        error_at(p, "a case expression cannot give objects or values that own them (\"%s\"): use a case statement", type_name(rt));
+    for (int i = 0; i <= n; i++) { /* an arm 'none': the value is optional */
+        Expr *v = i < n ? vals[i] : ev;
+        if (!v || v->type->kind != T_NIL || is_optional(rt)) continue;
+        if (rt->kind == T_CLASS) {
+            Type *o = NEW(Type);
+            *o = *rt;
+            o->nilable = 1;
+            o->name = sfmt("optional %s", type_name(rt));
+            rt = o;
+        } else {
+            Type *o = new_type(T_OPT, sfmt("optional %s", type_name(rt)));
+            o->base = rt;
+            rt = o;
+        }
+    }
+    int owning = 0; /* objects: each arm makes a new one (or is none); the case expression hands it over */
+    if (is_owning_type(rt) || (rt->kind == T_OPT && is_ref_type(rt->base))) {
+        for (int i = 0; i <= n; i++) {
+            Expr *v = i < n ? vals[i] : ev;
+            if (!v || v->kind == E_NIL) continue;
+            if (!is_owning_temp(v))
+                error_at(v->pos, "a case expression that gives an object needs a new object in every arm (a constructor or a function "
+                                 "that returns one); to choose one of existing objects use a case statement");
+        }
+        owning = 1;
+    } else if (has_owned(rt))
+        error_at(p, "a case expression cannot give values that own objects (\"%s\"): use a case statement", type_name(rt));
     for (int i = 0; i < n; i++) vals[i] = coerce(vals[i], rt, "case value");
     if (ev) ev = coerce(ev, rt, "case value");
     if (!ev) { /* every case is handled: the last test never fails */
@@ -4416,6 +4458,7 @@ static Expr *case_expr(Expr *e) {
     r->a = hv ? probe : NULL;
     r->b = chain;
     r->type = rt;
+    r->ival = owning; /* is_owning_temp: a new object */
     return r;
 }
 
@@ -6538,6 +6581,9 @@ static void routine_decl(RoutineDecl *d) {
             }
             rt->c_name = d->external;
             rt->cname = sfmt("E%d_%s", rt->id, d->name.name);
+            rt->c_owned = d->ext_owned;
+            if (d->ext_owned && !(rt->ret && rt->ret->kind == T_STR))
+                error_at(d->pos, "'owned' is for a C function whose String result the caller frees (a String result)");
         }
         return;
     }
@@ -7047,7 +7093,7 @@ const char *hover_text(void) {
 static const char *export_type_problem(Type *t, int is_result) {
     switch (t->kind) {
     case T_INT: case T_REAL: case T_BOOL: case T_CHAR: case T_ENUM: return NULL;
-    case T_STR: return is_result ? "a String result (who would free it?) is not possible yet" : NULL;
+    case T_STR: return NULL; /* a parameter: a C string for the call; a result: exports give a malloc'ed copy, externals are copied */
     case T_RECORD:
         if (t->st->is_sum) return "an enumeration with data is not possible";
         for (int i = 0; i < t->st->fields.len; i++) {

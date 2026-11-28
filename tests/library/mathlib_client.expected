@@ -5,6 +5,7 @@ Fib(30): 832040
 CountChar: 3
 PERFECT!
 Shout: 1
+Greeting: Hello, C!
 Middle: 5 10
 Width: 10
 Next: 2 0

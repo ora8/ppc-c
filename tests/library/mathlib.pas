@@ -46,6 +46,11 @@ begin
   Result := words.Count;
 end;
 
+function Greeting(name: String): String;   {* a String result: C gets a copy and frees it *}
+begin
+  Result := 'Hello, ' + UpperCase(name) + '!';
+end;
+
 function Middle(r: TRect): TPoint;   {* records by value *}
 begin
   Result.X := (r.TopLeft.X + r.BottomRight.X) div 2;
@@ -78,7 +83,7 @@ begin
 end;
 
 exports
-  Add, Area name 'mathlib_area', Fib, CountChar, Shout, Middle, Width, Next, IsEven, Calls, Hello;
+  Add, Area name 'mathlib_area', Fib, CountChar, Shout, Greeting, Middle, Width, Next, IsEven, Calls, Hello;
 
 begin
   WriteLn('MathLib loaded');

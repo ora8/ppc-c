@@ -8,3 +8,5 @@ Next: 1 TRUE
 IsEven: TRUE FALSE
 Calls: 2
 cbrt: 3.0
+Greeting: Hello, PASCAL!
+getenv: []

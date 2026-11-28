@@ -21,6 +21,8 @@ function Next(c: TColor): TColor; external;
 function IsEven(n: Integer): Boolean; external;
 function Calls: Integer; external;
 function cbrt(x: Real): Real; external;                    {* a function of the C library (libm) *}
+function Greeting(name: String): String; external; owned;  {* the library hands the string over: freed after copying *}
+function getenv(name: String): String; external;           {* a C string that belongs to the C library: only copied *}
 
 val r: TRect := (TopLeft: (X: 2; Y: 4); BottomRight: (X: 12; Y: 8); Visible: True);
 val m: TPoint := default;
@@ -36,4 +38,6 @@ val word: String := 'Mississippi';
   WriteLn('IsEven: ', IsEven(10), ' ', IsEven(3));
   WriteLn('Calls: ', Calls);
   WriteLn('cbrt: ', cbrt(27.0):0:1);
+  WriteLn('Greeting: ', Greeting('pascal'));
+  WriteLn('getenv: [', getenv('PPC_SURELY_UNSET_VARIABLE'), ']');
 }
