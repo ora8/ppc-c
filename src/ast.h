@@ -384,6 +384,7 @@ struct Var {
     char *name;
     char *cname;
     Type *type;
+    VEC(struct Var *) meth_objs; /* a 'reference to' variable that holds method values: their objects (borrow checker) */
     int level;
     int in_frame;
     int is_ref;   /* C variable holds a pointer to the value */

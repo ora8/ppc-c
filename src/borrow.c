@@ -303,6 +303,16 @@ static int is_case_sel(Var *v) { return strncmp(v->name, "__sum", 5) == 0 || str
 
 static void check_var_use(Var *v, Pos p, State *s) {
     if (!s->reach) return;
+    for (int k = 0; k < v->meth_objs.len; k++) { /* f := c.Tick: using f uses c */
+        Var *o = v->meth_objs.items[k];
+        int j = slot(o);
+        if (j < 0) continue;
+        if (tv.items[j].kind == TV_OWNER && (s->own[j] & (O_FREED | O_MOVED)))
+            berror(p, "'%s' holds a method value of '%s', which %s %s", v->name, o->name, (s->own[j] & (O_OWNED | O_UNK)) ? "may have been" : "was",
+                   (s->own[j] & O_FREED) ? "freed" : "moved away");
+        else if (tv.items[j].kind == TV_BORROW && (s->bor[j] & B_DANGLING))
+            berror(p, "'%s' holds a method value of '%s', but %s", v->name, o->name, s->why[j] ? s->why[j] : "its object is gone");
+    }
     int i = slot(v);
     if (i < 0) return;
     if (tv.items[i].kind == TV_OWNER) {
@@ -1382,6 +1392,7 @@ static void borrowed_from_arg(Expr *a, const char *path, Var *root, Origins *out
 
 static void call_effects_inner(Expr *e, State *s, Origins *out);
 static void call_effects(Expr *e, State *s, Origins *out) {
+    if (e->cmode == CM_INDIRECT && e->b && e->b->kind == E_VAR) check_var_use(e->b->var, e->b->pos, s); /* f; with f := c.Tick */
     if (e->rt && e->rt->enum_self && !e->forin)
         berror(e->pos, "'%s.GetEnumerator' gives an enumerator that refers to the %s: only 'for ... in' can use it",
                e->rt->owner->name, e->rt->owner->name);

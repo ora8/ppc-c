@@ -4956,11 +4956,25 @@ static void closure_of(Type *t) {
     t->name = sfmt("reference to %s", proc_name(t->proc));
 }
 
+/* a method value stored in a local 'reference to' variable (val f: reference to procedure := c.Tick): the
+   variable notes the object, so the borrow checker can check every use of f; elsewhere it may only be passed */
+static int store_method_value(Expr *lhs, Expr *e) {
+    if (!e || e->kind != E_METHREF || !lhs || lhs->kind != E_VAR) return 0;
+    Var *v = lhs->var;
+    if (v->type->kind != T_PROC || !v->type->closure || v->is_global || v->vkind == VK_RESULT) return 0;
+    Expr *b = e->a;
+    while (b->kind == E_CONV || b->kind == E_CAST) b = b->a;
+    if (b->kind != E_VAR) return 0;
+    for (int i = 0; i < v->meth_objs.len; i++)
+        if (v->meth_objs.items[i] == b->var) return 1;
+    vpush(v->meth_objs, b->var);
+    return 1;
+}
 /* a method value only lives as long as the call it is passed to: it may not be stored (its object could be freed) */
 static void no_method_value(Expr *e) {
     if (e && e->kind == E_METHREF)
-        error_at(e->pos, "a method value can only be passed directly as an argument ('%s' could be freed while the value is kept); use a lambda that calls it",
-                 e->a->kind == E_VAR ? e->a->var->name : "its object");
+        error_at(e->pos, "a method value can only be passed as an argument or stored in a local 'reference to' variable, and its object must be a variable (%s could be freed while the value is kept)",
+                 e->a->kind == E_VAR ? sfmt("'%s'", e->a->var->name) : "this object");
 }
 /* obj.Show as a function value: the method together with its object (a closure whose frame is the object) */
 static Expr *method_value(Routine *m, Expr *base, int mode, Pos p) {
@@ -5872,7 +5886,7 @@ static void assign(Stmt *s) {
         s->a = value(l);
 normal:
     check_writable(s->a, "assignment");
-    s->b = coerce(value(s->b), s->a->type, "assignment");
+    s->b = coerce(s->a->type->kind == T_PROC ? ex(s->b) : value(s->b), s->a->type, "assignment");
 }
 
 static void stmt(Stmt *s) {
@@ -5881,7 +5895,7 @@ static void stmt(Stmt *s) {
     case S_ASSIGN:
         assign(s);
         if (s->kind == S_ASSIGN && !s->bind) move_check(s->b, "assignment"); /* a 'var' result refers, it does not move */
-        if (s->kind == S_ASSIGN && s->b) no_method_value(s->b);
+        if (s->kind == S_ASSIGN && s->b && !store_method_value(s->a, s->b)) no_method_value(s->b);
         if (s->kind == S_ASSIGN && cur && cur->owner && STREQ(cur->name, "GetEnumerator") && s->a->kind == E_FIELD &&
             s->a->field->borrowed && root_var(s->a) == cur->result)
             cur->enum_self = 1; /* Result.List := Self: the enumerator refers to its container */
@@ -6294,7 +6308,7 @@ static void routine_body(Routine *rt, RoutineDecl *d);
 
 static void add_init(StmtVec *dst, Var *v, Expr *init) {
     Stmt *s = new_stmt(S_ASSIGN, init->pos);
-    Expr *r = value(init);
+    Expr *r = v->type->kind == T_PROC ? ex(init) : value(init); /* f: reference to procedure := c.Tick: the method, not a call */
     if (v->is_box && !(r->type->kind == T_PTR && r->type->base)) { /* heap value: store into the (new) cell */
         Expr *d = new_expr(E_DEREF, init->pos);
         d->a = var_expr(v, init->pos);
@@ -6305,7 +6319,7 @@ static void add_init(StmtVec *dst, Var *v, Expr *init) {
         s->a = var_expr(v, init->pos);
         s->b = coerce(r, v->type, "initializer");
     }
-    no_method_value(s->b);
+    if (!store_method_value(s->a, s->b)) no_method_value(s->b);
     move_check(s->b, "initializer");
     vpush(*dst, s);
 }

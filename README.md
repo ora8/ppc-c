@@ -2078,10 +2078,20 @@ SortBy(names, cmp.Less);              {* a const method as the comparison *}
 Twice(counter.Tick);                  {* a method without parameters: not called here *}
 ```
 
-* A method value can only be **passed directly as an argument**: during the call its object
-  surely exists. To keep it in a variable, use a lambda that calls the method
-  (`val f := procedure begin counter.Tick; end`) – the closure rules then apply.
-* The object must be a variable (not a temporary object), a read-only object only gives `const`
+* A method value can be **passed as an argument** or **stored in a local `reference to`
+  variable** (like a closure, it cannot leave the routine):
+
+  ```pascal
+  val f: reference to procedure := counter.Tick;   {* also: f := other.Tick; inside a method: Tick *}
+  f;
+  Twice(f);
+  ```
+
+  The variable remembers the objects of its method values, and the borrow checker checks every
+  use: `'f' holds a method value of 'counter', which was moved away`. A variable that held method
+  values of several objects needs all of them. The object must be a variable (a method value of
+  a field, `box.Inner.Tick`, can only be passed).
+* The object must not be a temporary object, a read-only object only gives `const`
   methods, and the borrow checker forbids moving or `var`-passing the object in the same call.
   Overloaded methods, class methods and constructors cannot be values.
 
