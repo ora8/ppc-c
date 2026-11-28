@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/wait.h>
+#include <pthread.h>
 #include <locale.h>
 #include <wctype.h>
 #include <string.h>
@@ -104,8 +105,8 @@ static void *__nilchk(void *p, int line, int col) {
  * the end of its scope). Results of string operations are temporaries: they are registered in a
  * pool that is emptied after every statement (down to the mark of the running routine).
  * Literals are views of static memory and are never freed. */
-static PStr *__tp;
-static size_t __tpn, __tpc;
+static _Thread_local PStr *__tp; /* one pool per thread */
+static _Thread_local size_t __tpn, __tpc;
 static PStr __ppc_tmp(PStr s) {
     if (!s.p) return s;
     if (__tpn == __tpc) {
@@ -317,7 +318,7 @@ static PStr __r_str(void) { /* ReadLn(s): the rest of the line */
 static void __r_ln(void) { int c; while ((c = getchar()) != EOF && c != '\n') {} }
 
 /* ---- misc ---- */
-static uint64_t __rnd_state = 88172645463325252ULL;
+static _Thread_local uint64_t __rnd_state = 88172645463325252ULL;
 static uint64_t __rnd_next(void) { __rnd_state ^= __rnd_state << 13; __rnd_state ^= __rnd_state >> 7; __rnd_state ^= __rnd_state << 17; return __rnd_state; }
 static int32_t __random_int(int64_t n) { if (n <= 0) return 0; return (int32_t)(__rnd_next() % (uint64_t)n); }
 static double __random_real(void) { return (double)(__rnd_next() >> 11) / 9007199254740992.0; }
@@ -487,7 +488,7 @@ static uint8_t __std_trystrtofloat(PStr s, double *v) {
     return ok;
 }
 /* files: whole-file reading and writing; the last error message is kept for the Pascal wrappers */
-static char __std_err[512];
+static _Thread_local char __std_err[512];
 static void __std_seterr(const char *what, PStr name) {
     char *n = __cz(name);
     snprintf(__std_err, sizeof __std_err, "%s '%s': %s", what, n, strerror(errno));
@@ -527,23 +528,26 @@ static uint32_t __std_uchr(int64_t code) {
     if (code < 0 || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF)) __rt_error(201, "UChr: not a Unicode code point");
     return (uint32_t)code;
 }
-static void __u_locale(void) { /* towupper and iswalpha need a UTF-8 locale for more than ASCII */
-    static int done;
-    if (done) return;
-    done = 1;
-    if (!setlocale(LC_CTYPE, "C.UTF-8") && !setlocale(LC_CTYPE, "C.utf8")) setlocale(LC_CTYPE, "en_US.UTF-8");
+static locale_t __u_loc;   /* a UTF-8 locale for towupper_l and iswalpha_l (more than ASCII); made once, used by every thread */
+static void __u_loc_make(void) {
+    __u_loc = newlocale(LC_CTYPE_MASK, "C.UTF-8", (locale_t)0);
+    if (!__u_loc) __u_loc = newlocale(LC_CTYPE_MASK, "C.utf8", (locale_t)0);
+    if (!__u_loc) __u_loc = newlocale(LC_CTYPE_MASK, "en_US.UTF-8", (locale_t)0);
+    if (!__u_loc) __u_loc = newlocale(LC_CTYPE_MASK, "C", (locale_t)0);
 }
-static uint32_t __std_uupcase(uint32_t c) { __u_locale(); return (uint32_t)towupper((wint_t)c); }
-static uint32_t __std_ulowcase(uint32_t c) { __u_locale(); return (uint32_t)towlower((wint_t)c); }
+static pthread_once_t __u_loc_once = PTHREAD_ONCE_INIT;
+static locale_t __u_locale(void) { pthread_once(&__u_loc_once, __u_loc_make); return __u_loc; }
+static uint32_t __std_uupcase(uint32_t c) { return (uint32_t)towupper_l((wint_t)c, __u_locale()); }
+static uint32_t __std_ulowcase(uint32_t c) { return (uint32_t)towlower_l((wint_t)c, __u_locale()); }
 static PStr __u_map(PStr s, int up) {
-    __u_locale();
+    locale_t loc = __u_locale();
     PStr r = __pstr_new(s.len * 2 + 4);
     int64_t o = 0;
     for (int64_t i = 0; i < s.len;) {
         int l;
         uint32_t c = __utf8_dec(s.p, s.len, i, &l);
         i += l;
-        c = (uint32_t)(up ? towupper((wint_t)c) : towlower((wint_t)c));
+        c = (uint32_t)(up ? towupper_l((wint_t)c, loc) : towlower_l((wint_t)c, loc));
         if (o + 4 > r.len) { r.p = (unsigned char *)realloc(r.p, (size_t)(r.len *= 2) + 1); }
         o += __utf8_enc(c, r.p + o);
     }
@@ -552,11 +556,11 @@ static PStr __u_map(PStr s, int up) {
 }
 static PStr __std_uuppercase(PStr s) { return __u_map(s, 1); }
 static PStr __std_ulowercase(PStr s) { return __u_map(s, 0); }
-static uint8_t __std_uisletter(uint32_t c) { __u_locale(); return iswalpha((wint_t)c) != 0; }
-static uint8_t __std_uisdigit(uint32_t c) { __u_locale(); return iswdigit((wint_t)c) != 0; }
-static uint8_t __std_uisspace(uint32_t c) { __u_locale(); return iswspace((wint_t)c) != 0; }
-static uint8_t __std_uisupper(uint32_t c) { __u_locale(); return iswupper((wint_t)c) != 0; }
-static uint8_t __std_uislower(uint32_t c) { __u_locale(); return iswlower((wint_t)c) != 0; }
+static uint8_t __std_uisletter(uint32_t c) { return iswalpha_l((wint_t)c, __u_locale()) != 0; }
+static uint8_t __std_uisdigit(uint32_t c) { return iswdigit_l((wint_t)c, __u_locale()) != 0; }
+static uint8_t __std_uisspace(uint32_t c) { return iswspace_l((wint_t)c, __u_locale()) != 0; }
+static uint8_t __std_uisupper(uint32_t c) { return iswupper_l((wint_t)c, __u_locale()) != 0; }
+static uint8_t __std_uislower(uint32_t c) { return iswlower_l((wint_t)c, __u_locale()) != 0; }
 static uint8_t __std_isvalidutf8(PStr s) {
     for (int64_t i = 0; i < s.len;) {
         int l;
@@ -567,6 +571,28 @@ static uint8_t __std_isvalidutf8(PStr s) {
     }
     return 1;
 }
+
+/* ---- threads: TThread / Start / TRunning.Join in std ---- */
+static void (*__ppc_thread_run)(void *); /* std's __RunThread (it calls Execute): set by the program at its start */
+static void *__ppc_thread_main(void *obj) {
+    size_t m = __ppc_mark();
+    __ppc_thread_run(obj);
+    __ppc_release(m);
+    free(__tp); /* this thread's pool of temporary strings */
+    __tp = NULL;
+    __tpn = __tpc = 0;
+    fflush(stdout);
+    return NULL;
+}
+static int64_t __std_thread_start(void *obj) {
+    pthread_t t;
+    fflush(stdout);
+    if (!__ppc_thread_run || pthread_create(&t, NULL, __ppc_thread_main, obj) != 0) __rt_error(241, "a thread could not be started");
+    return (int64_t)t;
+}
+static void __std_thread_join(int64_t h) { pthread_join((pthread_t)h, NULL); }
+static void __std_thread_fail(PStr msg) { fflush(stdout); fprintf(stderr, "Runtime error 242: %.*s\n", (int)msg.len, (const char *)msg.p); exit(242); }
+static int32_t __std_cpucount(void) { long n = sysconf(_SC_NPROCESSORS_ONLN); return n > 0 ? (int32_t)n : 1; }
 
 /* ---- standard input and other programs ---- */
 static uint8_t __std_eof(void) { int c = getchar(); if (c == EOF) return 1; ungetc(c, stdin); return 0; }

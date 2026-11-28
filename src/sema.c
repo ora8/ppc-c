@@ -2550,6 +2550,12 @@ static void define_struct(Struct *s, StructDecl *sd) {
         vpush(s->methods, r);
     }
     for (int i = 0; i < s->ifaces.len; i++) check_implements(s, s->ifaces.items[i], s->pos);
+    for (Struct *c = s->parent; c; c = c->parent) /* a thread class (std's TThread): it owns all its data */
+        if (STREQ(c->name, "TThread") && STREQ(POS_FILE(c->pos), "std.pas"))
+            for (int i = 0; i < s->fields.len; i++)
+                if (s->fields.items[i]->owner == s && s->fields.items[i]->borrowed)
+                    error_at(s->fields.items[i]->pos, "a thread class cannot have the 'var' field '%s': the thread would use an object of "
+                                                      "the program at the same time (give it the object itself)", s->fields.items[i]->name);
     for (int i = 0; i < sd->props.len; i++) {
         PropDecl *pd = &sd->props.items[i];
         Prop *p = NEW(Prop);

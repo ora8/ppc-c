@@ -548,6 +548,7 @@ typedef struct {
 
 static void use_expr(Expr *e, State *s);
 static void exit_checks(State *s, Pos p);
+static void threads_check(Program *p);
 static void use_lvalue(Expr *e, State *s);
 static void refine(Expr *c, int truth, State *s);
 static Src eval_src(Expr *e, State *s);
@@ -1803,6 +1804,7 @@ static void an_stmt(Stmt *st, State *s) {
             eval_src(e, s); /* an owned result nobody takes is freed by the generated code */
         } else if (e->kind == E_BUILTIN) {
             builtin_effects(e, s);
+            if (e->bi == BI_HALT) s->reach = 0; /* Halt: the program ends here, nothing after it runs */
         } else
             use_expr(e, s);
         return;
@@ -2085,6 +2087,69 @@ static void compute_write_sets(void) {
     }
 }
 
+/* ---- threads: Execute of a TThread (std) and everything it calls must not use global variables ---- */
+static Expr *gl_first;
+static void gl_stmt(Stmt *s);
+static void gl_expr(Expr *e) {
+    if (!e || gl_first) return;
+    if (e->kind == E_VAR && e->var->is_global && strncmp(e->var->name, "__", 2) != 0) {
+        gl_first = e;
+        return;
+    }
+    gl_expr(e->a);
+    gl_expr(e->b);
+    gl_expr(e->c);
+    for (int i = 0; i < e->args.len; i++) gl_expr(e->args.items[i]);
+    for (int i = 0; i < e->args2.len; i++) gl_expr(e->args2.items[i]);
+}
+static void gl_stmt(Stmt *s) {
+    if (!s || gl_first) return;
+    gl_expr(s->a);
+    gl_expr(s->b);
+    gl_expr(s->c);
+    gl_stmt(s->s1);
+    gl_stmt(s->s2);
+    for (int i = 0; i < s->body.len; i++) gl_stmt(s->body.items[i]);
+    for (int i = 0; i < s->arms.len; i++) gl_stmt(s->arms.items[i].body);
+    for (int i = 0; i < s->else_.len; i++) gl_stmt(s->else_.items[i]);
+    if (s->kind == S_BLOCK)
+        for (int i = 0; i < s->blk->body.len; i++) gl_stmt(s->blk->body.items[i]);
+}
+static void threads_check(Program *p) {
+    Struct *tt = NULL;
+    for (int i = 0; i < p->structs.len; i++)
+        if (STREQ(p->structs.items[i]->name, "TThread") && STREQ(POS_FILE(p->structs.items[i]->pos), "std.pas")) tt = p->structs.items[i];
+    if (!tt) return;
+    for (int i = 0; i < p->routines.len; i++) {
+        Routine *ex = p->routines.items[i];
+        if (!ex->owner || ex->owner == tt || !STREQ(ex->name, "Execute") || !struct_descends(ex->owner, tt) || ex->gen_id) continue;
+        VEC(Routine *) todo = {0}, seen = {0};
+        vpush(todo, ex);
+        while (todo.len) {
+            Routine *r = todo.items[--todo.len];
+            int done = 0;
+            for (int k = 0; k < seen.len && !done; k++) done = seen.items[k] == r;
+            if (done || r->prelude) continue;
+            vpush(seen, r);
+            gl_first = NULL;
+            for (int k = 0; k < r->body.len; k++) gl_stmt(r->body.items[k]);
+            if (gl_first) {
+                berror(gl_first->pos, "%s.%s runs in its own thread and must not use the global variable '%s'%s: threads do not share variables "
+                                      "(give the data to the thread object)", ex->owner->name, ex->name, gl_first->var->name,
+                       r != ex ? sfmt(" (through '%s')", r->owner ? sfmt("%s.%s", r->owner->name, r->name) : r->name) : "");
+                break;
+            }
+            for (int k = 0; k < callees[r->id].len; k++) {
+                Routine *c = callees[r->id].items[k];
+                for (int q = 0; q < p->routines.len; q++) {
+                    Routine *cc = p->routines.items[q];
+                    if (cc == c || (c->slot >= 0 && cc->owner && STREQ(cc->name, c->name))) vpush(todo, cc);
+                }
+            }
+        }
+    }
+}
+
 /* ============================================================== units */
 
 static void track(Var *v, int kind, int varparam) {
@@ -2150,6 +2215,7 @@ int borrow_check(Program *p) {
         compute_write_sets();
         p->routines = saved;
     }
+    threads_check(p);
     for (int i = 0; i < p->structs.len && g_nil_check; i++) {
         Struct *c = p->structs.items[i];
         if (c->kind != SK_CLASS) continue;

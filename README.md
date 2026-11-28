@@ -2375,6 +2375,46 @@ for val x in bag do Write(x, ' ');
   loop runs`).
 * `GetEnumerator` takes precedence over `Count`/`Get(i)`.
 
+## Threads: `TThread`, `Start` and `Join`
+
+A thread is an object of a class derived from `TThread` (in `std`); its `Execute` runs in the new
+thread. `Start` takes the object (it moves into the thread) and returns a `TRunning<T>`; `Join`
+waits for the end and gives the object back, with the results in its fields:
+
+```pascal
+type
+  TSum = class(TThread)
+    From, Upto, Total: Int64;
+    procedure Execute; override;
+  end;
+procedure TSum.Execute;
+begin
+  for val i := From to Upto do Total := Total + i;
+end;
+
+vao a := TSum.Create;
+begin
+  a.From := 1; a.Upto := 1000000;
+  vao r := Start(a);                 {* a has moved: using it here is an error *}
+  begin
+    vao d := r.Join;                 {* the object is back *}
+    begin WriteLn(d.Total); end;
+  end;
+end.
+```
+
+The ownership rules make threads safe without locks: a thread only uses its own object.
+
+* `Execute` (and every routine it calls) must not use a global variable: `TSum.Execute runs in its
+  own thread and must not use the global variable 'count': threads do not share variables (give
+  the data to the thread object)`.
+* A thread class cannot have `var` fields (borrowed objects of the program); its owned fields
+  (lists, strings, other objects) move into the thread with it.
+* A `TRunning` that is freed without `Join` waits for its thread and frees the object.
+* A run-time error in a thread ends the whole program; `CPUCount` gives the number of processors.
+* The run-time state (exceptions, `Random`, the temporary strings) is per thread, so `std` works in
+  every thread. Channels or shared data between running threads are not supported yet.
+
 ## Endless loop: `loop`
 
 `loop <statement>` repeats the statement without a condition (like `loop` in Rust); it is left

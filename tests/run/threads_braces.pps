@@ -1,0 +1,34 @@
+program ThreadsBraces;
+{* the threads test in the brace syntax *}
+import std;
+type
+  TCount = class(TThread) {
+    Text: String;
+    Letters: Integer;
+    constructor Create(AText: String);
+    procedure Execute; override;
+  }
+constructor TCount.Create(AText: String);
+{
+  inherited Create;
+  Text := AText;
+}
+procedure TCount.Execute;
+{
+  for val ch in UChars(Text) do
+    if UIsLetter(ch) Inc(Letters);
+}
+vao x := TCount.Create('Grüße, κόσμε!');
+vao y := TCount.Create('1, 2, drei');
+{
+  vao rx := Start(x);
+  vao ry := Start(y);
+  {
+    vao dx := rx.Join;
+    vao dy := ry.Join;
+    {
+      WriteLn(dx.Text, ' ', dx.Letters);
+      WriteLn(dy.Text, ' ', dy.Letters);
+    }
+  }
+}

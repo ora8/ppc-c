@@ -391,6 +391,7 @@ int main(int argc, char **argv) {
     av[n++] = "-w";
     av[n++] = "-fwrapv";
     av[n++] = "-fno-strict-aliasing";
+    av[n++] = "-pthread"; /* threads (std: Start) */
     char *ofile = sfmt("/tmp/ppc_%d_out.o", (int)getpid());
     if (static_lib) /* a static library: one object file whose only global symbols are the exports */
         av[n++] = "-c", av[n++] = "-fPIC", av[n++] = "-fvisibility=hidden", av[n++] = "-o", av[n++] = ofile, av[n++] = cfile;

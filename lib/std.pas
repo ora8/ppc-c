@@ -91,6 +91,24 @@ procedure SortList<T: Comparable>(l: TList<T>);    {* the elements of a list in 
 procedure SortBy<T: Copy>(var a: array of T; Less: reference to function(x, y: T): Boolean);
 function IndexOf<T: Equatable>(a: array of T; x: T): optional Integer;
 function Filter<T: Copy>(a: array of T; Keep: reference to function(x: T): Boolean): array of T;
+{* ---- threads ---- *}
+type
+  TThread = class                                  {* a thread: put its data into fields, override Execute *}
+    procedure Execute; virtual; abstract;          {* runs in the new thread (no global variables) *}
+  end;
+  TRunning<T: TThread> = class                     {* a started thread *}
+  private
+    FHandle: Int64;
+    FThread: optional T;
+    FJoined: Boolean;
+  public
+    constructor Create(vao t: T);                  {* starts t (use Start) *}
+    function Join: T;                              {* waits for the end; the thread object comes back *}
+    destructor Destroy; override;                  {* not joined: waits first *}
+  end;
+function Start<T: TThread>(vao t: T): TRunning<T>; {* the object moves into the thread *}
+function CPUCount: Integer; external '__std_cpucount';
+
 {* ---- strings ---- *}
 function Trim(s: String): String;                  {* without spaces/control characters at both ends *}
 function TrimLeft(s: String): String;
@@ -821,6 +839,44 @@ val cs := UChars(s);
 begin
   Result := '';
   for val i := High(cs) downto 0 do Result := Result + cs[i];
+end;
+
+function __ThreadStart(t: TThread): Int64; external '__std_thread_start';
+procedure __ThreadJoin(h: Int64); external '__std_thread_join';
+procedure __ThreadFail(Msg: String); external '__std_thread_fail';
+
+procedure __RunThread(t: TThread);                 {* in the new thread (the runtime calls it) *}
+begin
+  t.Execute;
+end;
+
+constructor TRunning<T>.Create(vao t: T);
+begin
+  inherited Create;
+  FHandle := __ThreadStart(t);
+  FThread := t;                                    {* kept here: only Join gives it back *}
+end;
+
+function TRunning<T>.Join: T;
+begin
+  if not FJoined then __ThreadJoin(FHandle);
+  FJoined := True;
+  if Take(FThread) is some x then Result := x
+  else begin
+    __ThreadFail('Join: the thread object was taken already');
+    Halt(242);
+  end;
+end;
+
+destructor TRunning<T>.Destroy;
+begin
+  if not FJoined then __ThreadJoin(FHandle);
+  inherited Destroy;
+end;
+
+function Start<T: TThread>(vao t: T): TRunning<T>;
+begin
+  Result := TRunning<T>.Create(t);
 end;
 
 function __CommandOutput(Cmd: String): String; external '__std_cmdoutput';

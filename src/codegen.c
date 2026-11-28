@@ -2097,6 +2097,9 @@ void codegen(Program *p, FILE *f) {
         line("__ppc_argc = argc; __ppc_argv = argv;");
         line("size_t __sm = __ppc_mark();");
     }
+    for (int i = 0; i < p->routines.len; i++) /* threads (std): the runtime calls __RunThread in a new thread */
+        if (STREQ(p->routines.items[i]->name, "__RunThread") && !p->routines.items[i]->owner)
+            line("__ppc_thread_run = (void (*)(void *))%s;", p->routines.items[i]->cname);
     for (int i = 0; i < p->globals.len; i++) stack_init(p->globals.items[i]);
     gstmts(&p->init);
     gstmts(&p->body);
