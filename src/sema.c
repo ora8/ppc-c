@@ -146,7 +146,7 @@ static int var_counter, routine_counter, struct_counter, enum_counter;
 static StmtVec *local_init;
 static int in_block; /* inside a block statement with its own declarations */
 
-static Type *t_void, *t_int, *t_i64, *t_i8, *t_u8, *t_i16, *t_u16, *t_u32, *t_bool, *t_char,
+static Type *t_void, *t_int, *t_i64, *t_i8, *t_u8, *t_i16, *t_u16, *t_u32, *t_bool, *t_char, *t_uchar,
     *t_real, *t_str, *t_ptr, *t_nil, *t_lit;
 
 static Expr *value(Expr *e);
@@ -271,6 +271,7 @@ const char *type_name(Type *t) {
     case T_INT: return "Integer";
     case T_BOOL: return "Boolean";
     case T_CHAR: return "Char";
+    case T_UCHAR: return "UChar";
     case T_REAL: return "Real";
     case T_STR: return "String";
     case T_NIL: return "Pointer(nil)";
@@ -290,10 +291,10 @@ const char *type_name(Type *t) {
 
 static int is_int(Type *t) { return t->kind == T_INT; }
 static int is_ordinal(Type *t) {
-    return t->kind == T_INT || t->kind == T_CHAR || t->kind == T_BOOL || t->kind == T_ENUM;
+    return t->kind == T_INT || t->kind == T_CHAR || t->kind == T_BOOL || t->kind == T_ENUM || t->kind == T_UCHAR;
 }
 static int is_numeric(Type *t) { return t->kind == T_INT || t->kind == T_REAL; }
-static int is_strlike(Type *t) { return t->kind == T_STR || t->kind == T_CHAR; }
+static int is_strlike(Type *t) { return t->kind == T_STR || t->kind == T_CHAR || t->kind == T_UCHAR; }
 static int is_ptrlike(Type *t) { return t->kind == T_PTR || t->kind == T_CLASS || t->kind == T_NIL || t->kind == T_CLASSREF; }
 
 /* owning types: class instances and typed pointers (borrow checker) */
@@ -448,7 +449,8 @@ static int assign_compat(Type *to, Type *from) {
     switch (to->kind) {
     case T_INT: return from->kind == T_INT;
     case T_REAL: return from->kind == T_INT ? 2 : 0;
-    case T_STR: return from->kind == T_CHAR ? 2 : 0;
+    case T_STR: return from->kind == T_CHAR || from->kind == T_UCHAR ? 2 : 0; /* a UChar: its UTF-8 bytes */
+    case T_UCHAR: return from->kind == T_CHAR ? 2 : 0;                    /* a Char is a code point below 256 */
     case T_PTR:
         if (from->kind == T_NIL) return 1;
         if (from->kind == T_PTR && (!to->base || !from->base)) return 2;
@@ -471,6 +473,7 @@ static Expr *conv(Expr *e, Type *to) {
 static Expr *value(Expr *e);
 static int find_member(Struct *st, const char *name, Field **f, Routine **m, Prop **p);
 static Expr *coerce(Expr *e, Type *to, const char *ctx);
+static Expr *lit_int(long long v, Type *t, Pos p);
 
 /* (X: 1; Y: 2), (1, 2, 3) and default get their type from where they are used */
 static Expr *literal_to(Expr *e, Type *to, const char *ctx) {
@@ -541,7 +544,26 @@ static Expr *literal_to(Expr *e, Type *to, const char *ctx) {
     return e;
 }
 
+/* the code point of a literal with exactly one UTF-8 character ('ü'), -1 otherwise */
+static long long utf8_single(const char *s, int n) {
+    if (n <= 0) return -1;
+    unsigned char c = (unsigned char)s[0];
+    int len = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 0;
+    if (!len || len != n) return -1;
+    long long v = len == 1 ? c : len == 2 ? c & 0x1F : len == 3 ? c & 0x0F : c & 0x07;
+    for (int i = 1; i < len; i++) {
+        if (((unsigned char)s[i] >> 6) != 2) return -1;
+        v = (v << 6) | ((unsigned char)s[i] & 0x3F);
+    }
+    return v;
+}
+
 static Expr *coerce(Expr *e, Type *to, const char *ctx) {
+    if (to->kind == T_UCHAR && e->kind == E_STR && (e->type->kind == T_STR || e->type->kind == T_CHAR)) { /* 'ü' as a UChar */
+        long long cp = utf8_single(e->sval, e->slen);
+        if (cp < 0) error_at(e->pos, "a UChar is one character: '%.*s' is not", e->slen, e->sval);
+        return lit_int(cp, to, e->pos);
+    }
     if (to->kind == T_PROC && e->kind == E_RCALL && e->cmode == CM_NORMAL && !e->a && !e->args.len && !e->rt->params.len &&
         !e->rt->is_sig)
         e = routine_ref(e->rt, e->pos); /* 'f := Tick': the routine itself, not a call */
@@ -1211,6 +1233,7 @@ static long long range_of(TypeExpr *te, long long *lo, Type **idx) {
     *idx = t;
     switch (t->kind) {
     case T_CHAR: *lo = 0; return 255;
+    case T_UCHAR: *lo = 0; return 0x10FFFF;
     case T_BOOL: *lo = 0; return 1;
     case T_ENUM: *lo = 0; return t->en->names.len - 1;
     case T_INT:
@@ -3454,7 +3477,7 @@ static int same_agg(Type *a, Type *b) {
 }
 static int equatable(Type *t) {
     switch (t->kind) {
-    case T_INT: case T_BOOL: case T_CHAR: case T_REAL: case T_STR: case T_ENUM: case T_CLASS: case T_PTR: case T_SET: return 1;
+    case T_INT: case T_BOOL: case T_CHAR: case T_UCHAR: case T_REAL: case T_STR: case T_ENUM: case T_CLASS: case T_PTR: case T_SET: return 1;
     case T_OPT: case T_ARRAY: case T_DYN: return equatable(t->base);
     case T_RECORD:
         for (int i = 0; i < t->st->fields.len; i++)
@@ -3616,7 +3639,7 @@ static Expr *user_method_call(Routine *m, Expr *self, Expr *arg, Pos p) {
 static int hashable(Type *t) {
     if (user_method(t, "Hash", 0) && (t->kind == T_RECORD || user_method(t, "Equals", 1) || user_method(t, "CompareTo", 1))) return 1;
     switch (t->kind) {
-    case T_INT: case T_BOOL: case T_CHAR: case T_REAL: case T_STR: case T_ENUM: case T_SET: return 1;
+    case T_INT: case T_BOOL: case T_CHAR: case T_UCHAR: case T_REAL: case T_STR: case T_ENUM: case T_SET: return 1;
     case T_ARRAY: return hashable(t->base);
     case T_RECORD:
         for (int i = 0; i < t->st->fields.len; i++)
@@ -4833,9 +4856,29 @@ static void for_in(Stmt *s) {
     char *iname = sfmt("__in%d_%d", p.line, p.col);
     Expr *lo, *hi, *elem;
     Type *et = NULL;
+    if ((t->kind == T_ARRAY || t->kind == T_DYN || t->kind == T_STR) && !is_lvalue(coll)) {
+        /* for val c in UChars(s): a computed value goes into a hidden variable, which owns it during the loop
+             begin val __coll := UChars(s); for val c in __coll do ... end */
+        char *hn = sfmt("__coll%d_%d", p.line, p.col);
+        Block *ob = NEW(Block);
+        Decl *d = NEW(Decl);
+        d->kind = D_VAR;
+        VarDecl hv = {0};
+        vpush(hv.names, ((Ident){hn, p}));
+        hv.init = coll;
+        vpush(d->vars, hv);
+        vpush(ob->decls, d);
+        Stmt *loop = NEW(Stmt);
+        *loop = *s;
+        loop->a = mk_ident(hn, s->a->pos);
+        vpush(ob->body, loop);
+        Stmt *blk = new_stmt(S_BLOCK, p);
+        blk->blk = ob;
+        *s = *blk;
+        stmt(s);
+        return;
+    }
     if (t->kind == T_ARRAY || t->kind == T_DYN || t->kind == T_STR) {
-        if (!is_lvalue(coll))
-            error_at(s->a->pos, "'for ... in' needs a variable or field here; store the value in a variable first");
         if (t->kind == T_ARRAY) {
             lo = lit_int(t->lo, t->index, p);
             hi = lit_int(t->hi, t->index, p);
@@ -5267,7 +5310,7 @@ static const char *builtin_name(int id) {
 }
 
 static int printable(Type *t) {
-    return t->kind == T_INT || t->kind == T_REAL || t->kind == T_BOOL || t->kind == T_CHAR ||
+    return t->kind == T_INT || t->kind == T_REAL || t->kind == T_BOOL || t->kind == T_CHAR || t->kind == T_UCHAR ||
            t->kind == T_STR || t->kind == T_ENUM;
 }
 
@@ -5373,6 +5416,7 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
         case T_ARRAY: return lit_int(hi ? t->hi : t->lo, t->index, p);
         case T_STR: return lit_int(hi ? 255 : 0, t_int, p);
         case T_CHAR: return lit_int(hi ? 255 : 0, t_char, p);
+        case T_UCHAR: return lit_int(hi ? 0x10FFFF : 0, t, p);
         case T_BOOL: return lit_int(hi, t_bool, p);
         case T_ENUM: return lit_int(hi ? t->en->names.len - 1 : 0, t, p);
         case T_INT: {
@@ -5482,7 +5526,7 @@ static Expr *builtin(int bi, ExprVec *args, Pos p) {
             if (l->args2.items[i]) error_at(l->args.items[i]->pos, "ranges are not allowed in the arguments of Format");
             Expr *x = value(l->args.items[i]);
             Type *t = x->type;
-            if (!(is_int(t) || t->kind == T_REAL || t->kind == T_STR || t->kind == T_CHAR || t->kind == T_BOOL || t->kind == T_ENUM))
+            if (!(is_int(t) || t->kind == T_REAL || t->kind == T_STR || t->kind == T_CHAR || t->kind == T_UCHAR || t->kind == T_BOOL || t->kind == T_ENUM))
                 error_at(x->pos, "Format cannot show \"%s\" (numbers, strings, characters, Boolean and enumerations can)", type_name(t));
             vpush(e->args, x);
         }
@@ -7106,7 +7150,7 @@ const char *hover_text(void) {
 /* a value that C code can pass or get: numbers, Boolean, Char, enumerations, records of those */
 static const char *export_type_problem(Type *t, int is_result) {
     switch (t->kind) {
-    case T_INT: case T_REAL: case T_BOOL: case T_CHAR: case T_ENUM: return NULL;
+    case T_INT: case T_REAL: case T_BOOL: case T_CHAR: case T_UCHAR: case T_ENUM: return NULL;
     case T_STR: return NULL; /* a parameter: a C string for the call; a result: exports give a malloc'ed copy, externals are copied */
     case T_RECORD:
         if (t->st->is_sum) return "an enumeration with data is not possible";
@@ -7181,6 +7225,7 @@ Program *sema_program(Block *prelude, Block **libs, int nlibs, Block *pb, const 
     t_u32 = int_type(IK_U32, "Cardinal");
     t_bool = new_type(T_BOOL, "Boolean");
     t_char = new_type(T_CHAR, "Char");
+    t_uchar = new_type(T_UCHAR, "UChar");
     t_real = new_type(T_REAL, "Real");
     t_str = new_type(T_STR, "String");
     t_ptr = new_type(T_PTR, "Pointer");
@@ -7199,6 +7244,7 @@ Program *sema_program(Block *prelude, Block **libs, int nlibs, Block *pb, const 
     add_type("LongWord", t_u32);
     add_type("Boolean", t_bool);
     add_type("Char", t_char);
+    add_type("UChar", t_uchar);
     add_type("Real", t_real);
     add_type("Double", t_real);
     add_type("Single", t_real);

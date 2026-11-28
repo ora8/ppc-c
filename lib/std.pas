@@ -103,6 +103,25 @@ function ReplaceStr(s, Old, New: String): String;  {* every occurrence *}
 function Split(s, Sep: String): array of String;    {* Split('a,b,,c', ',') = ('a', 'b', '', 'c') *}
 function Join(Parts: array of String; Sep: String): String;
 function SplitLines(s: String): array of String;    {* at LF or CR LF; no empty last line *}
+{* ---- Unicode: strings are UTF-8, a UChar is one character (a code point) ---- *}
+function ULength(s: String): Integer; external '__std_ulength';         {* characters, not bytes *}
+function UAt(s: String; Index: Integer): UChar; external '__std_uat';   {* character Index (from 1) *}
+function UCopy(s: String; Index, Count: Integer): String;              {* Count characters from character Index *}
+function UPos(Sub, s: String): Integer;                                {* character position of Sub, 0 if none *}
+function UChars(s: String): array of UChar;                            {* the characters: for val c in UChars(s) *}
+function UString(a: array of UChar): String;                           {* characters to a string *}
+function UReverse(s: String): String;
+function UUpperCase(s: String): String; external '__std_uuppercase';   {* every character on its own: 'grüße' -> 'GRÜßE' *}
+function ULowerCase(s: String): String; external '__std_ulowercase';
+function UUpCase(c: UChar): UChar; external '__std_uupcase';
+function ULowCase(c: UChar): UChar; external '__std_ulowcase';
+function UIsLetter(c: UChar): Boolean; external '__std_uisletter';
+function UIsDigit(c: UChar): Boolean; external '__std_uisdigit';
+function UIsSpace(c: UChar): Boolean; external '__std_uisspace';
+function UIsUpper(c: UChar): Boolean; external '__std_uisupper';
+function UIsLower(c: UChar): Boolean; external '__std_uislower';
+function UChr(Code: Integer): UChar; external '__std_uchr';            {* UChr(946) = 'β'; Ord(c) is the code *}
+function IsValidUTF8(s: String): Boolean; external '__std_isvalidutf8';
 function ReverseString(s: String): String;
 function DupeString(s: String; Count: Integer): String;
 function PadLeft(s: String; Width: Integer; Fill: Char): String;
@@ -753,6 +772,56 @@ function __ReadFile(Name: String): String; external '__std_readfile';
 function __WriteFile(Name, Text: String; Append: Boolean): Boolean; external '__std_writefile';
 function __DeleteFile(Name: String): Boolean; external '__std_deletefile';
 function __IOError: String; external '__std_ioerror';
+
+function __UOffset(s: String; Index: Int64): Int64; external '__std_uoffset';
+function __UCount(s: String; Bytes: Int64): Int64; external '__std_ucount';
+function __UDecode(s: String; Pos: Int64; var Len: Int64): UChar; external '__std_udecode';
+
+function UCopy(s: String; Index, Count: Integer): String;
+val a: Int64 := 0;
+val b: Int64 := 0;
+begin
+  if (Index < 1) or (Count <= 0) then Result := ''
+  else begin
+    a := __UOffset(s, Index);
+    b := __UOffset(s, Index + Count);
+    Result := Copy(s, a, b - a);
+  end;
+end;
+
+function UPos(Sub, s: String): Integer;
+val p: Integer := 0;
+begin
+  p := Pos(Sub, s);
+  if p = 0 then Result := 0 else Result := __UCount(s, p - 1) + 1;
+end;
+
+function UChars(s: String): array of UChar;
+val i: Int64 := 1;
+val n: Int64 := 0;
+val len: Int64 := 0;
+begin
+  SetLength(Result, ULength(s));
+  while i <= Length(s) do
+  begin
+    Result[n] := __UDecode(s, i, len);
+    i := i + len;
+    Inc(n);
+  end;
+end;
+
+function UString(a: array of UChar): String;
+begin
+  Result := '';
+  for val i := 0 to High(a) do Result := Result + a[i];
+end;
+
+function UReverse(s: String): String;
+val cs := UChars(s);
+begin
+  Result := '';
+  for val i := High(cs) downto 0 do Result := Result + cs[i];
+end;
 
 function __CommandOutput(Cmd: String): String; external '__std_cmdoutput';
 function CommandOutput(Cmd: String): result String;

@@ -121,6 +121,7 @@ static char *ctype(Type *t) {
         }
     case T_BOOL: return "uint8_t";
     case T_CHAR: return "uint8_t";
+    case T_UCHAR: return "uint32_t";
     case T_REAL: return "double";
     case T_STR: return "PStr";
     case T_ENUM: return "int32_t";
@@ -799,6 +800,7 @@ static char *write_arg(Expr *a) {
     case T_REAL: return sfmt("__w_real(%s, %s, %s)", x, w, p);
     case T_BOOL: return sfmt("__w_bool(%s, %s)", x, w);
     case T_CHAR: return sfmt("__w_char(%s, %s)", x, w);
+    case T_UCHAR: return sfmt("__w_uchar(%s, %s)", x, w);
     case T_STR: return sfmt("__w_str(%s, %s)", x, w);
     case T_ENUM: return sfmt("__w_cstr(ENAMES%d[%s], %s)", v->type->en->id, x, w);
     default: return "((void)0)";
@@ -883,6 +885,7 @@ static char *gbuiltin(Expr *e) {
             if (t->kind == T_REAL) buf_printf(&b, "{'r', 0, %s, {0, 0}}, ", v);
             else if (t->kind == T_STR) buf_printf(&b, "{'s', 0, 0, %s}, ", v);
             else if (t->kind == T_CHAR) buf_printf(&b, "{'s', 0, 0, __pstr_char(%s)}, ", v);
+            else if (t->kind == T_UCHAR) buf_printf(&b, "{'s', 0, 0, __pstr_uchar(%s)}, ", v);
             else if (t->kind == T_BOOL) buf_printf(&b, "{'s', 0, 0, __pstr_cstr((%s) ? \"TRUE\" : \"FALSE\")}, ", v);
             else if (t->kind == T_ENUM) buf_printf(&b, "{'s', 0, 0, __pstr_cstr(ENAMES%d[%s])}, ", t->en->id, v);
             else buf_printf(&b, "{'i', (int64_t)(%s), 0, {0, 0}}, ", v);
@@ -1270,6 +1273,7 @@ static char *gx(Expr *e) {
         char *a = gx(e->a);
         if (to->kind == T_REAL) return sfmt("((double)(%s))", a);
         if (to->kind == T_STR && from->kind == T_CHAR) return sfmt("__pstr_char(%s)", a);
+        if (to->kind == T_STR && from->kind == T_UCHAR) return sfmt("__pstr_uchar(%s)", a);
         if (to->kind == T_PTR || to->kind == T_CLASS) return sfmt("((%s)(%s))", ctype(to), a);
         if (to->kind == T_PROC && to->closure && !from->closure) return sfmt("((__Closure){(void*)(%s), 0})", a);
         return a;
@@ -1718,6 +1722,7 @@ static const char *hdr_type(Type *t, Buf *types) {
     switch (t->kind) {
     case T_BOOL: return "bool";
     case T_CHAR: return "char";
+    case T_UCHAR: return "uint32_t";
     case T_REAL: return "double";
     case T_STR: return "const char *";
     case T_ENUM: case T_RECORD: {

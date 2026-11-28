@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/wait.h>
+#include <locale.h>
+#include <wctype.h>
 #include <string.h>
 #include <time.h>
 #include <errno.h>
@@ -229,6 +231,30 @@ static void __w_pad(int64_t w, int len) { for (; len < w; len++) putchar(' '); }
 static void __w_str(PStr s, int64_t w) { __w_pad(w, (int)s.len); if (s.len) fwrite(s.p, 1, (size_t)s.len, stdout); }
 static void __w_cstr(const char *s, int64_t w) { __w_pad(w, (int)strlen(s)); fputs(s, stdout); }
 static void __w_char(unsigned char c, int64_t w) { __w_pad(w, 1); putchar(c); }
+/* ---- UTF-8: a UChar is a code point ---- */
+static int __utf8_enc(uint32_t c, unsigned char *b) { /* its bytes (1..4); invalid code points become U+FFFD */
+    if (c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF)) c = 0xFFFD;
+    if (c < 0x80) { b[0] = (unsigned char)c; return 1; }
+    if (c < 0x800) { b[0] = (unsigned char)(0xC0 | (c >> 6)); b[1] = (unsigned char)(0x80 | (c & 0x3F)); return 2; }
+    if (c < 0x10000) { b[0] = (unsigned char)(0xE0 | (c >> 12)); b[1] = (unsigned char)(0x80 | ((c >> 6) & 0x3F)); b[2] = (unsigned char)(0x80 | (c & 0x3F)); return 3; }
+    b[0] = (unsigned char)(0xF0 | (c >> 18)); b[1] = (unsigned char)(0x80 | ((c >> 12) & 0x3F)); b[2] = (unsigned char)(0x80 | ((c >> 6) & 0x3F)); b[3] = (unsigned char)(0x80 | (c & 0x3F));
+    return 4;
+}
+/* the code point at byte i (0-based) of s, *len its bytes; an invalid byte is U+FFFD (1 byte) */
+static uint32_t __utf8_dec(const unsigned char *s, int64_t n, int64_t i, int *len) {
+    unsigned char c = s[i];
+    int l = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 0;
+    if (!l || i + l > n) { *len = 1; return c < 0x80 ? c : 0xFFFD; }
+    uint32_t v = l == 1 ? c : l == 2 ? c & 0x1F : l == 3 ? c & 0x0F : c & 0x07;
+    for (int k = 1; k < l; k++) {
+        if ((s[i + k] >> 6) != 2) { *len = 1; return 0xFFFD; }
+        v = (v << 6) | (s[i + k] & 0x3F);
+    }
+    *len = l;
+    return v;
+}
+static PStr __pstr_uchar(uint32_t c) { unsigned char b[4]; int n = __utf8_enc(c, b); PStr r = __pstr_new(n); memcpy(r.p, b, (size_t)n); return __ppc_tmp(r); }
+static void __w_uchar(uint32_t c, int64_t w) { unsigned char b[4]; int n = __utf8_enc(c, b); __w_pad(w, 1); fwrite(b, 1, (size_t)n, stdout); }
 static void __w_int(int64_t v, int64_t w) { printf("%*lld", (int)w, (long long)v); }
 static void __w_bool(int b, int64_t w) { __w_cstr(b ? "TRUE" : "FALSE", w); }
 static void __fmt_real(char *out, size_t sz, double v, int64_t w, int64_t p) {
@@ -468,6 +494,79 @@ static void __std_seterr(const char *what, PStr name) {
     free(n);
 }
 static PStr __std_ioerror(void) { return __pstr_mem(__std_err, (int64_t)strlen(__std_err)); }
+
+/* ---- Unicode (UTF-8) strings: the U... routines of std ---- */
+static int64_t __std_ulength(PStr s) { /* characters (code points) */
+    int64_t n = 0;
+    for (int64_t i = 0; i < s.len; n++) { int l; __utf8_dec(s.p, s.len, i, &l); i += l; }
+    return n;
+}
+static int64_t __std_uoffset(PStr s, int64_t index) { /* the byte position (from 1) of character 'index' (from 1); Length+1 after the end */
+    int64_t i = 0;
+    for (int64_t k = 1; k < index && i < s.len; k++) { int l; __utf8_dec(s.p, s.len, i, &l); i += l; }
+    return i + 1;
+}
+static int64_t __std_ucount(PStr s, int64_t bytes) { /* the characters in the first 'bytes' bytes */
+    int64_t n = 0;
+    for (int64_t i = 0; i < s.len && i < bytes; n++) { int l; __utf8_dec(s.p, s.len, i, &l); i += l; }
+    return n;
+}
+static uint32_t __std_udecode(PStr s, int64_t pos, int64_t *len) { /* the character at byte 'pos' (from 1) and its length in bytes */
+    if (pos < 1 || pos > s.len) __rt_error(201, "UChar position outside the string");
+    int l;
+    uint32_t c = __utf8_dec(s.p, s.len, pos - 1, &l);
+    *len = l;
+    return c;
+}
+static uint32_t __std_uat(PStr s, int64_t index) { /* character 'index' (from 1) */
+    int64_t p = __std_uoffset(s, index), l;
+    if (index < 1 || p > s.len) __rt_error(201, "UAt: the string has fewer characters");
+    return __std_udecode(s, p, &l);
+}
+static uint32_t __std_uchr(int64_t code) {
+    if (code < 0 || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF)) __rt_error(201, "UChr: not a Unicode code point");
+    return (uint32_t)code;
+}
+static void __u_locale(void) { /* towupper and iswalpha need a UTF-8 locale for more than ASCII */
+    static int done;
+    if (done) return;
+    done = 1;
+    if (!setlocale(LC_CTYPE, "C.UTF-8") && !setlocale(LC_CTYPE, "C.utf8")) setlocale(LC_CTYPE, "en_US.UTF-8");
+}
+static uint32_t __std_uupcase(uint32_t c) { __u_locale(); return (uint32_t)towupper((wint_t)c); }
+static uint32_t __std_ulowcase(uint32_t c) { __u_locale(); return (uint32_t)towlower((wint_t)c); }
+static PStr __u_map(PStr s, int up) {
+    __u_locale();
+    PStr r = __pstr_new(s.len * 2 + 4);
+    int64_t o = 0;
+    for (int64_t i = 0; i < s.len;) {
+        int l;
+        uint32_t c = __utf8_dec(s.p, s.len, i, &l);
+        i += l;
+        c = (uint32_t)(up ? towupper((wint_t)c) : towlower((wint_t)c));
+        if (o + 4 > r.len) { r.p = (unsigned char *)realloc(r.p, (size_t)(r.len *= 2) + 1); }
+        o += __utf8_enc(c, r.p + o);
+    }
+    r.len = o;
+    return __ppc_tmp(r);
+}
+static PStr __std_uuppercase(PStr s) { return __u_map(s, 1); }
+static PStr __std_ulowercase(PStr s) { return __u_map(s, 0); }
+static uint8_t __std_uisletter(uint32_t c) { __u_locale(); return iswalpha((wint_t)c) != 0; }
+static uint8_t __std_uisdigit(uint32_t c) { __u_locale(); return iswdigit((wint_t)c) != 0; }
+static uint8_t __std_uisspace(uint32_t c) { __u_locale(); return iswspace((wint_t)c) != 0; }
+static uint8_t __std_uisupper(uint32_t c) { __u_locale(); return iswupper((wint_t)c) != 0; }
+static uint8_t __std_uislower(uint32_t c) { __u_locale(); return iswlower((wint_t)c) != 0; }
+static uint8_t __std_isvalidutf8(PStr s) {
+    for (int64_t i = 0; i < s.len;) {
+        int l;
+        uint32_t c = __utf8_dec(s.p, s.len, i, &l);
+        if (c == 0xFFFD && !(l == 3 && s.p[i] == 0xEF && s.p[i + 1] == 0xBF && s.p[i + 2] == 0xBD)) return 0;
+        if (c >= 0xD800 && c <= 0xDFFF) return 0;
+        i += l;
+    }
+    return 1;
+}
 
 /* ---- standard input and other programs ---- */
 static uint8_t __std_eof(void) { int c = getchar(); if (c == EOF) return 1; ungetc(c, stdin); return 0; }

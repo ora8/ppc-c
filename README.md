@@ -839,6 +839,31 @@ WriteLn(Format('%1:s %0:s', ['world', 'hello']));          {* hello world *}
   `Format: '%d' needs a whole number, but argument 1 is "String"`, too few or too many values.
   A format computed at run time that does not fit stops with run-time error 220.
 
+### Unicode: `UChar` and the `U…` routines
+
+Strings are **UTF-8**: `Length(s)`, `s[i]` and `for val c in s` work on bytes (`Char`), fast and the
+same as for C. For characters there is the type **`UChar`** (a Unicode code point) and routines
+with a `U` in `std`:
+
+```pascal
+val s := 'Grüße, κόσμε!';
+WriteLn(Length(s), ' bytes, ', ULength(s), ' characters');   {* 20 bytes, 13 characters *}
+for val c in UChars(s) do Write(c, '|');                      {* G|r|ü|ß|e|,| |κ|ό|σ|μ|ε|!| *}
+WriteLn(UCopy(s, 3, 4), ' ', UUpperCase(s));                  {* üße, GRÜßE, ΚΌΣΜΕ! *}
+val c: UChar := 'ß';                                          {* a literal of one character *}
+WriteLn(Ord(c), ' ', UChr(946), ' ', s + c);                  {* 223 β Grüße, κόσμε!ß *}
+```
+
+* `ULength`, `UAt(s, i)` (character i, from 1), `UCopy(s, index, count)`, `UPos(sub, s)`,
+  `UChars(s): array of UChar`, `UString(chars)`, `UReverse`, `UUpperCase`, `ULowerCase`, and for
+  single characters `UUpCase`, `ULowCase`, `UIsLetter`, `UIsDigit`, `UIsSpace`, `UIsUpper`,
+  `UIsLower`, `UChr(code)`, `Ord(c)`; `IsValidUTF8(s)`.
+* A `UChar` is written as UTF-8 by `Write` and `Format`, `s + c` appends it, a `Char` converts to it,
+  `case` works with `UChar` labels (`'ü', 'ß': …`).
+* Invalid bytes count as one character `U+FFFD`. The routines walk the string from the start
+  (`UAt` and `UCopy` are O(n)); for many characters take `UChars(s)` once.
+* `for val x in F(...)` also works for a computed array or string (it is kept for the loop).
+
 ### Sets: `set of T`
 
 ```pascal

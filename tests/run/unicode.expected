@@ -1,0 +1,9 @@
+20 bytes, 13 characters
+G|r|ü|ß|e|,| |κ|ό|σ|μ|ε|!|
+üße, GRÜßE, ΚΌΣΜΕ! äöü αβγ
+TRUE ό 8 10
+223 β Grüße, κόσμε!ß bña
+TRUE FALSE TRUE É
+TRUE FALSE
+2 german letters; ß=223
+abc€ 1114111
